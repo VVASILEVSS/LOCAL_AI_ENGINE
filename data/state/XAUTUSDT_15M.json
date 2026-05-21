@@ -1,0 +1,105 @@
+{
+  "price": 4467.67,
+  "current_price": 4467.67,
+  "last_closed_price": 4467.67,
+  "prev_trend": "down",
+  "current_substructure": "correction_down",
+  "htf_structure": "correction",
+  "htf_structure_comment": "Коррекция (возврат к базе) на 1D/4H",
+  "trend_structure": "down",
+  "trend_structure_comment": "Направление структуры на младшем ТФ",
+  "ltf_structure": "correction_down",
+  "ltf_structure_comment": "Коррекция вниз на 15m",
+  "accumulation_state": null,
+  "accumulation_state_comment": "нет данных для определения",
+  "wave_phase": "impulse_end_risk_down",
+  "wave_phase_comment": "Риск завершения импульса вниз с ABC",
+  "abc_risk": "abc_risk_down",
+  "abc_risk_comment": "Риск завершения импульса вниз с ABC",
+  "global_structure": "correction",
+  "global_structure_comment": "Коррекция на рынке",
+  "key_zones": {
+    "resistance": null,
+    "support": 4461.16
+  },
+  "key_zones_comment": "Цена внутри диапазона поддержки без пробоя",
+  "tf_zones": {
+    "H4": {
+      "upper": 4511.1,
+      "lower": 4461.16
+    }
+  },
+  "tf_zones_comment": "Диапазон на старшем ТФ",
+  "tf_span_map": {
+    "H4": 49.94000000000051
+  },
+  "confluence_levels": [
+    {
+      "level": 4526.0,
+      "timeframes": [
+        "1H",
+        "4H"
+      ],
+      "priority": "low",
+      "count": 3,
+      "spread": 7.0,
+      "kind": "support"
+    }
+  ],
+  "signal_status": "no_signal",
+  "signal_status_comment": "Цена внутри диапазона поддержки без пробоя и объёма",
+  "risk_management": {
+    "primary": {
+      "sl": null,
+      "tp1": null,
+      "tp2": null,
+      "tp3": null,
+      "rr": null
+    },
+    "alternative": {
+      "sl": null,
+      "tp1": null,
+      "tp2": null,
+      "tp3": null,
+      "rr": null
+    }
+  },
+  "scenario_status": "no_alternative",
+  "scenario_status_comment": "Цена внутри диапазона без подтверждённого выхода",
+  "risk_management_comment": "",
+  "entry_conditions_comment": "",
+  "fact_feedback": "Нет подтверждённых фактов для сигнала.",
+  "error": false,
+  "state_diff": {
+    "zone_status": "updated_inside_range",
+    "active_reference_tf": "H4",
+    "broken_levels": [],
+    "new_levels": [
+      4461.16,
+      4511.1
+    ],
+    "structure_shifted": false,
+    "needs_rebuild": false,
+    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H4. Новые уровни: 4461.16, 4511.1."
+  },
+  "state_context": {
+    "zone_status": "updated_inside_range",
+    "active_reference_tf": "H4",
+    "broken_levels": [],
+    "new_levels": [
+      4461.16,
+      4511.1
+    ],
+    "structure_shifted": false,
+    "needs_rebuild": false,
+    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H4. Новые уровни: 4461.16, 4511.1.",
+    "price": 4467.67,
+    "current_substructure": "correction_down",
+    "signal_status": "no_signal",
+    "scenario_status": "no_alternative",
+    "previous_price": 4469.75
+  },
+  "symbol": "XAUTUSDT",
+  "timeframe": "15M",
+  "saved_at": "2026-05-20T04:53:32.110172+00:00"
+}

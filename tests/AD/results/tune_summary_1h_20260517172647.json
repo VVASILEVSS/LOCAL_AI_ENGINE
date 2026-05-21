@@ -1,0 +1,47 @@
+﻿[
+    {
+        "profile":  "1h",
+        "symbol":  "BTCUSDT",
+        "minFlowAbsFrac":  0.01,
+        "profileAdMovePct":  0.02,
+        "rows":  500,
+        "divergences":  366,
+        "strong_confirmations":  43
+    },
+    {
+        "profile":  "1h",
+        "symbol":  "XAUTUSDT",
+        "minFlowAbsFrac":  0.01,
+        "profileAdMovePct":  0.02,
+        "rows":  500,
+        "divergences":  291,
+        "strong_confirmations":  74
+    },
+    {
+        "profile":  "1h",
+        "symbol":  "BTCUSDT",
+        "minFlowAbsFrac":  0.01,
+        "profileAdMovePct":  0.03,
+        "rows":  500,
+        "divergences":  366,
+        "strong_confirmations":  43
+    },
+    {
+        "profile":  "1h",
+        "symbol":  "XAUTUSDT",
+        "minFlowAbsFrac":  0.01,
+        "profileAdMovePct":  0.03,
+        "rows":  500,
+        "divergences":  291,
+        "strong_confirmations":  74
+    },
+    {
+        "profile":  "1h",
+        "symbol":  "BTCUSDT",
+        "minFlowAbsFrac":  0.01,
+        "profileAdMovePct":  0.04,
+        "rows":  500,
+        "divergences":  366,
+        "strong_confirmations":  43
+    }
+]

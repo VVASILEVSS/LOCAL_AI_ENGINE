@@ -1,0 +1,50 @@
+﻿[
+    {
+        "file":  "BTCUSDT_15m_trace.csv",
+        "rows":  500,
+        "divergences":  333,
+        "strong_confirmations":  68
+    },
+    {
+        "file":  "BTCUSDT_1h_trace.csv",
+        "rows":  500,
+        "divergences":  366,
+        "strong_confirmations":  43
+    },
+    {
+        "file":  "BTCUSDT_4h_trace.csv",
+        "rows":  500,
+        "divergences":  377,
+        "strong_confirmations":  50
+    },
+    {
+        "file":  "BTCUSDT_1d_trace.csv",
+        "rows":  500,
+        "divergences":  166,
+        "strong_confirmations":  44
+    },
+    {
+        "file":  "XAUTUSDT_15m_trace.csv",
+        "rows":  500,
+        "divergences":  0,
+        "strong_confirmations":  90
+    },
+    {
+        "file":  "XAUTUSDT_1h_trace.csv",
+        "rows":  500,
+        "divergences":  291,
+        "strong_confirmations":  74
+    },
+    {
+        "file":  "XAUTUSDT_4h_trace.csv",
+        "rows":  311,
+        "divergences":  47,
+        "strong_confirmations":  26
+    },
+    {
+        "file":  "XAUTUSDT_1d_trace.csv",
+        "rows":  53,
+        "divergences":  0,
+        "strong_confirmations":  null
+    }
+]

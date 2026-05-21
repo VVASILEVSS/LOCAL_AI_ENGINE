@@ -1,0 +1,226 @@
+Отлично. Ниже — **практическая версия ТЗ для `core/state_tracker.py` с конкретными функциями и сигнатурами**.
+
+---
+
+# `core/state_tracker.py`
+## Практическое ТЗ
+
+---
+
+## 1) Назначение файла
+Модуль хранит и сравнивает состояние рынка между анализами, чтобы signal logic мог понимать:
+- сохранилась ли зона;
+- была ли она пробита;
+- перестроилась ли структура;
+- был ли ложный пробой или ретест;
+- или это просто обновление внутри диапазона.
+
+---
+
+## 2) Минимальный набор функций
+
+### 2.1 `load_state(symbol: str, timeframe: str) -> dict | None`
+Загружает последнее сохранённое состояние по инструменту и ТФ.
+
+#### Возвращает:
+- `dict` с прошлым состоянием;
+- или `None`, если истории нет.
+
+---
+
+### 2.2 `save_state(symbol: str, timeframe: str, state: dict) -> None`
+Сохраняет текущее состояние после анализа.
+
+#### Должен сохранять:
+- цену;
+- зоны;
+- структуру;
+- статус;
+- комментарий;
+- timestamp.
+
+---
+
+### 2.3 `compare_state(previous: dict | None, current: dict) -> dict`
+Сравнивает старое и новое состояние.
+
+#### Возвращает:
+```python
+{
+    "zone_status": "saved | broken | rebuilt | false_breakout | retest | updated_inside_range | unknown",
+    "active_reference_tf": "D1 | H4 | H1 | M15 | unknown",
+    "broken_levels": [],
+    "new_levels": [],
+    "structure_shifted": bool,
+    "needs_rebuild": bool,
+    "comment": str
+}
+```
+
+---
+
+### 2.4 `build_state_context(state_diff: dict, current: dict, previous: dict | None = None) -> dict`
+Формирует компактный контекст для signal logic и LLM.
+
+#### Возвращает:
+- `zone_status`
+- `active_reference_tf`
+- `broken_levels`
+- `new_levels`
+- `structure_shifted`
+- `needs_rebuild`
+- `comment`
+
+---
+
+### 2.5 `normalize_zones(tf_zones: dict) -> dict`
+Приводит зоны к единому формату.
+
+#### Пример:
+```python
+{
+    "H1": {"upper": 4704.82, "lower": 4642.19},
+    "M15": {"upper": 4692.83, "lower": 4647.12}
+}
+```
+
+---
+
+### 2.6 `detect_zone_event(previous: dict | None, current: dict) -> str`
+Определяет итоговое событие изменения структуры.
+
+#### Возможные значения:
+- `saved`
+- `broken`
+- `rebuilt`
+- `false_breakout`
+- `retest`
+- `updated_inside_range`
+- `unknown`
+
+---
+
+# 3) Дополнительные рекомендуемые функции
+
+### 3.1 `get_active_reference_tf(tf_zones: dict, price: float) -> str`
+Определяет, какой ТФ сейчас является рабочим ориентиром.
+
+#### Логика:
+- если сломан `M15`, активным становится `H1`;
+- если сломан `H1`, активным становится `H4`;
+- если сломан `H4`, активным становится `D1`.
+
+---
+
+### 3.2 `extract_broken_levels(previous: dict | None, current: dict) -> list[float]`
+Возвращает список пробитых уровней.
+
+---
+
+### 3.3 `extract_new_levels(current: dict, previous: dict | None) -> list[float]`
+Возвращает новые уровни, появившиеся после перестройки.
+
+---
+
+### 3.4 `is_false_breakout(previous: dict | None, current: dict, price: float) -> bool`
+Проверяет, был ли ложный пробой.
+
+---
+
+### 3.5 `is_retest(previous: dict | None, current: dict, price: float) -> bool`
+Проверяет, был ли ретест пробитого уровня.
+
+---
+
+# 4) Формат входного `state`
+Желательно, чтобы `state` содержал:
+
+```python
+{
+    "symbol": "XAUTUSDT",
+    "timeframe": "15m",
+    "timestamp": "...",
+    "price": 4618.86,
+    "tf_zones": {...},
+    "key_zones": {...},
+    "signal_status": "false_breakout",
+    "scenario_status": "primary_invalidated",
+    "current_substructure": "balance",
+    "htf_structure": "correction",
+    "trend_structure": "down",
+    "ltf_structure": "correction_down",
+    "wave_phase": "correction_down",
+    "abc_risk": "abc_risk_up",
+}
+```
+
+---
+
+# 5) Как сравнение должно работать
+## Если зоны совпадают
+- `zone_status = saved`
+
+## Если цена вышла за границу и закрепилась
+- `zone_status = broken`
+
+## Если был вынос и возврат
+- `zone_status = false_breakout`
+
+## Если после пробоя сформировались новые зоны
+- `zone_status = rebuilt`
+
+## Если цена снова пришла к пробитому уровню
+- `zone_status = retest`
+
+## Если зоны чуть сместились внутри старого окна
+- `zone_status = updated_inside_range`
+
+---
+
+# 6) Как это подключается в сигнал
+`signal logic` должен получать:
+- текущие зоны;
+- прошлые зоны;
+- `state_diff`;
+- `active_reference_tf`.
+
+И на их основе принимать решение:
+- не считать сломанный уровень рабочим;
+- не делать вывод только по текущему графику;
+- учитывать перестройку.
+
+---
+
+# 7) Рекомендуемая реализация хранения
+Пока можно сделать просто:
+- json-файл на символ и ТФ;
+- либо один общий state-файл.
+
+Пример:
+- `data/state/XAUTUSDT_15m.json`
+- `data/state/BTCUSDT_1h.json`
+
+---
+
+# 8) Критерий готовности
+Файл готов, если он:
+- хранит state;
+- сравнивает state;
+- определяет тип изменения;
+- умеет отдавать compact context;
+- используется сигналом и планировщиком.
+
+---
+
+# 9) Приоритет внедрения
+1. `load_state`
+2. `save_state`
+3. `compare_state`
+4. `detect_zone_event`
+5. `build_state_context`
+6. подключение к scheduler
+7. подключение к `/scan`
+
+---
+
+Если хочешь, следующим сообщением я могу уже дать **готовый код `core/state_tracker.py` целиком**, чтобы ты мог вставить его как отдельный файл.

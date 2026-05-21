@@ -1,0 +1,2 @@
+cd D:\telega\LOCAL_AI_ENGINE
+python -m core.zigzag.compare_zigzag --market-type future --symbols BTC/USDT XAUT/USDT ETH/USDT --output zigzag_compare.json

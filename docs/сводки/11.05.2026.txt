@@ -1,0 +1,372 @@
+Понял. Ниже — **сводка проекта целиком** с учётом текущего этапа:  
+**основной проект уже живёт своей жизнью, ZigZag сейчас тестируется отдельно как вспомогательный модуль экстремумов**, а потом либо:
+- будет встроен в основной pipeline,
+- либо заменён на другой вариант,
+- а позже добавим **liquidity heatmap** как следующий слой.
+
+---
+
+# 1) Цель проекта сейчас
+
+Проект `D:\telega\LOCAL_AI_ENGINE` — это система анализа рынка для Telegram/LLM, которая должна:
+
+- получать данные по нескольким инструментам
+- анализировать структуру на нескольких ТФ
+- определять режим рынка:
+  - balance
+  - trend
+  - correction
+  - breakout / false breakout
+- строить зоны
+- готовить понятный текстовый вывод в Telegram
+- отдавать компактный контекст в LM Studio / LLM
+- позже использовать ZigZag как дополнительный экстремум-фильтр
+- позже добавить liquidity heatmap
+
+---
+
+# 2) Текущая концепция пайплайна
+
+## Сейчас
+У тебя уже есть **основная логика анализа**, которая формирует такие сообщения:
+
+- HTF структура
+- LTF структура
+- накопление/распределение
+- волновая фаза
+- ABC риск
+- зоны
+- зоны по ТФ
+- signal / aggressive / conservative
+- risk / R:R
+- confidence
+
+Это значит, что **основной engine уже работает как market-state classifier**, а не просто как ZigZag-детектор.
+
+## ZigZag сейчас
+ZigZag:
+- не является главным источником истины
+- тестируется отдельно
+- используется для поиска экстремумов и сравнения с визуальной структурой
+- нужен как потенциальный улучшатель признаков
+
+---
+
+# 3) Полная архитектура проекта
+
+## A. Data acquisition layer
+Отвечает за:
+- загрузку OHLCV
+- получение объёмов
+- исторические данные по нескольким инструментам и ТФ
+
+### Вероятные модули:
+- `binance_metrics.py`
+- возможно часть `main.py`
+- `db.py`
+
+### Функции:
+- fetch market data
+- cache/store data
+- normalise to DataFrame
+- prepare multi-TF windows
+
+---
+
+## B. Core market structure layer
+Это главный слой проекта.
+
+### Что он делает
+- определяет HTF/LTF структуру
+- классифицирует рынок:
+  - Balance
+  - Trend
+  - Correction
+  - Breakout
+  - False breakout
+- определяет ключевые зоны
+- оценивает волновую фазу
+- оценивает ABC риск
+- строит сигналы
+
+### Главный смысл
+Этот слой — **основной аналитический мозг**, а ZigZag — только помощник.
+
+### Вероятные файлы
+- `auto_chart.py`
+- `handlers.py`
+- `main.py`
+- `config.py`
+- `utils.py`
+
+---
+
+## C. ZigZag experiment layer
+Отдельный экспериментальный слой.
+
+### Назначение
+- найти экс  ремумы
+- сравнить с реальным графиком
+- проверить пригодность для ML / LM Studio
+- убедиться, что логика совпадает с TradingView / Binance
+- подготовить альтернативную основу, если текущая структура недостаточно хороша
+
+### Файлы
+- `core/structural_zigzag.py`
+- `core/zigzag_forecast_test.py`
+- `core/structure_levels_test.py`
+
+### Статус
+**Не включён в основной проект как truth-source.**  
+Сейчас это отдельный research/test module.
+
+---
+
+## D. Telegram messaging layer
+Это слой, который превращает аналитику в читаемый телеграм-формат.
+
+### Что он делает
+- формирует заголовок
+- показывает цену
+- выводит HTF/LTF структуру
+- показывает зоны
+- показывает сигнал
+- показывает риск/TP/SL
+- добавляет пояснения
+- делает confidence summary
+
+### Результат
+Именно сюда должны попадать:
+- структура
+- зигзаговые экстремумы
+- зоны
+- паттерны
+- liquidity later
+
+---
+
+## E. LLM / LM Studio layer
+Используется для:
+- компактного summary
+- reasoning
+- классификации режимов рынка
+- объяснений для Telegram
+- позже — для ML assistance
+
+### Сейчас
+- ZigZag тестируется отдельно
+- потом будет использоваться как feature source для LLM
+
+---
+
+# 4) Как сейчас должны сосуществовать основные и zigzag-слои
+
+## Основной слой
+Он должен отвечать на вопрос:
+> “Что происходит на рынке прямо сейчас?”
+
+### Пример:
+- Balance
+- Correction down
+- False breakout
+- Trend continuation
+- Risk of ABC
+
+## ZigZag слой
+Он должен отвечать на вопрос:
+> “Где реальные экстремумы и swing-движения?”
+
+### Пример:
+- pivot high
+- pivot low
+- swing direction
+- amplitude
+- local reversal logic
+
+---
+
+# 5) Текущий рабочий сценарий проекта
+
+## Сценарий 1: Telegram message generation
+1. берём инструмент
+2. берём несколько ТФ
+3. строим market state
+4. строим зоны
+5. вычисляем signal / risk
+6. формируем текст в Telegram
+
+---
+
+## Сценарий 2: ZigZag test
+1. берём OHLCV
+2. прогоняем через experimental ZigZag
+3. сравниваем с TradingView/Binance
+4. ищем совпадение pivot-ов
+5. настраиваем параметры
+6. решаем — встраивать или заменить
+
+---
+
+## Сценарий 3: future liquidity layer
+1. берём volume/price
+2. строим heatmap levels
+3. добавляем liquidity zones
+4. интегрируем в основной summary
+
+---
+
+# 6) Что означает твой образец TG-сообщения архитектурно
+
+Твой шаблон сообщения уже включает несколько аналитических блоков:
+
+## Блок 1: Market regime
+- `HTF структура`
+- `Тренд`
+- `LTF структура`
+
+## Блок 2: Microstructure / flow
+- `Накопление/распределение`
+- `Волновая фаза`
+- `ABC риск`
+
+## Блок 3: Levels
+- `Зоны`
+- `ЗОНЫ ПО ТФ`
+
+## Блок 4: Signal quality
+- `Сигнал`
+- `Агрессивный`
+- `Консервативный`
+- `Статус`
+
+## Блок 5: Risk
+- `SL`
+- `TP1`
+- `TP2`
+- `R:R`
+
+## Блок 6: Confidence / rationale
+- `Факты`
+- `Уверенность`
+
+---
+
+# 7) Как это связано с ZigZag
+
+ZigZag может помочь в нескольких местах:
+
+### Для структуры
+- подтвердить swing direction
+- подтвердить локальные экстремумы
+
+### Для зон
+- помочь уточнить ключевые highs/lows
+
+### Для wave phase
+- показать завершённость импульса
+
+### Для ABC risk
+- найти предпосылки для коррекции
+
+Но ZigZag не должен:
+- заменять HTF/LTF classifier
+- ломать existing market regime logic
+- быть единственным источником сигнала
+
+---
+
+# 8) Рекомендованная иерархия модулей
+
+```text
+LOCAL_AI_ENGINE/
+├── main.py
+│   └── orchestration / entry point
+├── core/
+│   ├── auto_chart.py
+│   │   └── main market structure and chart logic
+│   ├── binance_metrics.py
+│   │   └── market data / metrics
+│   ├── config.py
+│   │   └── thresholds / TF params / feature flags
+│   ├── db.py
+│   │   └── persistence
+│   ├── handlers.py
+│   │   └── message / request handlers
+│   ├── ollama_client.py
+│   │   └── LLM / LM Studio integration
+│   ├── scheduler.py
+│   │   └── periodic jobs
+│   ├── structural_zigzag.py
+│   │   └── experimental extremum helper
+│   ├── structure_levels_test.py
+│   │   └── structure debug test
+│   ├── zigzag_forecast_test.py
+│   │   └── zigzag experiment test
+│   └── utils.py
+│       └── helpers
+├── test/
+│   └── (other tests)
+├── forecasts.db
+└── requirements.txt
+```
+
+---
+
+# 9) Что сейчас должно быть приоритетом
+
+## Приоритет 1
+Довести **основной market structure** и Telegram summary до стабильного состояния.
+
+## Приоритет 2
+Свести ZigZag как experimental module:
+- сравнить с TV/Binance
+- понять, подходит ли он как вспомогательный слой
+
+## Приоритет 3
+После стабилизации:
+- либо встраиваем ZigZag
+- либо оставляем другой вариант extrema detector
+
+## Приоритет 4
+Потом добавляем:
+- liquidity heatmap
+
+---
+
+# 10) Что делать с ZigZag прямо сейчас
+
+Пока:
+- не делать его главным источником структуры
+- тестировать как helper
+- сравнивать только по экстремумам и swing shape
+- использовать для LM Studio как дополнительный context feature
+
+---
+
+# 11) Что получится в результате
+
+  огда всё соберётся, Telegram-сообщение будет формироваться не только по “структуре”, а по объединению:
+
+- main structure engine
+- ZigZag extrema helper
+- zone engine
+- signal/risk engine
+- future liquidity heatmap
+
+То есть итоговый текст станет намного качественнее и стабильнее.
+
+---
+
+# 12) Краткий вывод
+
+Сейчас проект выглядит так:
+
+- **основной проект** уже отвечает за market state, signal quality, zones, risk
+- **ZigZag** — это отдельный экспериментальный модуль экстремумов
+- **LM Studio** будет использовать общий compact summary
+- **heatmap** добавим позже как следующий слой
+
+---
+
+Если хочешь, следующим сообщением я могу сделать ещё более прикладную вещь:  
+**собрать это в формальный документ “Project Architecture + Script Roles + Data Flow”**, чтобы можно было прямо положить его в README или в отдельный `ARCHITECTURE.md`.

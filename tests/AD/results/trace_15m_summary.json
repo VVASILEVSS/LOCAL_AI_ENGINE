@@ -1,0 +1,11 @@
+﻿{
+    "file":  "trace_15m.csv",
+    "symbol":  "trace",
+    "tf":  "15m",
+    "total_bars":  500,
+    "divergences":  0,
+    "strong_confirmations":  61,
+    "bias_changes":  108,
+    "full_json":  "trace_15m_full.json",
+    "trace_csv":  "trace_15m_trace.csv"
+}

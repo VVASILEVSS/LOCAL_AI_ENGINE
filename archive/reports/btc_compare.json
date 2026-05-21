@@ -1,0 +1,282 @@
+{
+  "settings": {
+    "market_type": "future",
+    "mode": "hybrid_atr",
+    "length": null,
+    "percent": null,
+    "confirmation_mode": "close",
+    "limit": 300,
+    "debug": false,
+    "timeframes": [
+      "15m",
+      "1h",
+      "4h",
+      "1d"
+    ]
+  },
+  "summary_rows": [
+    {
+      "symbol": "BTC/USDT",
+      "global_bias": "bearish",
+      "dominant_bias": "bearish",
+      "dominance_ratio": 0.8,
+      "quality_score": 79.0,
+      "confidence_score": 84.0,
+      "early_reversal": "yes",
+      "human_verdict": "bearish dominant context"
+    }
+  ],
+  "results": {
+    "BTC/USDT": {
+      "symbol": "BTC/USDT",
+      "market_type": "future",
+      "normalized_symbol": "BTCUSDT",
+      "settings": {
+        "mode": "hybrid_atr",
+        "length": null,
+        "percent": null,
+        "confirmation_mode": "close",
+        "limit": 300,
+        "debug": false
+      },
+      "timeframes": {
+        "15m": {
+          "swing_direction": "bearish",
+          "upper": 82460.5,
+          "lower": 79507.6,
+          "channel_state": "mid_channel",
+          "breakout_state": "inside_channel",
+          "market_mode": "bearish_recovery",
+          "price_position": 0.5842,
+          "pattern_tags": [
+            "range_context",
+            "bearish_structure"
+          ],
+          "pivot_count": 11,
+          "current_price": 81232.6,
+          "atr_last": 177.571429,
+          "summary": "TF=15m; mode=hybrid_atr; dir=bearish; pivots=11; pos=0.5842; price=81232.6; atr=177.57142857142648; width=2952.9; patterns=range_context,bearish_structure; regime=low; instrument_multiplier=1.0; tf_multiplier=0.9",
+          "swing_points": [
+            {
+              "index": 60,
+              "type": "high",
+              "price": 80315.9
+            },
+            {
+              "index": 120,
+              "type": "high",
+              "price": 80796.9
+            },
+            {
+              "index": 180,
+              "type": "high",
+              "price": 80766.0
+            },
+            {
+              "index": 240,
+              "type": "high",
+              "price": 81698.1
+            }
+          ],
+          "zones": {
+            "resistance": [
+              82460.5,
+              81223.6
+            ],
+            "support": [
+              79507.6,
+              80700.2
+            ]
+          }
+        },
+        "1h": {
+          "swing_direction": "bullish",
+          "upper": 82828.7,
+          "lower": 74868.0,
+          "channel_state": "upper_zone",
+          "breakout_state": "inside_channel",
+          "market_mode": "bullish_extension",
+          "price_position": 0.7995,
+          "pattern_tags": [
+            "range_context",
+            "bullish_structure",
+            "compression"
+          ],
+          "pivot_count": 12,
+          "current_price": 81232.6,
+          "atr_last": 386.364286,
+          "summary": "TF=1h; mode=hybrid_atr; dir=bullish; pivots=12; pos=0.7995; price=81232.6; atr=386.36428571428405; width=7960.7; patterns=range_context,bullish_structure,compression; regime=low; instrument_multiplier=1.0; tf_multiplier=1.0",
+          "swing_points": [
+            {
+              "index": 60,
+              "type": "high",
+              "price": 78860.0
+            },
+            {
+              "index": 120,
+              "type": "high",
+              "price": 80400.0
+            },
+            {
+              "index": 180,
+              "type": "high",
+              "price": 81934.6
+            },
+            {
+              "index": 240,
+              "type": "high",
+              "price": 80448.2
+            }
+          ],
+          "zones": {
+            "resistance": [
+              82828.7,
+              81586.3
+            ],
+            "support": [
+              74868.0,
+              75991.0
+            ]
+          }
+        },
+        "4h": {
+          "swing_direction": "bearish",
+          "upper": 82828.7,
+          "lower": 64918.2,
+          "channel_state": "upper_zone",
+          "breakout_state": "inside_upper_zone",
+          "market_mode": "bearish_recovery",
+          "price_position": 0.9109,
+          "pattern_tags": [
+            "range_context",
+            "bearish_structure",
+            "compression",
+            "near_resistance"
+          ],
+          "pivot_count": 12,
+          "current_price": 81232.6,
+          "atr_last": 647.421429,
+          "summary": "TF=4h; mode=hybrid_atr; dir=bearish; pivots=12; pos=0.9109; price=81232.6; atr=647.4214285714261; width=17910.5; patterns=range_context,bearish_structure,compression,near_resistance; regime=medium; instrument_multiplier=1.0; tf_multiplier=1.08",
+          "swing_points": [
+            {
+              "index": 60,
+              "type": "high",
+              "price": 69142.6
+            },
+            {
+              "index": 120,
+              "type": "high",
+              "price": 73773.4
+            },
+            {
+              "index": 180,
+              "type": "high",
+              "price": 76155.0
+            },
+            {
+              "index": 240,
+              "type": "high",
+              "price": 78642.0
+            }
+          ],
+          "zones": {
+            "resistance": [
+              82828.7,
+              81586.3
+            ],
+            "support": [
+              64918.2,
+              65892.0
+            ]
+          }
+        },
+        "1d": {
+          "swing_direction": "bearish",
+          "upper": 126208.5,
+          "lower": 59800.0,
+          "channel_state": "lower_zone",
+          "breakout_state": "inside_channel",
+          "market_mode": "bearish_trend",
+          "price_position": 0.3227,
+          "pattern_tags": [
+            "range_context",
+            "bearish_structure",
+            "compression"
+          ],
+          "pivot_count": 12,
+          "current_price": 81232.6,
+          "atr_last": 1914.414286,
+          "summary": "TF=1d; mode=hybrid_atr; dir=bearish; pivots=12; pos=0.3227; price=81232.6; atr=1914.4142857142838; width=66408.5; patterns=range_context,bearish_structure,compression; regime=high; instrument_multiplier=1.0; tf_multiplier=1.15",
+          "swing_points": [
+            {
+              "index": 60,
+              "type": "high",
+              "price": 116118.6
+            },
+            {
+              "index": 120,
+              "type": "high",
+              "price": 104024.6
+            },
+            {
+              "index": 180,
+              "type": "high",
+              "price": 92488.0
+            },
+            {
+              "index": 240,
+              "type": "high",
+              "price": 73870.0
+            }
+          ],
+          "zones": {
+            "resistance": [
+              126208.5,
+              124315.4
+            ],
+            "support": [
+              59800.0,
+              60697.0
+            ]
+          }
+        }
+      },
+      "stack": {
+        "stack_bias": "bearish",
+        "alignment": "mixed",
+        "dominant_tf": "1h",
+        "directions": {
+          "15m": "bearish",
+          "1h": "bullish",
+          "4h": "bearish",
+          "1d": "bearish"
+        },
+        "market_modes": {
+          "15m": "bearish_recovery",
+          "1h": "bullish_extension",
+          "4h": "bearish_recovery",
+          "1d": "bearish_trend"
+        },
+        "breakout_states": {
+          "15m": "inside_channel",
+          "1h": "inside_channel",
+          "4h": "inside_upper_zone",
+          "1d": "inside_channel"
+        },
+        "channel_states": {
+          "15m": "mid_channel",
+          "1h": "upper_zone",
+          "4h": "upper_zone",
+          "1d": "lower_zone"
+        },
+        "summary": "stack_bias=bearish; alignment=mixed; dominant_tf=1h; 15m:bearish 1h:bullish 4h:bearish 1d:bearish"
+      },
+      "dominant_bias": "bearish",
+      "dominance_ratio": 0.8,
+      "quality_score": 79.0,
+      "confidence_score": 84.0,
+      "early_reversal": "yes",
+      "human_verdict": "bearish dominant context"
+    }
+  }
+}

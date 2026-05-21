@@ -1,0 +1,141 @@
+// This work is licensed under a Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0) https://creativecommons.org/licenses/by-nc-sa/4.0/
+// © StratifyTrade - formerly know as HunterAlgos
+
+//@version=5
+indicator("Liquidity Heatmap [StratifyTrade]", "StratifyTrade - Liquidity Heatmap [2.0.0]", overlay = true, max_lines_count = 500)
+
+dMi = "[HD] Display liquidation levels in a more accurate way\n" + 
+         "[Normal] Display liquidation levels in the normal way"
+
+string dM = input.string("HD"    , "Mode     ", options = ["Normal", "HD"]         , group = "Display", inline = "z", tooltip = dMi)
+string dS   = input.string("Both", ""         , options = ["Both", "Long", "Short"], group = "Display", inline = "z")
+
+int   LV = input.int  (300       , "Leverage", group = "Display", inline = "1", minval = 25, maxval = 300)
+color lC = input.color(#cc00cc , ""        , group = "Display", inline = "1")
+color sC = input.color(#ffff00 , ""        , group = "Display", inline = "1")
+color pC = input.color(#ffffff , ""        , group = "Display", inline = "1")
+
+bool lB = input.bool(true, "Display Liquidation Bubbles", group = "Display")
+bool lL = input.bool(true, "Display Liquidation Levels ", group = "Display")
+
+
+type bar
+    float o = open
+    float h = high
+    float l = low
+    float c = close
+    float v = volume
+    int   n = bar_index
+
+
+type bin
+    line [] l
+    float[] v
+
+
+bar j = bar.new()
+
+var bin b = bin.new(
+       array.new<line >(     )
+     , array.new<float>(1, na)
+     )
+
+float sma = ta.sma(j.v, 14)
+
+method gC(color css) =>
+    color.from_gradient(
+           b.v.first()
+         , b.v.min  ()
+         , b.v.max  ()
+         , #ffffff00
+         , css
+         )
+
+
+sV(bool fT) =>
+    if b.v.size() > 499
+        b.v.pop()
+    
+    if fT
+        b.v.unshift(
+             dM == "HD" 
+                 ? j.v
+                 : j.v - nz(j.v[1])
+             )
+
+
+method dL(line[] l, float pos, color css, int width) =>
+
+    if l.size() > 499
+        l.pop().delete()
+
+    l.unshift(
+         line.new(
+               x1    = j.n
+             , x2    = j.n
+             , y1    = pos
+             , y2    = pos
+             , xloc  = xloc.bar_index
+             , color = css.gC()
+             , style = line.style_solid
+             , width = width
+              )
+             )
+
+
+method uL(line[] l) =>
+    for ln in l
+        x = ln.get_x2()
+        y = ln.get_y1()
+        if j.n - 1 == x - 1 and not (j.h > y and j.l < y)
+            ln.set_x2(j.n + 1)
+
+
+draw(int L, bool fT) =>
+    sV(fT)
+    switch
+        lL and fT and j.c > j.o and (dS == "Both" or dS == "Long" ) => 
+            b.l.dL(
+                   j.l * (1 - 1. / L)
+                 , b.v.first() ==    b.v.max() 
+                     ? pC 
+                     : lC
+                 , b.v.first() ==    b.v.max() 
+                     ? 3 
+                     : b.v.first() > b.v.avg() 
+                         ? 2 
+                         : 1
+                 )
+        lL and fT and j.c < j.o and (dS == "Both" or dS == "Short") => 
+             b.l.dL(
+                   j.h * (1 + 1. / L)
+                 , b.v.first() ==    b.v.max() 
+                     ? pC 
+                     : sC
+                 , b.v.first() ==    b.v.max() 
+                     ? 3 
+                     : b.v.first() > b.v.avg() 
+                         ? 2 
+                         : 1
+                 )
+    b.l.uL()
+
+
+bool fT = j.v > sma 
+
+draw(LV, fT)
+
+bool pV = b.v.first() == b.v.max() 
+     ? true 
+     : false
+bool dL = (dS == "Both" or dS == "Long" ) and lB
+bool dD = (dS == "Both" or dS == "Short") and lB
+
+
+plot(fT and dL and j.c > j.o                              ? j.l * (1 - 1. / LV) : na, color = pV ?                pC.gC() : color.new(lC, 20).gC(), linewidth = 2, style = plot.style_circles, title = "Bubbles")
+plot(fT and dL and j.c > j.o and b.v.first() > b.v.avg()  ? j.l * (1 - 1. / LV) : na, color = pV ? color.new(pC, 40).gC() : color.new(lC, 40).gC(), linewidth = 4, style = plot.style_circles, title = "Bubbles")
+plot(fT and dL and j.c > j.o and b.v.first() == b.v.max() ? j.l * (1 - 1. / LV) : na, color = pV ? color.new(pC, 60).gC() : color.new(lC, 60).gC(), linewidth = 6, style = plot.style_circles, title = "Bubbles")
+
+plot(fT and dD and j.c < j.o                              ? j.h * (1 + 1. / LV) : na, color = pV ?                pC.gC() : color.new(sC, 20).gC(), linewidth = 2, style = plot.style_circles, title = "Bubbles")
+plot(fT and dD and j.c < j.o and b.v.first() > b.v.avg()  ? j.h * (1 + 1. / LV) : na, color = pV ? color.new(pC, 40).gC() : color.new(sC, 40).gC(), linewidth = 4, style = plot.style_circles, title = "Bubbles")
+plot(fT and dD and j.c < j.o and b.v.first() == b.v.max() ? j.h * (1 + 1. / LV) : na, color = pV ? color.new(pC, 60).gC() : color.new(sC, 60).gC(), linewidth = 6, style = plot.style_circles, title = "Bubbles")

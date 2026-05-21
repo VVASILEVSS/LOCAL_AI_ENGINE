@@ -1,0 +1,639 @@
+﻿[
+    {
+        "folder":  "traces",
+        "name":  "BTCUSDT_15m_trace.csv",
+        "size":  99458,
+        "modified":  "2026-05-17T06:45:41.1634576Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\BTCUSDT_15m_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "BTCUSDT_1d_trace.csv",
+        "size":  96131,
+        "modified":  "2026-05-17T06:45:49.4543059Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\BTCUSDT_1d_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "BTCUSDT_1h_trace.csv",
+        "size":  98894,
+        "modified":  "2026-05-17T06:45:57.2977781Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\BTCUSDT_1h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "BTCUSDT_4h_trace.csv",
+        "size":  100074,
+        "modified":  "2026-05-17T06:46:05.4974586Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\BTCUSDT_4h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "data_btc_1h_trace.csv",
+        "size":  197843,
+        "modified":  "2026-05-17T06:46:33.3824040Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\data_btc_1h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "ETHUSDT_15m_trace.csv",
+        "size":  98111,
+        "modified":  "2026-05-17T06:46:41.2560050Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\ETHUSDT_15m_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "ETHUSDT_1d_trace.csv",
+        "size":  101129,
+        "modified":  "2026-05-17T06:46:49.4405470Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\ETHUSDT_1d_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "ETHUSDT_1d_trace_postpatch.csv",
+        "size":  49741,
+        "modified":  "2026-05-17T08:36:32.1161951Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\ETHUSDT_1d_trace_postpatch.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "ETHUSDT_1h_trace.csv",
+        "size":  97881,
+        "modified":  "2026-05-17T06:46:57.5511736Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\ETHUSDT_1h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "ETHUSDT_4h_trace.csv",
+        "size":  98520,
+        "modified":  "2026-05-17T06:47:05.9442566Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\ETHUSDT_4h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "trace_15m.csv",
+        "size":  98170,
+        "modified":  "2026-05-17T06:07:37.9884224Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\trace_15m.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "trace_15m_trace.csv",
+        "size":  98170,
+        "modified":  "2026-05-17T06:47:13.8197512Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\trace_15m_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "XAUTUSDT_15m_trace.csv",
+        "size":  97221,
+        "modified":  "2026-05-17T06:47:29.7697496Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\XAUTUSDT_15m_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "XAUTUSDT_1d_trace.csv",
+        "size":  9827,
+        "modified":  "2026-05-17T06:47:30.6624929Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\XAUTUSDT_1d_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "XAUTUSDT_1h_trace.csv",
+        "size":  97553,
+        "modified":  "2026-05-17T06:47:38.9964874Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\XAUTUSDT_1h_trace.csv"
+    },
+    {
+        "folder":  "traces",
+        "name":  "XAUTUSDT_4h_trace.csv",
+        "size":  60253,
+        "modified":  "2026-05-17T06:47:43.0188472Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\traces\\XAUTUSDT_4h_trace.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "BTCUSDT_15m.csv",
+        "size":  38834,
+        "modified":  "2026-05-17T06:02:31.9485930Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\BTCUSDT_15m.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "BTCUSDT_1d.csv",
+        "size":  40912,
+        "modified":  "2026-05-17T06:02:34.7265180Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\BTCUSDT_1d.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "BTCUSDT_1h.csv",
+        "size":  38925,
+        "modified":  "2026-05-17T06:02:32.9273803Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\BTCUSDT_1h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "BTCUSDT_4h.csv",
+        "size":  39491,
+        "modified":  "2026-05-17T06:02:33.7865448Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\BTCUSDT_4h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "data.csv",
+        "size":  37594,
+        "modified":  "2026-05-17T05:34:09.7345441Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\data.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "data_btc_1h.csv",
+        "size":  78101,
+        "modified":  "2026-05-17T05:50:44.6761530Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\data_btc_1h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "ETHUSDT_15m.csv",
+        "size":  37593,
+        "modified":  "2026-05-17T06:02:28.2191934Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\ETHUSDT_15m.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "ETHUSDT_1d.csv",
+        "size":  38742,
+        "modified":  "2026-05-17T06:02:31.0115196Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\ETHUSDT_1d.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "ETHUSDT_1h.csv",
+        "size":  37584,
+        "modified":  "2026-05-17T06:02:29.1601006Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\ETHUSDT_1h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "ETHUSDT_4h.csv",
+        "size":  38046,
+        "modified":  "2026-05-17T06:02:30.1720202Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\ETHUSDT_4h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "XAUTUSDT_15m.csv",
+        "size":  36268,
+        "modified":  "2026-05-17T06:02:35.6070086Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\XAUTUSDT_15m.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "XAUTUSDT_1d.csv",
+        "size":  4028,
+        "modified":  "2026-05-17T06:02:38.0635075Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\XAUTUSDT_1d.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "XAUTUSDT_1h.csv",
+        "size":  36477,
+        "modified":  "2026-05-17T06:02:36.5006327Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\XAUTUSDT_1h.csv"
+    },
+    {
+        "folder":  "data",
+        "name":  "XAUTUSDT_4h.csv",
+        "size":  23022,
+        "modified":  "2026-05-17T06:02:37.3508636Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\data\\XAUTUSDT_4h.csv"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_15m.json",
+        "size":  308,
+        "modified":  "2026-05-17T05:52:38.3861907Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_15m.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_15m_full.json",
+        "size":  344,
+        "modified":  "2026-05-17T06:45:33.1666164Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_15m_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_15m_summary.json",
+        "size":  285,
+        "modified":  "2026-05-17T06:45:41.2337190Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_15m_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1d.json",
+        "size":  300,
+        "modified":  "2026-05-17T05:52:41.2290260Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1d.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1d_full.json",
+        "size":  347,
+        "modified":  "2026-05-17T06:45:41.5771923Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1d_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1d_summary.json",
+        "size":  280,
+        "modified":  "2026-05-17T06:45:49.5044625Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1d_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1h.json",
+        "size":  296,
+        "modified":  "2026-05-17T05:52:39.2688830Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1h_full.json",
+        "size":  342,
+        "modified":  "2026-05-17T06:45:49.8010650Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_1h_summary.json",
+        "size":  281,
+        "modified":  "2026-05-17T06:45:57.3537843Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_1h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_4h.json",
+        "size":  309,
+        "modified":  "2026-05-17T05:52:40.2955542Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_4h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_4h_full.json",
+        "size":  344,
+        "modified":  "2026-05-17T06:45:57.6997767Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_4h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "BTCUSDT_4h_summary.json",
+        "size":  280,
+        "modified":  "2026-05-17T06:46:05.5467952Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\BTCUSDT_4h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "data_btc_1h_full.json",
+        "size":  342,
+        "modified":  "2026-05-17T06:46:05.9011895Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\data_btc_1h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "data_btc_1h_summary.json",
+        "size":  283,
+        "modified":  "2026-05-17T06:46:33.4557636Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\data_btc_1h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_15m.json",
+        "size":  309,
+        "modified":  "2026-05-17T05:52:34.4621472Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_15m.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_15m_full.json",
+        "size":  347,
+        "modified":  "2026-05-17T06:46:33.7786286Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_15m_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_15m_summary.json",
+        "size":  285,
+        "modified":  "2026-05-17T06:46:41.3159623Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_15m_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1d.json",
+        "size":  308,
+        "modified":  "2026-05-17T05:52:37.3576150Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1d.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1d_full.json",
+        "size":  360,
+        "modified":  "2026-05-17T06:46:41.6504990Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1d_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1d_full_postfix.json",
+        "size":  9,
+        "modified":  "2026-05-17T07:46:33.1782916Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1d_full_postfix.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1d_summary.json",
+        "size":  282,
+        "modified":  "2026-05-17T06:46:49.4945377Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1d_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1h.json",
+        "size":  300,
+        "modified":  "2026-05-17T05:52:35.3369707Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1h_full.json",
+        "size":  346,
+        "modified":  "2026-05-17T06:46:49.8076032Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_1h_summary.json",
+        "size":  280,
+        "modified":  "2026-05-17T06:46:57.6048047Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_1h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_4h.json",
+        "size":  309,
+        "modified":  "2026-05-17T05:52:36.4041038Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_4h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_4h_full.json",
+        "size":  345,
+        "modified":  "2026-05-17T06:46:57.9312378Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_4h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "ETHUSDT_4h_summary.json",
+        "size":  281,
+        "modified":  "2026-05-17T06:47:05.9995008Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\ETHUSDT_4h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "result.json",
+        "size":  311,
+        "modified":  "2026-05-17T05:36:04.9656362Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\result.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "result_btc_1h.json",
+        "size":  300,
+        "modified":  "2026-05-17T05:50:45.1953598Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\result_btc_1h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "result_full_15m.json",
+        "size":  348,
+        "modified":  "2026-05-17T06:00:44.0419768Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\result_full_15m.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "summary_all.json",
+        "size":  0,
+        "modified":  "2026-05-17T08:46:06.9909765Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\summary_all.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "summary_all_20260517144151.json",
+        "size":  4551,
+        "modified":  "2026-05-17T06:47:43.1029400Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\summary_all_20260517144151.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "trace_15m_full.json",
+        "size":  348,
+        "modified":  "2026-05-17T06:47:06.2996023Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\trace_15m_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "trace_15m_summary.json",
+        "size":  277,
+        "modified":  "2026-05-17T06:47:13.8697670Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\trace_15m_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_15m.json",
+        "size":  310,
+        "modified":  "2026-05-17T05:52:42.1002552Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_15m.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_15m_full.json",
+        "size":  346,
+        "modified":  "2026-05-17T06:47:14.1836535Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_15m_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_15m_summary.json",
+        "size":  288,
+        "modified":  "2026-05-17T06:47:29.8339664Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_15m_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1d.json",
+        "size":  310,
+        "modified":  "2026-05-17T05:52:44.9853853Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1d.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1d_full.json",
+        "size":  344,
+        "modified":  "2026-05-17T06:47:30.1270242Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1d_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1d_summary.json",
+        "size":  285,
+        "modified":  "2026-05-17T06:47:30.7048948Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1d_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1h.json",
+        "size":  308,
+        "modified":  "2026-05-17T05:52:43.4035232Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1h_full.json",
+        "size":  346,
+        "modified":  "2026-05-17T06:47:31.0255592Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_1h_summary.json",
+        "size":  284,
+        "modified":  "2026-05-17T06:47:39.0472105Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_1h_summary.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_4h.json",
+        "size":  306,
+        "modified":  "2026-05-17T05:52:44.2131280Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_4h.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_4h_full.json",
+        "size":  345,
+        "modified":  "2026-05-17T06:47:39.3571079Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_4h_full.json"
+    },
+    {
+        "folder":  "results",
+        "name":  "XAUTUSDT_4h_summary.json",
+        "size":  284,
+        "modified":  "2026-05-17T06:47:43.0679392Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\results\\XAUTUSDT_4h_summary.json"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "check_compute_full.py",
+        "size":  1043,
+        "modified":  "2026-05-17T08:38:31.7188739Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\check_compute_full.py"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "indicator_test.py",
+        "size":  3280,
+        "modified":  "2026-05-17T05:35:39.2098230Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\indicator_test.py"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "indicator_test_full.py",
+        "size":  16004,
+        "modified":  "2026-05-17T09:10:43.4303318Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\indicator_test_full.py"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "indicator_test_full_trace.py",
+        "size":  1853,
+        "modified":  "2026-05-17T08:36:07.8663398Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\indicator_test_full_trace.py"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "inspect_trace.py",
+        "size":  2338,
+        "modified":  "2026-05-17T06:54:41.1191533Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\inspect_trace.py"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "run_tests.ps1",
+        "size":  1088,
+        "modified":  "2026-05-17T05:25:41.4676065Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\run_tests.ps1"
+    },
+    {
+        "folder":  "scripts",
+        "name":  "test_prefixes.py",
+        "size":  1137,
+        "modified":  "2026-05-17T08:39:21.3012896Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\scripts\\test_prefixes.py"
+    },
+    {
+        "folder":  "pine",
+        "name":  "LOCAL_AI_ENGINE_AD_Context_v20.3.pine",
+        "size":  17639,
+        "modified":  "2026-05-17T07:43:19.0254772Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\pine\\LOCAL_AI_ENGINE_AD_Context_v20.3.pine"
+    },
+    {
+        "folder":  "logs",
+        "name":  "LOCAL_AI_ENGINE AD Context.txt",
+        "size":  4838,
+        "modified":  "2026-05-16T07:34:16.8940292Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\logs\\LOCAL_AI_ENGINE AD Context.txt"
+    },
+    {
+        "folder":  "other",
+        "name":  "indicator_test_full.py.bak.20260517140242",
+        "size":  14998,
+        "modified":  "2026-05-17T08:22:38.4230839Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\indicator_test_full.py.bak.20260517140242"
+    },
+    {
+        "folder":  "other",
+        "name":  "indicator_test_full.py.bak.indentfix.20260517140628",
+        "size":  15905,
+        "modified":  "2026-05-17T09:02:42.7109956Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\indicator_test_full.py.bak.indentfix.20260517140628"
+    },
+    {
+        "folder":  "other",
+        "name":  "move_and_manifest_fixed.ps1",
+        "size":  5288,
+        "modified":  "2026-05-17T09:41:24.6542122Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\move_and_manifest_fixed.ps1"
+    },
+    {
+        "folder":  "other",
+        "name":  "patch_fix_indent_return.ps1",
+        "size":  2848,
+        "modified":  "2026-05-17T09:05:29.8895112Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\patch_fix_indent_return.ps1"
+    },
+    {
+        "folder":  "other",
+        "name":  "patch_insert_return.ps1",
+        "size":  2253,
+        "modified":  "2026-05-17T09:02:32.8782480Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\patch_insert_return.ps1"
+    },
+    {
+        "folder":  "other",
+        "name":  "reorganize_repo.ps1",
+        "size":  3202,
+        "modified":  "2026-05-17T08:47:53.4733155Z",
+        "path":  "D:\\telega\\LOCAL_AI_ENGINE\\tests\\AD\\other\\reorganize_repo.ps1"
+    }
+]

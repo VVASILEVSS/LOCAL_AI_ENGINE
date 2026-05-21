@@ -1,0 +1,1 @@
+﻿{"profile": "btc", "flow_mode": "Chaikin AD", "raw_flow": 30134.111673779116, "smoothed_flow": 30357.445940713962, "flow_slope_pct": -0.5110705009919063, "cmf": 0.07400978938098726, "ad_bias": "neutral", "ad_confirmation": "none", "ad_divergence": "none", "ad_regime": "bear", "ad_quality": "low", "ad_comment": "neutral volume context"}

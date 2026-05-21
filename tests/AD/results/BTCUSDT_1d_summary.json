@@ -1,0 +1,11 @@
+﻿{
+    "file":  "BTCUSDT_1d.csv",
+    "symbol":  "BTCUSDT",
+    "tf":  "1d",
+    "total_bars":  500,
+    "divergences":  0,
+    "strong_confirmations":  46,
+    "bias_changes":  93,
+    "full_json":  "BTCUSDT_1d_full.json",
+    "trace_csv":  "BTCUSDT_1d_trace.csv"
+}

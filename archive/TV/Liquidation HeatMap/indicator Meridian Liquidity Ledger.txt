@@ -1,0 +1,297 @@
+//@version=6
+indicator("Meridian Liquidity Ledger [JOAT]", shorttitle = "TID [JOAT]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 200)
+//--------------------------------------------------------------------------------------------------
+// Inputs
+//--------------------------------------------------------------------------------------------------
+string groupWindow = "Ledger Window"
+int lookbackBars = input.int(220, "Lookback Bars", minval = 80, maxval = 500, group = groupWindow)
+int binCount = input.int(42, "Bin Count", minval = 16, maxval = 80, group = groupWindow)
+int profileWidth = input.int(34, "Profile Width", minval = 10, maxval = 70, group = groupWindow)
+int shelfPadding = input.int(8, "Shelf Padding", minval = 0, maxval = 20, group = groupWindow)
+
+string groupAnchor = "Reference Engine"
+int referenceLength = input.int(55, "Reference EMA Length", minval = 10, maxval = 150, group = groupAnchor)
+int deviationLength = input.int(34, "Deviation Length", minval = 10, maxval = 100, group = groupAnchor)
+float referenceBias = input.float(0.70, "Reference Bias", minval = 0.10, maxval = 2.00, step = 0.05, group = groupAnchor)
+bool useAnchorBand = input.bool(true, "Use Adaptive Anchor Band", group = groupAnchor)
+
+string groupFilters = "Shelf Filters"
+float minShelfPct = input.float(18.0, "Minimum Shelf Strength %", minval = 1.0, maxval = 100.0, step = 0.5, group = groupFilters)
+bool showHistoricalShelves = input.bool(true, "Show Historical Shelf Zones", group = groupFilters)
+bool extendPointOfControl = input.bool(true, "Extend Point Of Control", group = groupFilters)
+bool showSpines = input.bool(true, "Show Shelf Spines", group = groupFilters)
+bool showDashboard = input.bool(true, "Show Dashboard", group = groupFilters)
+
+string groupStyle = "Visual Language"
+color buyCore = input.color(color.rgb(19, 202, 156), "Buy Core", group = groupStyle, inline = "a")
+color sellCore = input.color(color.rgb(206, 37, 143), "Sell Core", group = groupStyle, inline = "a")
+color buyGlow = input.color(color.rgb(22, 109, 183), "Buy Secondary", group = groupStyle, inline = "b")
+color sellGlow = input.color(color.rgb(255, 112, 67), "Sell Secondary", group = groupStyle, inline = "b")
+color neutralLine = input.color(color.rgb(140, 149, 160), "Neutral", group = groupStyle)
+color dashboardBg = input.color(color.rgb(14, 20, 30), "Dashboard Background", group = groupStyle)
+
+//--------------------------------------------------------------------------------------------------
+// Types
+//--------------------------------------------------------------------------------------------------
+type ShelfVisual
+    box shelfZone
+    box shelfBar
+    line spine
+    label shelfLabel
+
+//--------------------------------------------------------------------------------------------------
+// Persistent containers
+//--------------------------------------------------------------------------------------------------
+var array<ShelfVisual> shelfVisuals = array.new<ShelfVisual>()
+var line pocLine = na
+var label pocLabel = na
+var float dashboardBuyShare = na
+var float dashboardSellShare = na
+var float dashboardPocPrice = na
+var float dashboardConcentration = na
+var table dashboard = table.new(position.top_right, 2, 12, frame_color = color.new(color.white, 85), frame_width = 1)
+
+//--------------------------------------------------------------------------------------------------
+// Helper functions
+//--------------------------------------------------------------------------------------------------
+clamp(float value, float minValue, float maxValue) =>
+    math.max(minValue, math.min(maxValue, value))
+
+safeDiv(float numerator, float denominator) =>
+    denominator == 0.0 ? 0.0 : numerator / denominator
+
+formatPercent(float value) =>
+    str.tostring(value * 0.01, "#.0%")
+
+formatVolume(float value) =>
+    str.tostring(value, format.volume)
+
+getReferencePrice() =>
+    float emaRef = ta.ema(close, referenceLength)
+    float rangeDev = ta.stdev(close, deviationLength) * referenceBias
+    float synthetic = close >= emaRef ? emaRef - rangeDev * 0.20 : emaRef + rangeDev * 0.20
+    useAnchorBand ? synthetic : emaRef
+
+getShelfColor(bool aboveRef, float intensity) =>
+    color primary = aboveRef ? sellCore : buyCore
+    color secondary = aboveRef ? sellGlow : buyGlow
+    color.from_gradient(intensity, 0, 100, color.new(secondary, 85), color.new(primary, 0))
+
+getShelfFill(bool aboveRef, float intensity) =>
+    color primary = aboveRef ? sellCore : buyCore
+    color secondary = aboveRef ? sellGlow : buyGlow
+    color.from_gradient(intensity, 0, 100, color.new(secondary, 96), color.new(primary, 84))
+
+getMidpointCrossLeft(float shelfPrice) =>
+    int effectiveLookback = math.min(lookbackBars, bar_index + 1)
+    int resolvedLeft = bar_index - effectiveLookback + 1
+    for offset = effectiveLookback - 1 to 0
+        bool crossed = high[offset] >= shelfPrice and low[offset] <= shelfPrice
+        if crossed
+            resolvedLeft := bar_index - offset + 1
+    resolvedLeft
+
+clearShelfObjects() =>
+    if array.size(shelfVisuals) > 0
+        for visual in shelfVisuals
+            box.delete(visual.shelfZone)
+            box.delete(visual.shelfBar)
+            line.delete(visual.spine)
+            label.delete(visual.shelfLabel)
+    array.clear(shelfVisuals)
+    line.delete(pocLine)
+    label.delete(pocLabel)
+
+setDashboardCell(int column, int row, string cellText, color bg, color fg) =>
+    table.cell(dashboard, column, row, cellText, bgcolor = bg, text_color = fg, text_size = size.small)
+
+//--------------------------------------------------------------------------------------------------
+// Core calculations
+//--------------------------------------------------------------------------------------------------
+float referencePrice = getReferencePrice()
+float highestWindow = ta.highest(high, lookbackBars)
+float lowestWindow = ta.lowest(low, lookbackBars)
+float totalRange = highestWindow - lowestWindow
+float binSize = totalRange / binCount
+bool validWindow = totalRange > 0 and binSize > 0
+int effectiveLookbackBars = math.min(lookbackBars, bar_index + 1)
+
+array<float> totalBins = array.new_float(binCount, 0.0)
+array<float> buyBins = array.new_float(binCount, 0.0)
+array<float> sellBins = array.new_float(binCount, 0.0)
+
+if barstate.islast and validWindow and effectiveLookbackBars > 0
+    for barOffset = 0 to effectiveLookbackBars - 1
+        float priceValue = hlc3[barOffset]
+        int rawIndex = int(math.floor((priceValue - lowestWindow) / binSize))
+        int binIndex = int(clamp(rawIndex, 0, binCount - 1))
+        float barVol = volume[barOffset]
+        float buyVol = close[barOffset] >= open[barOffset] ? barVol : 0.0
+        float sellVol = close[barOffset] < open[barOffset] ? barVol : 0.0
+
+        array.set(totalBins, binIndex, array.get(totalBins, binIndex) + barVol)
+        array.set(buyBins, binIndex, array.get(buyBins, binIndex) + buyVol)
+        array.set(sellBins, binIndex, array.get(sellBins, binIndex) + sellVol)
+
+//--------------------------------------------------------------------------------------------------
+// Draw pass
+//--------------------------------------------------------------------------------------------------
+if barstate.islast and validWindow
+    clearShelfObjects()
+
+    float maxVolume = totalBins.max()
+    float totalBuy = buyBins.sum()
+    float totalSell = sellBins.sum()
+    float totalVolume = totalBins.sum()
+    float imbalance = safeDiv(totalBuy - totalSell, totalVolume)
+    float buyShare = safeDiv(totalBuy, totalVolume)
+    float sellShare = safeDiv(totalSell, totalVolume)
+    float concentrationRatio = safeDiv(maxVolume, math.max(totalVolume, 1.0))
+    float referenceDistanceAtr = safeDiv(close - referencePrice, ta.atr(100))
+    float referenceRangeShare = safeDiv(referencePrice - lowestWindow, math.max(highestWindow - lowestWindow, syminfo.mintick)) * 100.0
+
+    int pocIndex = array.indexof(totalBins, maxVolume)
+    float pocPrice = lowestWindow + binSize * pocIndex + binSize * 0.5
+    dashboardBuyShare := buyShare
+    dashboardSellShare := sellShare
+    dashboardPocPrice := pocPrice
+    dashboardConcentration := concentrationRatio
+
+    for binIndex = 0 to binCount - 1
+        float lower = lowestWindow + binSize * binIndex
+        float upper = lower + binSize
+        float mid = math.avg(lower, upper)
+        float volumeValue = array.get(totalBins, binIndex)
+        float buyValue = array.get(buyBins, binIndex)
+        float sellValue = array.get(sellBins, binIndex)
+
+        float shelfPct = safeDiv(volumeValue, maxVolume) * 100.0
+        bool aboveRef = mid >= referencePrice
+        bool passesFilter = shelfPct >= minShelfPct
+
+        if passesFilter
+            int historyLeft = getMidpointCrossLeft(mid)
+            int profileRight = bar_index + profileWidth + shelfPadding
+            int profileLeft = bar_index + shelfPadding
+            int shelfWidth = int(math.round(safeDiv(volumeValue, maxVolume) * profileWidth))
+            int barRight = profileLeft + shelfWidth
+
+            color shelfLineColor = getShelfColor(aboveRef, shelfPct)
+            color shelfFillColor = getShelfFill(aboveRef, shelfPct)
+            color zoneFillColor = color.new(shelfLineColor, aboveRef ? 92 : 90)
+
+            box zone = box.new(historyLeft, upper, bar_index, lower, bgcolor = showHistoricalShelves ? zoneFillColor : color.new(zoneFillColor, 100), border_color = color.new(shelfLineColor, 60), border_width = 1)
+            box profileBarBox = box.new(profileLeft, upper, barRight, lower, bgcolor = shelfFillColor, border_color = color.new(shelfLineColor, 50), border_width = 1)
+            line shelfSpine = line.new(bar_index - effectiveLookbackBars + 1, mid, bar_index + profileWidth + shelfPadding, mid, color = showSpines ? color.new(shelfLineColor, 30) : color.new(shelfLineColor, 100), style = line.style_dotted, width = 1)
+
+            float sideBalance = safeDiv(math.abs(buyValue - sellValue), volumeValue)
+            string sideTag = aboveRef ? "Sell Shelf" : "Buy Shelf"
+            string labelText = sideTag + "\n" + formatVolume(volumeValue) + "\nBias " + formatPercent(sideBalance * 100)
+            label shelfInfo = label.new(profileRight + 1, mid, labelText, style = label.style_label_left, color = color.new(dashboardBg, 0), textcolor = shelfLineColor, size = size.tiny)
+
+            array.push(shelfVisuals, ShelfVisual.new(zone, profileBarBox, shelfSpine, shelfInfo))
+
+    if extendPointOfControl
+        color pocColor = getShelfColor(pocPrice >= referencePrice, 100.0)
+        pocLine := line.new(bar_index - effectiveLookbackBars + 1, pocPrice, bar_index + profileWidth + shelfPadding + 10, pocPrice, color = pocColor, width = 2)
+        pocLabel := label.new(bar_index + profileWidth + shelfPadding + 11, pocPrice, "POC\n" + formatVolume(maxVolume), style = label.style_label_left, color = color.new(dashboardBg, 0), textcolor = pocColor, size = size.small)
+
+    if showDashboard
+        color panelEdge = imbalance >= 0 ? buyCore : sellCore
+        color panelSoft = color.new(panelEdge, 84)
+        float pocDistanceAtr = safeDiv(close - pocPrice, ta.atr(100))
+        int activeShelfCount = shelfVisuals.size()
+
+        setDashboardCell(0, 0, "Meridian Ledger", panelSoft, color.white)
+        setDashboardCell(1, 0, syminfo.ticker, panelSoft, color.white)
+
+        setDashboardCell(0, 1, "Reference", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 1, str.tostring(referencePrice, format.mintick), dashboardBg, color.white)
+
+        setDashboardCell(0, 2, "Buy Share", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 2, formatPercent(buyShare * 100), dashboardBg, buyCore)
+
+        setDashboardCell(0, 3, "Sell Share", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 3, formatPercent(sellShare * 100), dashboardBg, sellCore)
+
+        setDashboardCell(0, 4, "Imbalance", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 4, formatPercent(imbalance * 100), dashboardBg, imbalance >= 0 ? buyCore : sellCore)
+
+        setDashboardCell(0, 5, "POC", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 5, str.tostring(pocPrice, format.mintick), dashboardBg, panelEdge)
+
+        setDashboardCell(0, 6, "Ledger Vol", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 6, formatVolume(totalVolume), dashboardBg, color.white)
+
+        setDashboardCell(0, 7, "Shelf Count", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 7, str.tostring(activeShelfCount), dashboardBg, panelEdge)
+
+        setDashboardCell(0, 8, "POC Dist ATR", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 8, str.tostring(pocDistanceAtr, "#.00"), dashboardBg, pocDistanceAtr >= 0 ? buyCore : sellCore)
+
+        setDashboardCell(0, 9, "Top Shelf %", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 9, formatPercent(concentrationRatio * 100), dashboardBg, panelEdge)
+
+        setDashboardCell(0, 10, "Ref Dist ATR", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 10, str.tostring(referenceDistanceAtr, "#.00"), dashboardBg, referenceDistanceAtr >= 0 ? buyCore : sellCore)
+
+        setDashboardCell(0, 11, "Ref Range %", dashboardBg, color.new(neutralLine, 0))
+        setDashboardCell(1, 11, formatPercent(referenceRangeShare), dashboardBg, referenceRangeShare >= 50 ? sellCore : buyCore)
+
+//--------------------------------------------------------------------------------------------------
+// Reference and contextual overlays
+//--------------------------------------------------------------------------------------------------
+float anchorUpper = referencePrice + ta.stdev(close, deviationLength) * 0.55
+float anchorLower = referencePrice - ta.stdev(close, deviationLength) * 0.55
+float outerAnchorUpper = referencePrice + ta.stdev(close, deviationLength) * 1.10
+float outerAnchorLower = referencePrice - ta.stdev(close, deviationLength) * 1.10
+
+plot(referencePrice, "Reference Price", color = color.new(neutralLine, 10), linewidth = 2)
+plot(anchorUpper, "Anchor Upper", color = color.new(sellGlow, 65), linewidth = 1)
+plot(anchorLower, "Anchor Lower", color = color.new(buyGlow, 65), linewidth = 1)
+plot(outerAnchorUpper, "Outer Anchor Upper", color = color.new(sellCore, 80), linewidth = 1)
+plot(outerAnchorLower, "Outer Anchor Lower", color = color.new(buyCore, 80), linewidth = 1)
+
+refUpperPlot = plot(anchorUpper, "", display = display.none)
+refLowerPlot = plot(anchorLower, "", display = display.none)
+fill(refUpperPlot, refLowerPlot, color = color.new(color.rgb(34, 41, 55), 78))
+
+outerUpperPlot = plot(outerAnchorUpper, "", display = display.none)
+outerLowerPlot = plot(outerAnchorLower, "", display = display.none)
+fill(outerUpperPlot, refUpperPlot, color = color.new(sellGlow, 95))
+fill(refLowerPlot, outerLowerPlot, color = color.new(buyGlow, 95))
+
+color candleColor =
+     close >= referencePrice
+     ? color.from_gradient(close - referencePrice, 0, ta.atr(100), color.new(buyCore, 35), color.new(buyCore, 0))
+     : color.from_gradient(referencePrice - close, 0, ta.atr(100), color.new(sellCore, 35), color.new(sellCore, 0))
+
+barcolor(candleColor)
+plotcandle(open, high, low, close, color = candleColor, wickcolor = candleColor, bordercolor = candleColor, force_overlay = true, title = "Ledger Candles")
+
+//--------------------------------------------------------------------------------------------------
+// Confirmed-bar state series for alerts and external interpretation
+//--------------------------------------------------------------------------------------------------
+float rollingBuyVolume = math.sum(close >= open ? volume : 0.0, lookbackBars)
+float rollingSellVolume = math.sum(close < open ? volume : 0.0, lookbackBars)
+float ledgerImbalanceSeries = safeDiv(rollingBuyVolume - rollingSellVolume, math.max(rollingBuyVolume + rollingSellVolume, 1.0))
+float concentrationSeries = safeDiv(ta.highest(volume, lookbackBars), math.max(math.sum(volume, lookbackBars), 1.0))
+float referenceDistanceAtrSeries = safeDiv(close - referencePrice, ta.atr(100))
+float referenceRangeShareSeries = safeDiv(referencePrice - lowestWindow, math.max(highestWindow - lowestWindow, syminfo.mintick)) * 100.0
+bool buyDominance = barstate.isconfirmed and ledgerImbalanceSeries > 0.12 and close >= referencePrice
+bool sellDominance = barstate.isconfirmed and ledgerImbalanceSeries < -0.12 and close <= referencePrice
+bool stretchedAboveLedger = barstate.isconfirmed and close > outerAnchorUpper and ledgerImbalanceSeries > 0
+bool stretchedBelowLedger = barstate.isconfirmed and close < outerAnchorLower and ledgerImbalanceSeries < 0
+
+alertcondition(buyDominance, "JOAT Meridian Buy Dominance", "Meridian Liquidity Ledger has confirmed buy-side dominance.")
+alertcondition(sellDominance, "JOAT Meridian Sell Dominance", "Meridian Liquidity Ledger has confirmed sell-side dominance.")
+alertcondition(stretchedAboveLedger, "JOAT Meridian Upper Stretch", "Meridian Liquidity Ledger confirms an upper anchor stretch with positive ledger bias.")
+alertcondition(stretchedBelowLedger, "JOAT Meridian Lower Stretch", "Meridian Liquidity Ledger confirms a lower anchor stretch with negative ledger bias.")
+
+plot(ledgerImbalanceSeries, "Ledger Imbalance (Data Window)", color = ledgerImbalanceSeries >= 0 ? buyCore : sellCore, display = display.data_window)
+plot(dashboardBuyShare, "Buy Share (Data Window)", color = buyCore, display = display.data_window)
+plot(dashboardSellShare, "Sell Share (Data Window)", color = sellCore, display = display.data_window)
+plot(dashboardPocPrice, "POC Price (Data Window)", color = neutralLine, display = display.data_window)
+plot(nz(dashboardConcentration, concentrationSeries) * 100.0, "Top Shelf Concentration % (Data Window)", color = neutralLine, display = display.data_window)
+plot(referenceDistanceAtrSeries, "Reference Distance ATR (Data Window)", color = referenceDistanceAtrSeries >= 0 ? buyCore : sellCore, display = display.data_window)
+plot(referenceRangeShareSeries, "Reference Range Share % (Data Window)", color = referenceRangeShareSeries >= 50 ? sellCore : buyCore, display = display.data_window)

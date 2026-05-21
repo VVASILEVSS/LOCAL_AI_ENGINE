@@ -1,0 +1,13 @@
+# Секреты проекта
+.env
+
+# Данные и логи бота
+bot.log
+history_db.json
+
+# Виртуальное окружение
+.venv/
+
+# Кэш Python
+__pycache__/
+*.pyc

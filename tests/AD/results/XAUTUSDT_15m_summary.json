@@ -1,0 +1,11 @@
+﻿{
+    "file":  "XAUTUSDT_15m.csv",
+    "symbol":  "XAUTUSDT",
+    "tf":  "15m",
+    "total_bars":  500,
+    "divergences":  0,
+    "strong_confirmations":  96,
+    "bias_changes":  90,
+    "full_json":  "XAUTUSDT_15m_full.json",
+    "trace_csv":  "XAUTUSDT_15m_trace.csv"
+}

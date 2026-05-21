@@ -1,0 +1,111 @@
+Ниже — компактная «шпаргалка» по вашему A/D‑контексту: что смотреть, как интерпретировать поля, готовые правила входа/выхода, типичные сценарии и рекомендации по параметрам/тюнингу. Используйте как чек‑лист на графике.
+
+1) Что означают ключевые поля (кратко)
+- profile — таймфрейм анализа (влияет на пороги). Всегда сверяйтесь с TF.
+- flow_mode — метод расчёта A/D (Chaikin, Williams и т.п.) — влияет на масштаб raw_flow.
+- ad_bias — общий объёмный уклон: bullish / neutral / bearish.
+- ad_confirmation — подтверждение тренда объёмом: none / weak / strong.
+- ad_divergence — обнаружена ли дивергенция цена ↔ A/D: bull / bear / none.
+- ad_regime — режим A/D: bull / bear / flat (режим рынка).
+- ad_quality — качество сигнала: low / medium / high (confidence).
+- cmf — Chaikin Money Flow (≈ −1..+1). |cmf| small ≈ 0.01–0.03 (weak), >0.05 (strong).
+- raw_flow / smoothed_flow — кумулятивный поток и его EMA (абсолютные единицы).
+- flow_slope — скорость изменения smoothed_flow (положительная = приток).
+- flow_z — z‑score (flowNorm) — показывает экстремальность в σ (|flow_z| ≈ 0.5 normal; >1 — заметно; >2 — экстремум).
+- flow_pct — относительное изменение / % прироста за профильный период.
+- comment — краткий текстовый вывод.
+
+2) Быстрая интерпретация комбинаций (решающее правило)
+- Buy bias: ad_bias == bullish AND cmf > 0 AND ad_quality >= medium AND (ad_confirmation == weak/strong) AND no bearish divergence => условный лонг рассматривается.
+- Strong buy: ad_bias == bullish AND cmf >= 0.05 AND flow_z >= 1 AND ad_quality == high AND no divergences => можно входить по импульсу/на откате.
+- Hold / wait: ad_bias neutral OR cmf ≈ 0 OR ad_quality == low OR ad_divergence != none => ждать подтверждения.
+- Sell / avoid long: ad_bias == bearish OR cmf < 0 (и |cmf| significant) OR bearish divergence detected => рассматривать выход/шорт.
+
+3) Практический чек‑лист для одного бара / принятия решения
+- Шаг 1 — базовая фильтрация:
+  - profile совпадает с TF вашей торговой стратегии?
+  - ad_quality >= medium? (если нет — не входить, только наблюдать)
+- Шаг 2 — объёмное подтверждение:
+  - cmf > 0 (желательно >0.02) и sign(cmf) == sign(ad_bias)?
+  - flow_slope > 0 (для бычьего bias) и flow_z > 0.5?
+- Шаг 3 — дивергенции:
+  - ad_divergence == none? (если bull/bear — анализировать осторожно)
+- Шаг 4 — окончательное правило входа:
+  - Если все условия подтверждены → вход на откате к ближайшей поддержке (или частями на импульсе если ad_quality high).
+- Шаг 5 — стоп/размер:
+  - Стоп ниже локального swing low / 1.5×ATR (для TF) — уменьшить размер если ad_quality medium/low.
+
+4) Примеры сценариев (конкретные примеры)
+- Пример A — подтверждённый бычий:
+  - cmf = 0.09, flow_z = 1.4, flow_slope > 0, ad_quality = medium, ad_divergence = none → Действие: ждать pullback к поддержке, входать по отскоку; SL = под swing, TP частями на ближайших ликвидных уровнях.
+- Пример B — нейтрально/слабая картина (как Image 1):
+  - cmf = −0.022, flow_z ≈ −0.39, ad_quality = low, ad_divergence = none → Действие: не входить; мониторить смену cmf на + и рост flow_z.
+- Пример C — шумная лавина (после фиксации багов):
+  - множество raw кандидатов, ad_quality medium, но flow_pct small и flow_z ~ 0 → Действие: ужесточить minFlowAbsFrac и profileAdMovePct; требовать cmfConfirm; увеличить pivot требования.
+
+5) Рекомендуемые пороги по TF (исходя из целей «редкие и значимые»)
+- 15m:
+  - profileAdMovePct ~ 0.03, minFlowAbsFrac ~ 0.01–0.02, pivotLeft/pivotRight 6/6, cooldown 6.
+- 1h:
+  - profileAdMovePct ~ 0.035–0.05, minFlowAbsFrac ~ 0.02–0.05, pivot 8/8, cooldown 12–15.
+- 4h:
+  - profileAdMovePct ~ 0.04–0.05, minFlowAbsFrac ~ 0.03–0.04, pivot 10/10.
+- 1d:
+  - profileAdMovePct ~ 0.045–0.06, minFlowAbsFrac ~ 0.035–0.06, pivot 12/12.
+
+6) Как считать absolute floor (важный багфикс)
+- minFlowAbsChange должен быть в одной шкале с flowAbsChange (нормализованным). Правильно:
+  - minFlowAbsChange = max(minFlowAbsFrac, 1e-6)
+  (то есть minFlowAbsFrac — уже в единицах нормализованного flow, а не умножается на flowScale).
+
+7) Правила фильтрации дивергенций (чтобы уменьшить шум)
+- Требовать одновременно:
+  - rawBull/rawBear (pivot pattern) TRUE,
+  - priceMovePct >= profilePriceMovePct,
+  - flowPctChange >= profileAdMovePct,
+  - flowAbsChange >= minFlowAbsFrac,
+  - atrOk (цена изменилась не меньше, чем X×ATR),
+  - cooldownOk.
+- Добавить подтверждение CMF: cmf * bias > 0 и |cmf| > cmfConfirmWeak (0.02) или > cmfConfirmStrong (0.05) — для отображения метки.
+- Помечать только с ad_quality >= medium (или показывать отличные «weak» в отдельной цветовой гамме).
+
+8) Быстрая шпаргалка действий (one‑liner)
+- buy signal = bullish bias + cmf>0.02 + flow_slope>0 + no bearish divergence + ad_quality>=medium → consider entry on pullback.
+- avoid = neutral bias OR cmf≈0 OR ad_quality==low → no trade.
+- exit / tighten = bearish divergence OR cmf becomes negative OR flow_slope turns negative.
+
+9) Рекомендации по тюнингу (пошагово)
+- Шаг 1: проверить, что minFlowAbsFrac вычисляется в единицах flowNorm (фикс из обсуждения).
+- Шаг 2: запустить sweep minFlowAbsFrac (0.01..0.06) и profileAdMovePct (0.02..0.06) на 1–2 символах (run_tuner.ps1) — выбрать комбинации дающие ~5–30 дивов на 500 баров (по TF).
+- Шаг 3: установить cmfConfirmWeak ≈ 0.02, cmfConfirmStrong ≈ 0.05 и требовать cmf sign согласованный с bias для маркеров.
+- Шаг 4: скорректировать pivotLeft/pivotRight (увеличивать для реже сигналов).
+
+10) Диагностика проблем (что смотреть если дивергенций 0 или их слишком много)
+- Если 0 дивов:
+  - проверь minFlowAbsFrac слишком высокий или profileAdMovePct слишком высокий;
+  - возможно minFlowAbsChange считался с flowScale (ошибка) — см. пункт 6.
+- Если слишком много:
+  - minFlowAbsFrac слишком низкий (в относ. ед.) или profileAdMovePct слишком низкий;
+  - pivotLeft/pivotRight слишком маленькие → делаем строже;
+  - добавить CMF фильтрацию и требование ad_quality >= medium.
+
+11) Быстрые практические команды / файлы (у вас уже есть)
+- run_tuner.ps1 — перебор minFlowAbsFrac/profileAdMovePct на выбранном profile (запускать из D:\telega\LOCAL_AI_ENGINE\tests\AD).
+- diag_simple.py — вывод подробных кандидатов (prevPrice, currPrice, prevFlow, currFlow, flowPctChange, flowAbsChange, flowScale, minFlowAbsThreshold, atr) — полезно при отладке.
+
+12) Визуальная палитра и метки (рекомендации UX)
+- Цвета: green for bullish bias, red for bearish, gray for neutral. Метки divergence — только для ad_quality >= medium (или отдельный стиль для low).
+- На графике показывать:
+  - A/D raw (тонко) и A/D EMA (толще),
+  - горизонтальные уровни liquidity magnet / top targets,
+  - подсказку CMF + flow_z рядом с таблицей.
+
+13) Короткая «cheat»‑карта (в одну строку)
+- Если ad_quality >= medium AND cmf >= 0.02 AND flow_slope > 0 AND ad_divergence == none → bullish setup; вход на подтверждённом откате; стоп под swing/ATR. Иначе — ждать.
+
+Если хочешь — могу:
+- подготовить PDF‑шпаргалку/Markdown с таблицами порогов и готовыми примерами (A/B/C) для распечатки;  
+- сгенерировать для тебя run_tuner конфигурацию с вашими целевыми символами и предложенным grid;  
+- дать quick‑paste готовых override‑блоков для indicator_test_full.py для 15m/1h/4h/1d (консервативные значения).
+
+Какая следующая вещь будет полезна: распечатка конкретного quick‑override блока для фиксации рекомендованных порогов, или подготовить tuner‑grid на определённые значения?
