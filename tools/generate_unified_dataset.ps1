@@ -89,7 +89,9 @@ foreach ($cf in $candFiles) {
     }
 
     # Теперь сериализация context_ohlcv_json как single-line-JSON
-    $ctxJson = (ConvertTo-Json $ctx -Compress)
+    $ctxJson = (ConvertTo-Json $ctx -Compress -EscapeHandling EscapeNonAscii)
+    # И затем экранировать для CSV:
+    $ctxJson = $ctxJson -replace '"', '\"'
 
     $highs = $src[$ctxStart..$ctxEnd] | ForEach-Object { [double]$_.high }
     $lows = $src[$ctxStart..$ctxEnd]  | ForEach-Object { [double]$_.low }
@@ -155,6 +157,9 @@ foreach ($cf in $candFiles) {
 if ($outRows.Count -eq 0) {
   Write-Host "No candidates found to export."
 } else {
+  foreach ($row in $outRows) {
+    $row.context_ohlcv_json = $row.context_ohlcv_json -replace '"', '""'  # CSV-экранирование
+  }
   $outRows | Export-Csv -Path $OutFile -NoTypeInformation -Encoding UTF8
   Write-Host "WROTE $OutFile (count: $($outRows.Count))"
 }
