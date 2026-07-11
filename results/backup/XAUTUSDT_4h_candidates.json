@@ -1,0 +1,10 @@
+﻿{
+  "file": "tests/AD/data/XAUTUSDT_4h.csv",
+  "profile": "4h",
+  "rows": 311,
+  "pivot_lows": 5,
+  "pivot_highs": 6,
+  "candidates_shown": 0,
+  "candidates": []
+}
+

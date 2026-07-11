@@ -7,7 +7,7 @@ param(
 # .\run_trace.ps1 ETHUSDT 1d
 
 $root = (Get-Location).Path
-$infile = Join-Path $root ("data\" + $symbol + "_" + $tf + ".csv")
+$infile = Join-Path $root ("data\ohlcv\current\" + $symbol + "_" + $tf + ".csv")
 $outfile = Join-Path $root ("traces\" + $symbol + "_" + $tf + "_trace.csv")
 
 if (-not (Test-Path $infile)) { Write-Error "Input not found: $infile"; exit 1 }

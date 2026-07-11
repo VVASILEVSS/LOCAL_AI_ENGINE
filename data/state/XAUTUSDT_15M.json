@@ -1,60 +1,77 @@
 {
-  "price": 4467.67,
-  "current_price": 4467.67,
-  "last_closed_price": 4467.67,
-  "prev_trend": "down",
+  "price": 4430.72,
+  "current_price": 4430.72,
+  "last_closed_price": 4430.72,
+  "prev_trend": "balance",
   "current_substructure": "correction_down",
-  "htf_structure": "correction",
-  "htf_structure_comment": "Коррекция (возврат к базе) на 1D/4H",
+  "htf_structure": "balance",
+  "htf_structure_comment": "Боковое движение на старших таймфреймах.",
   "trend_structure": "down",
-  "trend_structure_comment": "Направление структуры на младшем ТФ",
+  "trend_structure_comment": "Направление структуры указывает на снижение.",
   "ltf_structure": "correction_down",
-  "ltf_structure_comment": "Коррекция вниз на 15m",
+  "ltf_structure_comment": "Коррекция вниз на младшем таймфрейме.",
   "accumulation_state": null,
-  "accumulation_state_comment": "нет данных для определения",
+  "accumulation_state_comment": "",
   "wave_phase": "impulse_end_risk_down",
-  "wave_phase_comment": "Риск завершения импульса вниз с ABC",
+  "wave_phase_comment": "Риск завершения импульса с коррекцией вниз.",
   "abc_risk": "abc_risk_down",
-  "abc_risk_comment": "Риск завершения импульса вниз с ABC",
-  "global_structure": "correction",
-  "global_structure_comment": "Коррекция на рынке",
+  "abc_risk_comment": "Риск ABC вниз.",
+  "global_structure": "balance",
+  "global_structure_comment": "Боковик на глобальном уровне.",
   "key_zones": {
     "resistance": null,
-    "support": 4461.16
+    "support": 4475.71
   },
-  "key_zones_comment": "Цена внутри диапазона поддержки без пробоя",
+  "key_zones_comment": "Цена находится под ключевым уровнем поддержки.",
   "tf_zones": {
-    "H4": {
-      "upper": 4511.1,
-      "lower": 4461.16
+    "<1H>": {
+      "upper": 4563.2,
+      "lower": 4401.4
     }
   },
-  "tf_zones_comment": "Диапазон на старшем ТФ",
+  "tf_zones_comment": "Диапазон на 1 часовой таймфрейме.",
   "tf_span_map": {
-    "H4": 49.94000000000051
+    "<1H>": 161.80000000000018
   },
   "confluence_levels": [
     {
-      "level": 4526.0,
+      "level": 4563.2,
       "timeframes": [
         "1H",
         "4H"
       ],
       "priority": "low",
-      "count": 3,
-      "spread": 7.0,
+      "count": 1,
+      "spread": 0.0,
+      "kind": "resistance"
+    },
+    {
+      "level": 4475.71,
+      "timeframes": [
+        "1H",
+        "4H"
+      ],
+      "priority": "medium",
+      "count": 2,
+      "spread": 0.0,
       "kind": "support"
     }
   ],
-  "signal_status": "no_signal",
-  "signal_status_comment": "Цена внутри диапазона поддержки без пробоя и объёма",
+  "signal_status": "false_breakout_down",
+  "signal_status_comment": "Выход за границу с возвратом внутрь и объёмное подтверждение.",
+  "entry_conditions": {
+    "aggressive": null,
+    "conservative": null,
+    "current_status": "false_breakout"
+  },
+  "entry_conditions_comment": "",
   "risk_management": {
     "primary": {
-      "sl": null,
-      "tp1": null,
-      "tp2": null,
-      "tp3": null,
-      "rr": null
+      "sl": 4502.60158,
+      "tp1": 4401.4,
+      "tp2": 4401.4,
+      "tp3": 4401.4,
+      "rr": 0.41
     },
     "alternative": {
       "sl": null,
@@ -64,42 +81,44 @@
       "rr": null
     }
   },
-  "scenario_status": "no_alternative",
-  "scenario_status_comment": "Цена внутри диапазона без подтверждённого выхода",
   "risk_management_comment": "",
-  "entry_conditions_comment": "",
-  "fact_feedback": "Нет подтверждённых фактов для сигнала.",
+  "scenario_status": "no_alternative",
+  "scenario_status_comment": "Основной сценарий подтверждён.",
+  "fact_feedback": "Выход за границу с возвратом внутрь и объёмное подтверждение.",
+  "confidence": "medium",
+  "confidence_reason": "Структура, объём, пробой на старших таймфреймах.",
+  "missing_data": [
+    "объёмный контекст"
+  ],
   "error": false,
   "state_diff": {
     "zone_status": "updated_inside_range",
-    "active_reference_tf": "H4",
+    "active_reference_tf": "H1",
     "broken_levels": [],
     "new_levels": [
-      4461.16,
-      4511.1
+      4563.2
     ],
     "structure_shifted": false,
     "needs_rebuild": false,
-    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H4. Новые уровни: 4461.16, 4511.1."
+    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H1. Новые уровни: 4563.2."
   },
   "state_context": {
     "zone_status": "updated_inside_range",
-    "active_reference_tf": "H4",
+    "active_reference_tf": "H1",
     "broken_levels": [],
     "new_levels": [
-      4461.16,
-      4511.1
+      4563.2
     ],
     "structure_shifted": false,
     "needs_rebuild": false,
-    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H4. Новые уровни: 4461.16, 4511.1.",
-    "price": 4467.67,
+    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: H1. Новые уровни: 4563.2.",
+    "price": 4430.72,
     "current_substructure": "correction_down",
-    "signal_status": "no_signal",
+    "signal_status": "false_breakout_down",
     "scenario_status": "no_alternative",
-    "previous_price": 4469.75
+    "previous_price": 4441.49
   },
   "symbol": "XAUTUSDT",
   "timeframe": "15M",
-  "saved_at": "2026-05-20T04:53:32.110172+00:00"
+  "saved_at": "2026-05-27T15:00:38.397875+00:00"
 }

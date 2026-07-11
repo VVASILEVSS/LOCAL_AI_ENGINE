@@ -1,0 +1,10 @@
+﻿{
+  "file": "tests/AD/data/XAUTUSDT_15m.csv",
+  "profile": "15m",
+  "rows": 500,
+  "pivot_lows": 15,
+  "pivot_highs": 12,
+  "candidates_shown": 0,
+  "candidates": []
+}
+

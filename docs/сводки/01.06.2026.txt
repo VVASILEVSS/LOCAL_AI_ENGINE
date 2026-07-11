@@ -1,0 +1,437 @@
+Ниже — подробная сводка за сегодня с путями, ролями скриптов и последовательностью работы.
+
+---
+
+# Сводка за сегодня
+
+## 1) Что мы сделали по A/D
+Мы начали переводить A/D-слой из “просто индикатора” в **интерпретируемый объёмный контекст** для `LOCAL_AI_ENGINE`.
+
+### Уже определили и зафиксировали:
+- A/D должен быть не 1:1 копией Pine, а **устойчивым Python-слоем**
+- он должен выдавать:
+  - `bias`
+  - `volume_confirmation`
+  - `divergence`
+  - `strength`
+  - `comment`
+- он должен быть пригоден для:
+  - `core/auto_chart.py`
+  - `core/ollama_client.py`
+  - дальнейшей логики Wyckoff / Liquidity Magnet
+
+---
+
+## 2) Что было найдено и подтверждено по Pine-скрипту
+
+### Файл:
+- `LOCAL_AI_ENGINE A/D Context v20.10`  
+  (Pine Script, рабочий эталон)
+
+### Что в нём уже есть:
+- regular divergence
+- hidden divergence
+- volume filter
+- divergence strength score
+- live / pending / historical divergences
+- regime / bias
+- info table
+- alerts
+- presets под:
+  - P1: 15m
+  - P2: 1H
+  - P3: 4H
+
+### Важный вывод:
+Pine-скрипт уже является **эталонной смысловой моделью**, а Python-слой должен повторять **смысл**, а не bar-by-bar визуальную механику.
+
+---
+
+## 3) Что мы сделали в Python A/D слое
+
+### Новый файл:
+```text
+core/volume_filters.py
+```
+
+### Назначение:
+- интерпретируемый A/D-контекст
+- bullish / bearish / neutral bias
+- volume confirmation
+- divergence detection
+- strength score
+- краткий комментарий
+- TF-aware summary
+
+### Что он возвращает:
+```json
+{
+  "bias": "bullish|bearish|neutral",
+  "volume_confirmation": "strong|weak|none",
+  "divergence": "regular_bullish|regular_bearish|hidden_bullish|hidden_bearish|none",
+  "divergence_type": "...",
+  "strength": 0.0,
+  "volume_ratio": 1.0,
+  "cmf": 0.0,
+  "flow_z": 0.0,
+  "flow_pct": 0.5,
+  "regime": "flat|transition|volatile",
+  "atr_ok": true,
+  "comment": "...",
+  "signals": [...]
+}
+```
+
+---
+
+## 4) Что мы начали встраивать в основной pipeline
+
+### Файл:
+```text
+core/auto_chart.py
+```
+
+### Что было сделано:
+- добавлен импорт:
+```python
+from core.volume_filters import analyze_volume_context
+```
+
+- в `fetch_and_plot(...)` добавлено вычисление:
+```python
+volume_context = analyze_volume_context(df, timeframe=tf)
+```
+
+- в `metrics` добавлено:
+```python
+metrics["volume_context"] = volume_context
+```
+
+- в заголовок/контекст добавлен короткий A/D summary:
+```python
+volume_short = (
+    f"A/D={volume_context.get('bias', 'neutral')} | "
+    f"conf={volume_context.get('volume_confirmation', 'none')} | "
+    f"div={volume_context.get('divergence', 'none')} | "
+    f"str={volume_context.get('strength', 0.0)}/10 | "
+    f"CMF={volume_context.get('cmf', 0.0)} | "
+    f"VR={volume_context.get('volume_ratio', 1.0)}"
+)
+```
+
+---
+
+## 5) Что было исправлено по `volume_context`
+Появлялась ошибка Pylance:
+- `volume_context is possibly unbound`
+
+### Решение:
+Добавили дефолтный `volume_context` в начале `fetch_and_plot(...)`, чтобы он существовал всегда, даже если fallback на Binance.
+
+---
+
+## 6) Что мы выяснили по candidate dataset
+
+### Основные файлы:
+```text
+tests/AD/diag_candidates.py
+tests/AD/diag_simple.py
+tests/AD/diag_pivots.py
+```
+
+### Что увидели:
+- CSV читается
+- pivots находятся
+- но candidates часто остаются пустыми
+- причина — слишком жёсткие фильтры / autotune / пороговые настройки
+- unified dataset из-за этого тоже не наполняется как надо
+
+---
+
+## 7) Что мы поняли про autotune
+### Файл:
+```text
+tools/autotune_diag.py
+```
+
+### Вывод:
+Сейчас он использует хрупкую схему:
+- временная подмена исходника
+- инъекция overrides в текст
+- зависимость от комментариев и anchor-строк
+
+### Рекомендация:
+Сделать проще:
+- `diag_candidates.py` должен принимать `overrides`
+- `autotune_diag.py` должен вызывать `analyze(..., overrides=params)`
+- без temp-source patching
+
+---
+
+## 8) Что показали скрины Pine-настроек
+
+### Рабочие параметры BTC, найденные экспериментально:
+#### Preset / TF
+- `P2 TF = 60`
+- `P2 Pivot Left = 9`
+- `P2 Pivot Right = 9`
+- `P2 Min Price % = 0.0075`
+- `P2 Min Flow % = 0.004`
+- `P2 Min ATR mult = 0.4`
+- `P2 Cooldown = 10`
+
+#### Regime
+- `Regime Lookback = 11`
+- `Min EMA Slope % = 0.08`
+- `Min EMA Range % = 0.12`
+- `Regime Confirm Bars = 3`
+
+#### Bias Weights
+- `Weight: Flow Slope = 60`
+- `Weight: CMF Score = 25`
+- `Weight: Regime = 15`
+- `Bias Threshold = 2`
+
+### Вывод:
+Это **эталонные рабочие значения для BTC**, и они показали, что:
+- Python candidate thresholds были слишком жёсткими
+- autotune не должен ломать рабочий диапазон
+- нужен адаптивный auttune под инструмент
+
+---
+
+## 9) Что мы решили по autotune стратегии
+### Правильный подход:
+- не ручная подкрутка под каждый тикер
+- не 1:1 жёсткая копия Pine
+- а **инструмент-адаптивный autotune**
+
+### Он должен учитывать:
+- волатильность
+- объём
+- шумность структуры
+- частоту pivot-ов
+- класс инструмента:
+  - BTC-like
+  - ETH-like
+  - XAU-like
+  - default
+
+---
+
+## 10) Как должна выглядеть последовательность работы скриптов
+
+Ниже — рекомендуемая схема пайплайна.
+
+```text
+[1] core/data_provider.py
+      |
+      v
+[2] data/ohlcv/current/*.csv
+      |
+      v
+[3] tests/AD/diag_candidates.py
+      |
+      |-- (raw candidates, pivot checks, flow conditions)
+      v
+[4] tools/autotune_diag.py
+      |
+      |-- (подбор параметров по инструменту/TF)
+      v
+[5] tools/v11generate_unified_dataset.ps1
+      |
+      |-- (сбор candidate JSON -> unified dataset)
+      v
+[6] tools/normalize_dataset.py
+      |
+      |-- (приведение к единому формату)
+      v
+[7] tools/validate_ad_dataset.py
+      |
+      |-- (проверка корректности и полноты)
+      v
+[8] core/volume_filters.py
+      |
+      |-- (Python A/D context)
+      v
+[9] core/auto_chart.py
+      |
+      |-- (добавляет volume_context в chart metrics)
+      v
+[10] core/ollama_client.py
+      |
+      |-- (передаёт A/D в prompt и JSON reasoning)
+      v
+[11] handlers.py / scheduler.py
+      |
+      |-- (Telegram / автоанализ / финальный вывод)
+```
+
+---
+
+## 11) Роли основных файлов в A/D цепочке
+
+### `core/volume_filters.py`
+- считает A/D context
+- основа Python-слоя
+
+### `core/auto_chart.py`
+- собирает chart context
+- включает A/D в metrics
+
+### `core/ollama_client.py`
+- получает A/D context в prompt
+- использует его как часть reasoning
+
+### `core/state_tracker.py`
+- хранит изменения состояния
+- может учитывать объёмный контекст при обновлении сигнала
+
+### `tests/AD/diag_candidates.py`
+- генерирует raw candidates
+- отправная точка dataset pipeline
+
+### `tests/AD/diag_simple.py`
+- упрощённая диагностика и проверка логики
+
+### `tests/AD/diag_pivots.py`
+- pivot / structure diagnostics
+
+### `tools/autotune_diag.py`
+- подбирает параметры под инструмент и TF
+
+### `tools/v11generate_unified_dataset.ps1`
+- собирает единый dataset из candidate JSON
+
+### `tools/normalize_dataset.py`
+- унифицирует формат dataset
+
+### `tools/validate_ad_dataset.py`
+- валидирует dataset
+
+---
+
+## 12) Что ещё осталось сделать
+
+### P0
+- упростить autotune
+- сделать `diag_candidates.py` принимающим `overrides`
+- привести candidate dataset к устойчивому виду
+
+### P1
+- подключить A/D context в `core/ollama_client.py`
+- добавить A/D block в prompt
+
+### P2
+- связать A/D с Wyckoff / Liquidity Magnet
+- использовать A/D как фильтр усиления / ослабления сценариев
+
+---
+
+## 13) Итог по сегодняшнему дню
+Сегодня мы:
+- зафиксировали рабочий смысл A/D;
+- сделали Python-слой `core/volume_filters.py`;
+- начали интеграцию в `core/auto_chart.py`;
+- разобрали проблему candidate dataset;
+- выяснили, что autotune должен стать проще и адаптивнее;
+- пришли к выводу, что нужно сначала стабилизировать dataset, а потом подключать его в общий pipeline.
+
+---
+
+# Короткий вывод
+Сейчас правильный порядок такой:
+
+```text
+CSV / current data
+→ diag_candidates.py
+→ autotune_diag.py
+→ unified dataset
+→ normalize / validate
+→ core/volume_filters.py
+→ core/auto_chart.py
+→ core/ollama_client.py
+→ handlers.py / scheduler.py
+```
+
+Понял, это важное уточнение.
+
+## Значит сейчас статус такой
+
+### Liquidity Magnet:
+- **не реализован в Python-пайплайне**
+- **есть только Pine Script как референс / прототип**
+- в `LOCAL_AI_ENGINE` он пока не является рабочим модулем
+
+---
+
+# Как это правильно отразить в сводке
+Нужно разделять:
+
+## 1) Реальный код проекта
+То, что уже работает в Python:
+- `core/auto_chart.py`
+- `core/ollama_client.py`
+- `core/volume_filters.py`
+- `core/state_tracker.py`
+- `tests/AD/*`
+- `tools/*`
+
+## 2) Референсные Pine-скрипты
+То, что пока только как эталон:
+- **A/D Context v20.10**
+- **Liquidity Magnet Pine Script**
+
+---
+
+# Как теперь правильно формулировать роль Liquidity Magnet
+Не как готовый модуль, а как:
+
+> **внешний референсный Pine-скрипт, по которому позже будет строиться Python-реализация или упрощённая внутренняя версия**
+
+---
+
+# Что это меняет
+## Сейчас A/D должен:
+- быть самостоятельным Python-контекстом;
+- не зависеть от Liquidity Magnet как от уже существующего Python-модуля;
+- при желании позже использовать Liquidity Magnet Pine как референс для структуры.
+
+---
+
+# Что я рекомендую изменить в документации
+Везде, где раньше писал:
+- “A/D усиливает Liquidity Magnet”
+- “A/D как фильтр к Liquidity Magnet”
+
+лучше писать так:
+
+### Правильно:
+- **A/D можно использовать как будущий фильтр для Liquidity Magnet**
+- **Liquidity Magnet пока существует только как Pine-референс**
+- **интеграция будет на следующем этапе после Python-реализации самого слоя**
+
+---
+
+# Обновлённый вывод
+Сейчас архитектура выглядит так:
+
+## Реализовано:
+- ZigZag experiment
+- A/D Python context
+- chart / LLM pipeline
+- diagnostics / dataset tooling
+
+## Только как референс:
+- Liquidity Magnet Pine Script
+
+---
+
+# Что делать дальше
+Тогда следующий логичный шаг:
+1. довести A/D Python слой
+2. стабилизировать candidate dataset
+3. только потом решать, как переводить Liquidity Magnet из Pine в Python
+
+---
+

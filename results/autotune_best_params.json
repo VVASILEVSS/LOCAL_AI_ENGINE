@@ -1,0 +1,92 @@
+{
+  "BTCUSDT": {
+    "15m": {
+      "pivotLeft": 12,
+      "pivotRight": 12,
+      "minFlowAbsFrac": 0.06,
+      "minFlowPct": 0.25,
+      "minPriceMovePct": 0.01
+    },
+    "1h": {
+      "pivotLeft": 16,
+      "pivotRight": 16,
+      "minFlowAbsFrac": 0.08,
+      "minFlowPct": 0.2,
+      "minPriceMovePct": 0.01
+    },
+    "4h": {
+      "pivotLeft": 18,
+      "pivotRight": 18,
+      "minFlowAbsFrac": 0.1,
+      "minFlowPct": 0.18,
+      "minPriceMovePct": 0.015
+    },
+    "1d": {
+      "pivotLeft": 20,
+      "pivotRight": 20,
+      "minFlowAbsFrac": 0.12,
+      "minFlowPct": 0.15,
+      "minPriceMovePct": 0.02
+    }
+  },
+  "ETHUSDT": {
+    "15m": {
+      "pivotLeft": 12,
+      "pivotRight": 12,
+      "minFlowAbsFrac": 0.06,
+      "minFlowPct": 0.25,
+      "minPriceMovePct": 0.01
+    },
+    "1h": {
+      "pivotLeft": 16,
+      "pivotRight": 16,
+      "minFlowAbsFrac": 0.08,
+      "minFlowPct": 0.2,
+      "minPriceMovePct": 0.01
+    },
+    "4h": {
+      "pivotLeft": 18,
+      "pivotRight": 18,
+      "minFlowAbsFrac": 0.1,
+      "minFlowPct": 0.18,
+      "minPriceMovePct": 0.015
+    },
+    "1d": {
+      "pivotLeft": 20,
+      "pivotRight": 20,
+      "minFlowAbsFrac": 0.12,
+      "minFlowPct": 0.15,
+      "minPriceMovePct": 0.02
+    }
+  },
+  "XAUTUSDT": {
+    "15m": {
+      "pivotLeft": 12,
+      "pivotRight": 12,
+      "minFlowAbsFrac": 0.06,
+      "minFlowPct": 0.25,
+      "minPriceMovePct": 0.01
+    },
+    "1h": {
+      "pivotLeft": 16,
+      "pivotRight": 16,
+      "minFlowAbsFrac": 0.08,
+      "minFlowPct": 0.2,
+      "minPriceMovePct": 0.01
+    },
+    "4h": {
+      "pivotLeft": 18,
+      "pivotRight": 18,
+      "minFlowAbsFrac": 0.1,
+      "minFlowPct": 0.18,
+      "minPriceMovePct": 0.015
+    },
+    "1d": {
+      "pivotLeft": 20,
+      "pivotRight": 20,
+      "minFlowAbsFrac": 0.12,
+      "minFlowPct": 0.15,
+      "minPriceMovePct": 0.02
+    }
+  }
+}

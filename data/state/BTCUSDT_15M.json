@@ -1,123 +1,31 @@
 {
-  "price": 76782.0,
-  "current_price": 76782.0,
-  "last_closed_price": 76782.0,
-  "prev_trend": "down",
-  "current_substructure": "correction_down",
-  "htf_structure": "correction",
-  "htf_structure_comment": "Коррекция (возврат к базе) на 4H и 1D таймфреймах.",
-  "trend_structure": "down",
-  "trend_structure_comment": "Направление структуры на 15m таймфрейме - bearish",
-  "ltf_structure": "correction_down",
-  "ltf_structure_comment": "Коррекция вниз на 15m таймфрейме.",
-  "accumulation_state": null,
-  "accumulation_state_comment": "",
-  "wave_phase": "impulse_end_risk_down",
-  "wave_phase_comment": "Риск завершения импульса и ABC-коррекции вниз",
-  "abc_risk": "abc_risk_down",
-  "abc_risk_comment": "Риск завершения коррекции вниз",
-  "global_structure": "trend",
-  "global_structure_comment": "Направленное движение вниз на 4H и 1D таймфреймах.",
-  "key_zones": {
-    "resistance": null,
-    "support": 76516.74
-  },
-  "key_zones_comment": "Цена находится под ключевым уровнем поддержки",
-  "tf_zones": {
-    "H4": {
-      "upper": 82828.7,
-      "lower": 73669.0
-    },
-    "M15": {
-      "upper": 77757.5,
-      "lower": 76014.2
-    }
-  },
-  "tf_zones_comment": "Цены находятся внутри диапазона на 4H и 15m таймфреймах.",
-  "tf_span_map": {
-    "H4": 9159.699999999997,
-    "M15": 1743.300000000003
-  },
-  "confluence_levels": [
-    {
-      "level": 76791.27,
-      "timeframes": [
-        "15M"
-      ],
-      "priority": "medium",
-      "count": 3,
-      "spread": 0.48,
-      "kind": "support"
-    }
-  ],
-  "signal_status": "false_breakout_down",
-  "signal_status_comment": "Выход за границу с возвратом внутрь и объёмное подтверждение",
-  "entry_conditions": {
-    "aggressive": null,
-    "conservative": [
-      76516.74,
-      "retest"
-    ],
-    "current_status": "false_breakout_down"
-  },
-  "entry_conditions_comment": "Выход за границу с возвратом внутрь и объёмное подтверждение",
-  "risk_management": {
-    "primary": {
-      "sl": 76910.6145,
-      "tp1": 76516.74,
-      "tp2": 76014.2,
-      "tp3": 73669.0,
-      "rr": 2.06
-    },
-    "alternative": {
-      "sl": 76401.567,
-      "tp1": 76856.06,
-      "tp2": 77135.4,
-      "tp3": 77757.5,
-      "rr": 0.19
-    }
-  },
-  "risk_management_comment": "Выход за границу с возвратом внутрь и объёмное подтверждение",
-  "scenario_status": "alternative_active",
-  "scenario_status_comment": "Основной сценарий подтверждается",
-  "fact_feedback": "Цена вышла за границу с возвратом внутрь и объёмное подтверждение, риск завершения импульса и ABC-коррекции вниз",
-  "confidence": "high",
-  "confidence_reason": "Направление структуры на 15m таймфрейме - bearish, выход за границу с возвратом внутрь и объёмное подтверждение",
-  "missing_data": [
-    "ATR",
-    "RSI"
-  ],
-  "error": false,
+  "error": true,
+  "message": "Не удалось распарсить JSON от модели.",
+  "raw": "{\n  \"price\": null,\n  \"current_price\": 75325.84,\n  \"last_closed_price\": 75325.92,\n\n  \"prev_trend\": \"balance\",\n  \"current_substructure\": \"accumulation\",\n\n  \"htf_structure\": \"balance\",\n  \"htf_structure_comment\": \"Боковое движение на 1D/4H таймфреймах.\"\n\n  \"trend_structure\": \"unknown\",\n  \"trend_structure_comment\": \"\"\n\n  \"ltf_structure\": \"correction_down\",\n  \"ltf_structure_comment\": \"Коррекция вниз на 15m таймфрейме.\"\n\n  \"accumulation_state\": \"accumulation\",\n  \"accumulation_state_comment\": \"Накопление на балансе у 50% Фибоначчи\"\n\n  \"wave_phase\": \"impulse_end_risk_down\",\n  \"wave_phase_comment\": \"Риск завершения импульса вниз с ABC-фазой.\"\n\n  \"abc_risk\": \"abc_risk_down\",\n  \"abc_risk_comment\": \"\"\n\n  \"global_structure\": \"balance\",\n  \"global_structure_comment\": \"Боковое движение на макроуровне\"\n\n  \"key_zones\": { \"resistance\": null, \"support\": [75310.9] },\n  \"key_zones_comment\": \"Цена близка к поддержке.\"\n\n  \"tf_zones\": {\n    \"<4h>\": { \"upper\": 82000, \"lower\": 74000 }\n  },\n  \"tf_zones_comment\": \"\"\n\n  \"tf_span_map\": { \"<15m>\": null },\n  \"confluence_levels\": [\n    {\n      \"level\": 75316.7,\n      \"timeframes\": [\"1H\", \"4H\"],\n      \"priority\": \"medium\",\n      \"count\": 2,\n      \"spread\": 0.8x,\n      \"kind\": \"support\"\n    }\n  ],\n\n  \"signal_status\": \"false_breakout_down\",\n  \"signal_status_comment\": \"Выход за границу с возвратом внутрь и объёмное подтверждение.\"\n\n  \"entry_conditions\": {\n    \"aggressive\": null,\n    \"conservative\": null,\n    \"current_status\": \"false_breakout\"\n  },\n  \"entry_conditions_comment\": \"\"\n\n  \"risk_management\": {\n    \"primary\": { \"sl\": null, \"tp1\": null, \"tp2\": null, \"tp3\": null, \"rr\": null },\n    \"alternative\": { \"sl\": null, \"tp1\": null, \"tp2\": null, \"tp3\": null, \"rr\": null }\n  },\n  \"risk_management_comment\": \"\"\n\n  \"scenario_status\": \"primary_valid\",\n  \"scenario_status_comment\": \"\"\n\n  \"fact_feedback\": \"Выход за границу с возвратом внутрь и объёмное подтверждение.\",\n  \"confidence\": \"medium\",\n  \"confidence_reason\": \"Фактический пробой, объём, сессия высокая волатильность\",\n  \"missing_data\": [\"ATR\", \"RSI\"]\n}",
   "state_diff": {
-    "zone_status": "updated_inside_range",
-    "active_reference_tf": "M15",
+    "zone_status": "unknown",
+    "active_reference_tf": "unknown",
     "broken_levels": [],
-    "new_levels": [
-      76014.2,
-      77757.5
-    ],
+    "new_levels": [],
     "structure_shifted": false,
     "needs_rebuild": false,
-    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: M15. Новые уровни: 76014.2, 77757.5."
+    "comment": "Недостаточно данных для точного определения события."
   },
   "state_context": {
-    "zone_status": "updated_inside_range",
-    "active_reference_tf": "M15",
+    "zone_status": "unknown",
+    "active_reference_tf": "unknown",
     "broken_levels": [],
-    "new_levels": [
-      76014.2,
-      77757.5
-    ],
+    "new_levels": [],
     "structure_shifted": false,
     "needs_rebuild": false,
-    "comment": "Зоны обновились внутри старого диапазона. Активный ориентир: M15. Новые уровни: 76014.2, 77757.5.",
-    "price": 76782.0,
-    "current_substructure": "correction_down",
-    "signal_status": "false_breakout_down",
-    "scenario_status": "alternative_active",
-    "previous_price": 76779.39
+    "comment": "Недостаточно данных для точного определения события.",
+    "price": null,
+    "current_substructure": "unknown",
+    "signal_status": "unknown",
+    "scenario_status": "unknown",
+    "previous_price": 75039.59
   },
   "symbol": "BTCUSDT",
   "timeframe": "15M",
-  "saved_at": "2026-05-20T04:52:19.279843+00:00"
+  "saved_at": "2026-05-27T15:29:25.080541+00:00"
 }

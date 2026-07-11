@@ -1,0 +1,25 @@
+{
+  "file": "tests/AD/data/ETHUSDT_4h.csv",
+  "profile": "4h",
+  "rows": 500,
+  "pivot_lows": 7,
+  "pivot_highs": 10,
+  "candidates_shown": 1,
+  "candidates": [
+    {
+      "type": "bear",
+      "i": 322,
+      "time": "2026-04-17 16:00:00",
+      "prevPrice": 2273.87,
+      "currPrice": 2464.91,
+      "priceMovePct": 0.08401535707846093,
+      "prevFlow": -1.1356692978046907,
+      "currFlow": -1.5535169804833828,
+      "flowPctChange": 0.3679307730572746,
+      "flowAbsChange": 0.4178476826786921,
+      "flowScale": 95307.30396245058,
+      "minFlowAbsThreshold": 0.013830905232618257,
+      "atr": 42.33785714285721
+    }
+  ]
+}

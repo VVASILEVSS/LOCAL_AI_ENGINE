@@ -1,0 +1,10 @@
+﻿{
+  "file": "tests/AD/data/BTCUSDT_1d.csv",
+  "profile": "1d",
+  "rows": 500,
+  "pivot_lows": 9,
+  "pivot_highs": 7,
+  "candidates_shown": 0,
+  "candidates": []
+}
+

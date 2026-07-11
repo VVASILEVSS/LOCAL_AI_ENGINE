@@ -1,0 +1,55 @@
+{
+  "file": "tests/AD/data/ETHUSDT_1h.csv",
+  "profile": "1h",
+  "rows": 500,
+  "pivot_lows": 11,
+  "pivot_highs": 11,
+  "candidates_shown": 3,
+  "candidates": [
+    {
+      "type": "bull",
+      "i": 79,
+      "time": "2026-04-29 18:00:00",
+      "prevPrice": 2258.24,
+      "currPrice": 2220.36,
+      "priceMovePct": 0.01677412498228694,
+      "prevFlow": -0.9117806017287157,
+      "currFlow": 0.1361574020490761,
+      "flowPctChange": 1.1493313213627538,
+      "flowAbsChange": 1.0479380037777917,
+      "flowScale": 15994.226285452582,
+      "minFlowAbsThreshold": 0.05210528294029079,
+      "atr": 21.087142857142812
+    },
+    {
+      "type": "bull",
+      "i": 280,
+      "time": "2026-05-08 03:00:00",
+      "prevPrice": 2297.59,
+      "currPrice": 2265.61,
+      "priceMovePct": 0.013918932446607104,
+      "prevFlow": -1.0097169405559534,
+      "currFlow": -0.43079550480188633,
+      "flowPctChange": 0.5733502256932632,
+      "flowAbsChange": 0.5789214357540671,
+      "flowScale": 8036.675104462945,
+      "minFlowAbsThreshold": 0.019133703418693557,
+      "atr": 14.359999999999966
+    },
+    {
+      "type": "bull",
+      "i": 389,
+      "time": "2026-05-12 16:00:00",
+      "prevPrice": 2311.83,
+      "currPrice": 2256.27,
+      "priceMovePct": 0.024032908994173423,
+      "prevFlow": 0.5168313402314051,
+      "currFlow": 1.1503191074619334,
+      "flowPctChange": 1.2257146924311744,
+      "flowAbsChange": 0.6334877672305284,
+      "flowScale": 57477.44714690943,
+      "minFlowAbsThreshold": 0.0035228347478524296,
+      "atr": 13.4171428571429
+    }
+  ]
+}

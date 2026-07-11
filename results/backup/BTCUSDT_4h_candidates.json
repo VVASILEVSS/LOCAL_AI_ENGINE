@@ -1,0 +1,26 @@
+﻿{
+  "file": "tests/AD/data/BTCUSDT_4h.csv",
+  "profile": "4h",
+  "rows": 500,
+  "pivot_lows": 9,
+  "pivot_highs": 9,
+  "candidates_shown": 1,
+  "candidates": [
+    {
+      "type": "bear",
+      "i": 322,
+      "time": "2026-04-17 16:00:00",
+      "prevPrice": 69310.0,
+      "currPrice": 78333.0,
+      "priceMovePct": 0.1301832347424614,
+      "prevFlow": -1.0058362210610214,
+      "currFlow": -1.5577061046136298,
+      "flowPctChange": 0.5486677373483927,
+      "flowAbsChange": 0.5518698835526084,
+      "flowScale": 6293.501955771281,
+      "minFlowAbsThreshold": 0.011805042911561285,
+      "atr": 1120.750714285715
+    }
+  ]
+}
+

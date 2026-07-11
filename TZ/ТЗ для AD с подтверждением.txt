@@ -1,0 +1,358 @@
+# Обновлённое техническое задание: A/D слой для LOCAL_AI_ENGINE
+
+## 1. Цель
+Собрать A/D как **интерпретируемый объёмный контекст**, который:
+- определяет bullish / bearish / neutral volume bias;
+- показывает volume confirmation;
+- выявляет divergence;
+- оценивает силу/слабость движения;
+- помогает отличать накопление и распределение;
+- усиливает или ослабляет сигналы Liquidity Magnet;
+- работает на нескольких таймфреймах;
+- даёт понятный контекст для LLM, Telegram и визуальной диагностики.
+
+---
+
+## 2. Что уже сделано
+
+### 2.1 Pine-скрипт A/D Context v20.10
+У тебя уже есть рабочий TradingView/Pine слой:
+
+- `LOCAL_AI_ENGINE A/D Context v20.10`
+
+Он уже умеет:
+- regular divergence;
+- hidden divergence;
+- volume filter;
+- divergence strength score;
+- live / pending / historical divergences;
+- regime / bias;
+- таблицу состояния;
+- alertcondition;
+- пресеты под 15m / 1H / 4H.
+
+### 2.2 Python data pipeline
+Уже подготовлено:
+- единая папка OHLCV:
+  - `data/ohlcv/current/`
+  - `data/ohlcv/archive/`
+- единый поставщик:
+  - `core/data_provider.py`
+
+### 2.3 Graph / context layer
+Уже существует и используется:
+- `core/auto_chart.py`
+- `core/ollama_client.py`
+
+### 2.4 Диагностические AD-скрипты
+Уже приведены в рабочее состояние:
+- `tests/AD/diag_pivots.py`
+- `tests/AD/diag_simple.py`
+- `tests/AD/diag_candidates.py`
+
+### 2.5 Unified dataset pipeline
+Уже есть сборка:
+- `tools/generate_unified_dataset.ps1`
+- `tools/v9generate_unified_dataset.ps1`
+- `tools/v10generate_unified_dataset.ps1`
+- `tools/v11generate_unified_dataset.ps1`
+
+---
+
+## 3. Скрипты, задействованные в A/D контуре
+
+Ниже — актуальный список ролей.
+
+### 3.1 `core/volume_filters.py`
+**Назначение:** основной Python-слой A/D.  
+**Должен отвечать за:**
+- A/D bias;
+- CMF / flow-context;
+- volume confirmation;
+- divergence detection;
+- strength score;
+- TF-aware summary;
+- интерпретацию объёма относительно цены.
+
+**Связан с:**
+- `core/auto_chart.py`
+- `core/ollama_client.py`
+- `core/wyckoff.py` или `core/market_phase.py`
+- `core/liquidity_heatmap.py`
+
+---
+
+### 3.2 `core/auto_chart.py`
+**Назначение:** сбор рыночного контекста и графиков.  
+**Сейчас отвечает за:**
+- получение OHLCV;
+- расчёт базовых метрик;
+- формирование chart context;
+- передачу контекста в LLM;
+- использование `OhlcvDataProvider`.
+
+**Нужно доработать для A/D:**
+- добавить вызов `analyze_volume_context(...)`;
+- передавать A/D summary в `prev_ctx`;
+- не ломать Telegram/LM Studio pipeline.
+
+---
+
+### 3.3 `core/ollama_client.py`
+**Назначение:** запрос к LLM и сбор JSON-ответа.  
+**Сейчас отвечает за:**
+- prompt;
+- парсинг JSON;
+- нормализацию риска;
+- форматирование ответа.
+
+**Нужно доработать для A/D:**
+- добавить A/D поля в prompt;
+- использовать A/D как часть reasoning;
+- учитывать divergence / volume confirmation в итоговой интерпретации.
+
+---
+
+### 3.4 `core/state_tracker.py`
+**Назначение:** отслеживание изменений состояния между анализами.  
+**Связан с:**
+- зонами;
+- state diff;
+- retrace / retest / false breakout / rebuild.
+
+**Нужно для A/D:**
+- учитывать, подтверждается ли переход состояния объёмом;
+- хранить A/D state snapshot при необходимости.
+
+---
+
+### 3.5 `core/wyckoff.py` или `core/market_phase.py`
+**Назначение:** фазовая классификация рынка.  
+**Нужно для A/D:**
+- связать bias с фазой;
+- использовать volume confirmation в accumulation / distribution;
+- различать absorption / exhaustion / confirmation.
+
+---
+
+### 3.6 `core/liquidity_heatmap.py`
+**Назначение:** ликвидностный слой.  
+**Нужно для A/D:**
+- сравнивать divergence и volume confirmation с зонами ликвидности;
+- усиливать/ослаблять сценарии;
+- использовать как контекст для ложных пробоев.
+
+---
+
+### 3.7 `tests/AD/diag_pivots.py`
+**Назначение:** диагностика pivot/divergence pipeline.  
+**Нужно для A/D:**
+- проверка pivot-логики;
+- отладка качества кандидатов;
+- контроль raw divergence условий.
+
+---
+
+### 3.8 `tests/AD/diag_simple.py`
+**Назначение:** упрощённая диагностика дивергенций.  
+**Нужно для A/D:**
+- быстрый анализ CSV;
+- сравнительная диагностика;
+- вспомогательная проверка порогов.
+
+---
+
+### 3.9 `tests/AD/diag_candidates.py`
+**Назначение:** генерация первых raw divergence candidates.  
+**Нужно для A/D:**
+- тестирование условий дивергенции;
+- генерация кандидатов для unified dataset;
+- отладка фильтров и autotune.
+
+---
+
+### 3.10 `tools/generate_unified_dataset.ps1` и версии `v9/v10/v11`
+**Назначение:** сбор unified dataset из candidate JSON.  
+**Нужно для A/D:**
+- объединение диагностических данных;
+- подготовка датасета для анализа / обучения / тестов.
+
+---
+
+### 3.11 `tests/AD/run_trace.ps1`
+**Назначение:** запуск trace-пайплайна.  
+**Нужно для A/D:**
+- запуск по новым CSV в `data/ohlcv/current`;
+- формирование trace CSV для анализа.
+
+---
+
+### 3.12 TradingView Pine Script `LOCAL_AI_ENGINE A/D Context v20.10`
+**Назначение:** визуальный эталон A/D логики.  
+**Нужно для A/D:**
+- использовать как reference behavior;
+- сравнивать с Python-реализацией;
+- не переписывать, а зеркалить смысл в Python.
+
+---
+
+## 4. Что осталось сделать
+
+### 4.1 Формализовать Python A/D слой
+Нужно создать/обновить:
+- `core/volume_filters.py`
+
+Чтобы он возвращал structured context:
+- `bias`
+- `confirmation`
+- `divergence`
+- `strength`
+- `volume_ratio`
+- `cmf`
+- `flow_z`
+- `regime`
+- `comment`
+
+---
+
+### 4.2 Встроить A/D в `auto_chart.py`
+Нужно:
+- вызвать `analyze_volume_context(df, timeframe=...)`;
+- добавить результат в `metrics` или `prev_ctx`;
+- передать этот контекст в `ollama_client.py`.
+
+---
+
+### 4.3 Обновить prompt в `ollama_client.py`
+Нужно:
+- добавить A/D block в пользовательский prompt;
+- явно объяснить модели, как трактовать divergence и volume confirmation;
+- запретить противоречия между A/D и signal_status без объяснения.
+
+---
+
+### 4.4 Связать A/D с Liquidity Magnet
+Нужно:
+- использовать A/D как фильтр усиления / ослабления;
+- bearish A/D против bullish Magnet = warning;
+- bullish A/D против bearish Magnet = absorption / false breakdown clue.
+
+---
+
+### 4.5 Согласовать TF-иерархию
+Нужно, чтобы Python A/D:
+- работал на нескольких TF;
+- возвращал локальный / среднесрочный / старший bias;
+- позволял LLM видеть иерархию, а не один слой.
+
+---
+
+## 5. Как это встраивается в LOCAL_AI_ENGINE
+
+## Поток данных
+1. `core/data_provider.py`
+   - обновляет OHLCV CSV в `data/ohlcv/current/`
+
+2. `core/auto_chart.py`
+   - читает CSV;
+   - считает базовые метрики;
+   - вызывает `core/volume_filters.py`
+
+3. `core/volume_filters.py`
+   - считает A/D context;
+   - возвращает structured summary
+
+4. `core/ollama_client.py`
+   - получает:
+     - price context
+     - zone context
+     - ZigZag context
+     - A/D context
+     - state context
+   - строит ответ модели
+
+5. `core/state_tracker.py`
+   - отслеживает изменения по уровням и структуре
+
+6. `core/liquidity_heatmap.py` / `core/wyckoff.py`
+   - усиливают интерпретацию режима рынка
+
+---
+
+## 6. Рекомендуемая архитектура A/D слоя
+
+### Вход
+- OHLCV
+- volume
+- timeframe
+- ATR
+- moving averages
+- optional flow smoothing
+
+### Выход
+```json
+{
+  "bias": "bullish|bearish|neutral",
+  "confirmation": "strong|weak|none",
+  "divergence": "regular_bullish|regular_bearish|hidden_bullish|hidden_bearish|none",
+  "strength": 0.0,
+  "volume_ratio": 1.42,
+  "cmf": 0.031,
+  "flow_z": 1.28,
+  "regime": "bull|bear|flat|transition",
+  "comment": "краткая интерпретация"
+}
+```
+
+---
+
+## 7. Критерии готовности
+
+A/D слой готов, если:
+
+- bias совпадает с объёмной картиной;
+- divergence определяется стабильно;
+- confirmation не противоречит цене;
+- сильное движение не помечается как weak без причины;
+- Python-контекст соответствует Pine-скрипту;
+- LLM получает A/D как отдельный и понятный блок;
+- A/D помогает фильтровать Liquidity Magnet.
+
+---
+
+## 8. Приоритет работ
+
+### P0
+- создать/обновить `core/volume_filters.py`
+- встроить A/D в `core/auto_chart.py`
+- передать A/D в `core/ollama_client.py`
+
+### P1
+- связать A/D с `state_tracker`
+- связать A/D с `wyckoff` / `market_phase`
+
+### P2
+- связать A/D с `liquidity_heatmap`
+- расширить diagnostics / unified dataset под A/D
+
+---
+
+## 9. Итог
+Сейчас A/D уже существует как сильный визуально-аналитический слой в Pine Script.  
+Следующий шаг — **сделать Python-эквивалент этого слоя**, чтобы LOCAL_AI_ENGINE использовал:
+- один и тот же смысл A/D;
+- единый контекст в Telegram;
+- единый контекст для LLM;
+- единый фильтр для Liquidity Magnet и Wyckoff.
+
+---
+
+Если хочешь, следующим сообщением я сразу сделаю **вариант Б**:
+### готовый `core/volume_filters.py`
+с:
+- bias,
+- confirmation,
+- divergence,
+- strength,
+- TF-aware summary,
+- совместимостью с `auto_chart.py` и `ollama_client.py`.

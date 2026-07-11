@@ -1,0 +1,26 @@
+﻿{
+  "file": "tests/AD/data/BTCUSDT_1h.csv",
+  "profile": "1h",
+  "rows": 500,
+  "pivot_lows": 10,
+  "pivot_highs": 9,
+  "candidates_shown": 1,
+  "candidates": [
+    {
+      "type": "bear",
+      "i": 122,
+      "time": "2026-05-01 13:00:00",
+      "prevPrice": 77904.93,
+      "currPrice": 78914.12,
+      "priceMovePct": 0.01295412241561609,
+      "prevFlow": 0.7479106327865122,
+      "currFlow": 0.44501131488824897,
+      "flowPctChange": 0.4049939987746163,
+      "flowAbsChange": 0.3028993178982632,
+      "flowScale": 1637.4341057560541,
+      "minFlowAbsThreshold": 0.055893259723082955,
+      "atr": 424.1800000000024
+    }
+  ]
+}
+

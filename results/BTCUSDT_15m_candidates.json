@@ -1,0 +1,40 @@
+{
+  "file": "tests/AD/data/BTCUSDT_15m.csv",
+  "profile": "15m",
+  "rows": 500,
+  "pivot_lows": 12,
+  "pivot_highs": 11,
+  "candidates_shown": 2,
+  "candidates": [
+    {
+      "type": "bull",
+      "i": 155,
+      "time": "2026-05-13 16:00:00",
+      "prevPrice": 80412.15,
+      "currPrice": 78754.65,
+      "priceMovePct": 0.020612556684530884,
+      "prevFlow": -0.7678936214306069,
+      "currFlow": -0.5533018180163363,
+      "flowPctChange": 0.2794551190755827,
+      "flowAbsChange": 0.21459180341427064,
+      "flowScale": 1103.715200394672,
+      "minFlowAbsThreshold": 0.03080356996048123,
+      "atr": 253.05857142857192
+    },
+    {
+      "type": "bull",
+      "i": 339,
+      "time": "2026-05-15 14:00:00",
+      "prevPrice": 80314.0,
+      "currPrice": 78659.0,
+      "priceMovePct": 0.020606619020345145,
+      "prevFlow": 1.059655193201745,
+      "currFlow": 1.412653263210868,
+      "flowPctChange": 0.3331254093537165,
+      "flowAbsChange": 0.35299807000912287,
+      "flowScale": 1331.9542417287603,
+      "minFlowAbsThreshold": 0.007403527537942417,
+      "atr": 294.0499999999998
+    }
+  ]
+}

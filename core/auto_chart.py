@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from core.utils import is_futures
 from core.volume_filters import analyze_volume_context
+from core.data_provider import OhlcvDataProvider, OhlcvRequest
 import matplotlib
 
 
@@ -544,19 +545,70 @@ def fetch_and_plot(symbol: str, timeframe: str = "1h", limit: int = 100) -> tupl
         tf = timeframe.strip().lower()
 
         market_type = 'future' if is_futures(symbol) else 'spot'
-        exchange = ccxt.binance({'options': {'defaultType': market_type}})
-        bars = exchange.fetch_ohlcv(symbol, tf, limit=limit)
-        df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        provider = OhlcvDataProvider()
+        exchange = None  # чтобы Pylance не ругался на possibly unbound
+        volume_context = {
+            "bias": "neutral",
+            "volume_confirmation": "none",
+            "divergence": "none",
+            "divergence_type": "none",
+            "strength": 0.0,
+            "volume_ratio": 1.0,
+            "cmf": 0.0,
+            "flow_z": 0.0,
+            "flow_pct": 0.5,
+            "regime": "transition",
+            "atr_ok": False,
+            "comment": "A/D context unavailable.",
+            "timeframe": tf,
+            "tf_weight": 1.0,
+            "signals": [],
+            "last_price": 0.0,
+            "last_flow": 0.0,
+        }
+
+        try:
+            req = OhlcvRequest(
+                symbol=symbol,
+                timeframe=tf,
+                limit=limit,
+                market_type=market_type,
+                force_refresh=False,
+            )
+            raw_df, _ = provider.ensure_ohlcv(req)
+
+            df = raw_df.copy()
+            if "timestamp" not in df.columns and "time" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["time"], errors="coerce", utc=True)
+
+            df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce", utc=True).dt.tz_convert(None)
+
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            df = df.dropna(subset=["timestamp", "open", "high", "low", "close", "volume"]).reset_index(drop=True)
+
+            volume_context = analyze_volume_context(df, timeframe=tf)
+
+        except Exception as e:
+            logger.warning(f"CSV source unavailable for {symbol} {tf}: {e}. Falling back to Binance fetch.")
+            exchange = ccxt.binance({'options': {'defaultType': market_type}})
+            bars = exchange.fetch_ohlcv(symbol, tf, limit=limit)
+            df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            df = df.dropna(subset=["timestamp", "open", "high", "low", "close", "volume"]).reset_index(drop=True)
+            volume_context = analyze_volume_context(df, timeframe=tf)
 
         last = df.iloc[-1]
 
-        ticker = exchange.fetch_ticker(symbol)
-        raw_price = ticker.get('last') or last['close']
+        ticker = exchange.fetch_ticker(symbol) if exchange is not None else None
+        raw_price = (ticker.get('last') if ticker else None) or last['close']
         current_price = round(float(raw_price), 2)
 
         metrics = get_technical_metrics(df, timeframe=timeframe)
-
+        metrics["volume_context"] = volume_context
         metrics['current_price'] = current_price
         metrics['last_closed_price'] = round(float(last['close']), 2)
         metrics['symbol'] = symbol
@@ -575,9 +627,21 @@ def fetch_and_plot(symbol: str, timeframe: str = "1h", limit: int = 100) -> tupl
                 if fib_vals[lvl] != 'N/A':
                     ax1.axhline(y=fib_vals[lvl], color=color, linestyle='--', alpha=0.6, linewidth=1)
 
+        volume_short = (
+            f"A/D={volume_context.get('bias', 'neutral')} | "
+            f"conf={volume_context.get('volume_confirmation', 'none')} | "
+            f"div={volume_context.get('divergence', 'none')} | "
+            f"str={volume_context.get('strength', 0.0)}/10 | "
+            f"CMF={volume_context.get('cmf', 0.0)} | "
+            f"VR={volume_context.get('volume_ratio', 1.0)}"
+        )
+
         ax2.bar(df['timestamp'], df['volume'], color=colors, width=0.005, alpha=0.6)
         phase_text = metrics['phase'].split(' ', 1)[-1] if ' ' in metrics['phase'] else metrics['phase']
-        ax1.set_title(f"{symbol} | {tf} | {phase_text} | Curr:{current_price} RSI:{metrics['rsi']} Vol:{metrics['vol_ratio']}x", fontsize=11)
+        ax1.set_title(
+            f"{symbol} | {tf} | {phase_text} | Curr:{current_price} RSI:{metrics['rsi']} Vol:{metrics['vol_ratio']}x | {volume_short}",
+            fontsize=11
+        )
         ax1.grid(True, alpha=0.2)
         ax2.grid(True, alpha=0.2)
         ax1.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))

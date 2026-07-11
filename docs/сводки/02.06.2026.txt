@@ -1,0 +1,163 @@
+## Сводка за 02.06.2026 — LOCAL_AI_ENGINE, A/D Divergence Module
+
+---
+
+### 1. divergence_context.py v2.4 — удаление лимитов
+
+**Проблема:** `get_multi_symbol_context()` имела `max_symbols=3` — блокировало работу TG бота с произвольными тикерами Binance.
+
+**Решение:**
+- Убран `max_symbols` полностью
+- Вместо него — контроль через размер промпта:
+  - `max_per_tf` = 5 (сигналов на символ×TF)
+  - `max_total_signals` = 30 (общий лимит)
+  - `max_prompt_chars` = 4000 (жёсткий cap, авто-сокращение)
+- Добавлен **TTL-кэш** (30 мин) — JSON не перечитывается каждый запрос
+- Добавлены `discover_available_symbols()` и `discover_available_tfs()` для TG бота
+
+---
+
+### 2. ollama_client.py — multi-symbol интеграция
+
+**Изменения:**
+- Импорт: `get_multi_context` + `get_multi_symbol_context`
+- `analyze_multi_images()` теперь читает из `prev_analysis`:
+  - `divergence_symbols` (str → [str], backward compatible)
+  - Если 1 символ → `get_multi_context()`, если N → `get_multi_symbol_context()`
+  - Все параметры настраиваемые: `divergence_max_per_tf`, `divergence_max_total_signals`, `divergence_max_prompt_chars`
+
+**Формат multi-symbol вывода:**
+```
+A/D Divergence (3 symbols, 1h, 4h, lookback 168h):
+[BTCUSDT]
+  4H (3, 2 reg, 1 hid):
+    1. BULL (regular) | Str: 8.2/10 | Move: +1.8% | Bias: +4.3 | Vol: 2.1x
+[ETHUSDT]
+  1H (2, ...):
+    ...
+```
+
+---
+
+### 3. autotune_diag.py — эволюция от v2.1 до v2.2
+
+**v2.1:**
+- `best_params` мерджится с полным профилем (`_profile_defaults(profile)`)
+- Результат: 18 параметров вместо 6 (cooldown, regime, bias — включены)
+- JSON записывается в `utf-8-sig` для совместимости с Windows
+
+**v2.2:**
+- **Auto-pair mode** по умолчанию — TF извлекается из имени файла (`BTCUSDT_1h.csv → 1h`)
+- **Убран Cartesian product** — несколько файлов + `--profiles` теперь с WARNING
+- **Merge с существующим best_params** — перезапуск автотюна не теряет предыдущие TF
+
+---
+
+### 4. export_pine_params.py — эволюция от v1.0 до v2.1
+
+| Проблема | Исправление |
+|----------|-------------|
+| 6 параметров (только tuneable) | Автотюн v2.1 мерджит с профилем → 17 параметров |
+| Кракозябры в PowerShell | `utf-8-sig` (BOM) при записи и чтении |
+| Дубли секций "Pivot Detection" / "Timing / Volume" | Явные маркеры в `param_order` |
+| Нет экспорта дефолтных параметров | `--defaults` флаг |
+| KeyError в `--defaults` | `setdefault` вместо `[]` |
+
+**Новый синтаксис:**
+```powershell
+python tools/export_pine_params.py --defaults --symbol BTCUSDT
+python tools/export_pine_params.py --defaults --symbol BTCUSDT --tfs 4h 1d
+```
+
+---
+
+### 5. run_candidates.py — utf-8-sig fix
+
+Чтение `autotune_best_params.json` переведено на `utf-8-sig` — корректная работа с BOM.
+
+---
+
+### 6. .vscode/settings.json
+
+Создан для Pylance — указывает на `.venv` Python interpreter, устраняет ошибку `Import "httpx" could not be resolved`.
+
+---
+
+### 7. Результаты тестирования — BTCUSDT все 4 TF
+
+| TF | Глубина данных | Кандидаты (дефолт) | Автотюн | Статус |
+|----|---------------|--------------------|---------|----|
+| **15m** | 52 дня (5000 bars) | 94 | ✅ score=3.741, n=54 | OK |
+| **1h** | 208 дней (5000 bars) | 95 | ✅ score=5.608, n=95 | OK |
+| **4h** | 833 дня (5000 bars) | 104 | ✅ score=9.736, n=66 | OK |
+| **1d** | 2.7 года (1000 bars) | 17 | ⚠️ score=1.360, n=26, penalty=12.0 | Мало, но нормально для дневки |
+
+**Лучшие автотюн-параметры:**
+
+| TF | pivotRight | profPricePct | profFlowPct | profAtrMult | minFlowAbsFrac |
+|----|-----------|-------------|-------------|-------------|---------------|
+| 15m | 9 | 0.008 | 0.005 | 0.2 | 0.01 |
+| 1h | 11 | 0.01 | 0.006 | 0.3 | 0.02 |
+| 4h | 11 | 0.015 | 0.008 | 0.3 | 0.03 |
+| 1d | 7 | 0.012 | 0.005 | 0.4 | 0.04 |
+
+---
+
+### 8. ETHUSDT — тест дефолтных профилей
+
+| TF | Кандидаты | Статус |
+|----|-----------|--------|
+| 1h | 131 | ✅ дефолт работает хорошо |
+| 4h | 134 | ✅ дефолт работает хорошо |
+
+---
+
+### 9. Артефакты на диске
+
+```
+data/ohlcv/current/
+  BTCUSDT_15m.csv   (5000 rows)
+  BTCUSDT_1h.csv    (5000 rows)
+  BTCUSDT_4h.csv    (5000 rows)
+  BTCUSDT_1d.csv    (1000 rows)
+  ETHUSDT_1h.csv    (5000 rows)
+  ETHUSDT_4h.csv    (5000 rows)
+
+results/
+  BTCUSDT_15m_candidates.json  (94 candidates)
+  BTCUSDT_1h_candidates.json   (95 candidates)
+  BTCUSDT_4h_candidates.json  (104 candidates)
+  BTCUSDT_1d_candidates.json  (17 candidates)
+  ETHUSDT_1h_candidates.json  (131 candidates)
+  ETHUSDT_4h_candidates.json  (134 candidates)
+  autotune_best_params.json    (BTCUSDT: 15m, 4h, 1d)
+  autotune_summary.json
+
+results/pine_exports/BTCUSDT/
+  BTCUSDT_15m_params.pine
+  BTCUSDT_1h_params.pine
+  BTCUSDT_4h_params.pine
+  BTCUSDT_1d_params.pine
+```
+
+---
+
+### 10. Версии файлов на конец дня
+
+| Файл | Версия | Изменения |
+|------|--------|-----------|
+| `core/divergence_context.py` | v2.4 | unlimited symbols, TTL cache, prompt-size control |
+| `core/ollama_client.py` | — | multi-symbol import + integration |
+| `tools/autotune_diag.py` | v2.2 | auto-pair, merge, full profile export |
+| `tools/export_pine_params.py` | v2.1 | utf-8-sig, --defaults, чистые секции |
+| `tools/run_candidates.py` | v2.3 | utf-8-sig read |
+| `.vscode/settings.json` | NEW | Pylance interpreter |
+
+---
+
+### 11. Что НЕ сделано (pending)
+
+- 🔴 **BTCUSDT 1h** — нужно прогнать автотюн отдельно (потерялся при перезаписи best_params)
+- 🔴 **ETHUSDT 1h/4h** — автотюн (дефолт работает, но можно оптимизировать)
+- 🟡 **Полный экспорт Pine** — все символы × все TF после автотюна
+- 🟢 **Шаг 6: Liquidity Magnet** — по плану НЕ трогать

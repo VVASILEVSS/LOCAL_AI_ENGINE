@@ -1,8 +1,12 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # diag_candidates.py
 # Print detailed numeric info for first raw divergence candidates (bull/bear)
-import sys, json, math
+import sys
+import json
+import math
 from typing import Optional
+import os
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
@@ -38,8 +42,13 @@ def analyze(infile, profile="1d", max_out=20):
     if num_cols:
         df[num_cols] = df[num_cols].apply(pd.to_numeric, errors="coerce")
 
+    # Parse time with explicit format (US style with AM/PM) to avoid pandas warning
     if "time" in df.columns:
-        df["time"] = pd.to_datetime(df["time"], errors="coerce")
+        try:
+            df["time"] = pd.to_datetime(df["time"], format="%m/%d/%Y %I:%M:%S %p", errors="coerce")
+        except Exception:
+            # fallback to generic parsing if format differs
+            df["time"] = pd.to_datetime(df["time"], errors="coerce")
 
     n = len(df)
     small = 1e-12
@@ -67,13 +76,58 @@ def analyze(infile, profile="1d", max_out=20):
     atr_series = atr(df, 14).to_numpy(dtype=float)
     times = df["time"].astype(str).to_numpy() if "time" in df.columns else None
 
-    pivotLeft = 10 if profile=="15m" else 12
-    pivotRight = 10 if profile=="15m" else 12
+    # stronger pivot settings per TF
+    pivotLeft = 12 if profile=="15m" else 16 if profile=="1h" else 18 if profile=="4h" else 20
+    pivotRight = pivotLeft
+
+    # --- Set defaults BEFORE possible AUTOTUNE override to avoid possibly-unbound warnings ---
+    minFlowAbsFrac = 0.03 if profile=="15m" else 0.04 if profile=="1h" else 0.05 if profile=="4h" else 0.06
+    minPriceMovePct = 0.008 if profile in ("15m", "1h") else 0.012 if profile=="4h" else 0.015
+    minFlowPct = 0.12 if profile=="15m" else 0.15 if profile=="1h" else 0.18 if profile=="4h" else 0.20
+    # --- End defaults ---
+
+    # --- AUTOTUNE OVERRIDE: apply per-symbol/profile mapping if available ---
+    try:
+        mapping_path = os.path.join("results", "autotune_best_params.json")
+        if os.path.exists(mapping_path):
+            _mapping = json.load(open(mapping_path, "r", encoding="utf-8"))
+            # derive symbol from infile path (expects tests/AD/data/SYMBOL_profile.csv)
+            sym = None
+            try:
+                sym = os.path.basename(infile).split("_")[0].upper()
+            except Exception:
+                sym = None
+            if sym and sym in _mapping and profile in _mapping[sym]:
+                _p = _mapping[sym][profile]
+                # apply overrides if provided
+                if "pivotLeft" in _p:
+                    pivotLeft = max(8, int(_p["pivotLeft"]))
+                if "pivotRight" in _p:
+                    pivotRight = max(8, int(_p["pivotRight"]))
+                if "minFlowAbsFrac" in _p:
+                    minFlowAbsFrac = max(0.02, float(_p["minFlowAbsFrac"]))
+                if "minFlowPct" in _p:
+                    minFlowPct = max(0.10, float(_p["minFlowPct"]))
+                if "minPriceMovePct" in _p:
+                    minPriceMovePct = max(0.006, float(_p["minPriceMovePct"]))
+                # write override info to results/diag_log.txt (do not use stderr)
+                try:
+                    os.makedirs("results", exist_ok=True)
+                    with open("results/diag_log.txt","a",encoding="utf-8") as _lf:
+                        _lf.write(f"AUTOTUNE OVERRIDE applied for {sym} {profile}: {_p}\n")
+                except Exception:
+                    # ignore logging errors
+                    pass
+    except Exception:
+        # if mapping file is malformed or other I/O error, continue with defaults
+        pass
+    # --- end AUTOTUNE OVERRIDE ---
+
     pl, ph = detect_pivots(df["high"], df["low"], pivotLeft, pivotRight)
 
-    profPricePct = 0.015 if profile=="15m" else 0.012 if profile=="1h" else 0.02 if profile=="4h" else 0.03
-    profAdPct = 0.03 if profile=="15m" else 0.035 if profile=="1h" else 0.045 if profile=="4h" else 0.06
-    minFlowAbsFrac = 0.03 if profile=="15m" else 0.04 if profile=="1h" else 0.05 if profile=="4h" else 0.06
+    # sensitivity profiles (adjusted)
+    profPricePct = 0.015 if profile=="15m" else 0.015 if profile=="1h" else 0.025 if profile=="4h" else 0.035
+    profAdPct    = 0.03  if profile=="15m" else 0.05  if profile=="1h" else 0.06  if profile=="4h" else 0.06
 
     candidates = []
     prevPriceLow: Optional[float] = None
@@ -98,21 +152,33 @@ def analyze(infile, profile="1d", max_out=20):
                     localFlowStd = float(flowNormStd_arr[i]) if i < len(flowNormStd_arr) else small
                     minFlowAbsChange = max(localFlowStd * minFlowAbsFrac, small)
                     atrVal = float(atr_series[i]) if i < len(atr_series) else float(small)
-                    candidates.append({
-                        "type":"bull",
-                        "i": i,
-                        "time": str(times[i]) if times is not None else i,
-                        "prevPrice": float(prevPriceLow),
-                        "currPrice": float(currPrice),
-                        "priceMovePct": float(priceMovePct),
-                        "prevFlow": float(prevFlowLow),
-                        "currFlow": float(currFlow),
-                        "flowPctChange": float(flowPctChange),
-                        "flowAbsChange": float(flowAbsChange),
-                        "flowScale": float(flowScaleVal),
-                        "minFlowAbsThreshold": float(minFlowAbsChange),
-                        "atr": float(atrVal)
-                    })
+
+                    # additional checks to filter noise
+                    if priceMovePct < minPriceMovePct:
+                        # too small price move
+                        pass
+                    elif flowPctChange < minFlowPct:
+                        # too small relative flow change
+                        pass
+                    elif flowAbsChange < minFlowAbsChange:
+                        # below absolute flow threshold
+                        pass
+                    else:
+                        candidates.append({
+                            "type":"bull",
+                            "i": i,
+                            "time": str(times[i]) if times is not None else i,
+                            "prevPrice": float(prevPriceLow),
+                            "currPrice": float(currPrice),
+                            "priceMovePct": float(priceMovePct),
+                            "prevFlow": float(prevFlowLow),
+                            "currFlow": float(currFlow),
+                            "flowPctChange": float(flowPctChange),
+                            "flowAbsChange": float(flowAbsChange),
+                            "flowScale": float(flowScaleVal),
+                            "minFlowAbsThreshold": float(minFlowAbsChange),
+                            "atr": float(atrVal)
+                        })
             prevPriceLow = float(currPrice)
             prevFlowLow = float(currFlow)
 
@@ -130,21 +196,30 @@ def analyze(infile, profile="1d", max_out=20):
                     localFlowStd = float(flowNormStd_arr[i]) if i < len(flowNormStd_arr) else small
                     minFlowAbsChange = max(localFlowStd * minFlowAbsFrac, small)
                     atrVal = float(atr_series[i]) if i < len(atr_series) else float(small)
-                    candidates.append({
-                        "type":"bear",
-                        "i": i,
-                        "time": str(times[i]) if times is not None else i,
-                        "prevPrice": float(prevPriceHigh),
-                        "currPrice": float(currPrice),
-                        "priceMovePct": float(priceMovePct),
-                        "prevFlow": float(prevFlowHigh),
-                        "currFlow": float(currFlow),
-                        "flowPctChange": float(flowPctChange),
-                        "flowAbsChange": float(flowAbsChange),
-                        "flowScale": float(flowScaleVal),
-                        "minFlowAbsThreshold": float(minFlowAbsChange),
-                        "atr": float(atrVal)
-                    })
+
+                    # additional checks to filter noise
+                    if priceMovePct < minPriceMovePct:
+                        pass
+                    elif flowPctChange < minFlowPct:
+                        pass
+                    elif flowAbsChange < minFlowAbsChange:
+                        pass
+                    else:
+                        candidates.append({
+                            "type":"bear",
+                            "i": i,
+                            "time": str(times[i]) if times is not None else i,
+                            "prevPrice": float(prevPriceHigh),
+                            "currPrice": float(currPrice),
+                            "priceMovePct": float(priceMovePct),
+                            "prevFlow": float(prevFlowHigh),
+                            "currFlow": float(currFlow),
+                            "flowPctChange": float(flowPctChange),
+                            "flowAbsChange": float(flowAbsChange),
+                            "flowScale": float(flowScaleVal),
+                            "minFlowAbsThreshold": float(minFlowAbsChange),
+                            "atr": float(atrVal)
+                        })
             prevPriceHigh = float(currPrice)
             prevFlowHigh = float(currFlow)
 
@@ -159,3 +234,9 @@ def analyze(infile, profile="1d", max_out=20):
         "candidates_shown": len(candidates),
         "candidates": candidates
     }, indent=2))
+
+if __name__ == "__main__":
+    infile = sys.argv[1] if len(sys.argv) > 1 else "data/ohlcv/current/BTCUSDT_1h.csv"
+    profile = sys.argv[2] if len(sys.argv) > 2 else "1h"
+    max_out = int(sys.argv[3]) if len(sys.argv) > 3 else 20
+    analyze(infile, profile, max_out)

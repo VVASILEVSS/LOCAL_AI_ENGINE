@@ -1,0 +1,25 @@
+{
+  "file": "tests/AD/data/XAUTUSDT_1h.csv",
+  "profile": "1h",
+  "rows": 500,
+  "pivot_lows": 10,
+  "pivot_highs": 11,
+  "candidates_shown": 1,
+  "candidates": [
+    {
+      "type": "bear",
+      "i": 239,
+      "time": "2026-05-06 10:00:00",
+      "prevPrice": 4632.58,
+      "currPrice": 4709.98,
+      "priceMovePct": 0.016707752483497238,
+      "prevFlow": -1.0137320958003104,
+      "currFlow": -1.2406228771054344,
+      "flowPctChange": 0.2238173006902782,
+      "flowAbsChange": 0.22689078130512397,
+      "flowScale": 1962.2811376500267,
+      "minFlowAbsThreshold": 0.005526679555444458,
+      "atr": 18.611428571428537
+    }
+  ]
+}

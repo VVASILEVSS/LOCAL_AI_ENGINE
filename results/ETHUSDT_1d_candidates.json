@@ -1,0 +1,25 @@
+{
+  "file": "tests/AD/data/ETHUSDT_1d.csv",
+  "profile": "1d",
+  "rows": 500,
+  "pivot_lows": 7,
+  "pivot_highs": 7,
+  "candidates_shown": 1,
+  "candidates": [
+    {
+      "type": "bull",
+      "i": 67,
+      "time": "2025-03-11",
+      "prevPrice": 2125.01,
+      "currPrice": 1754.28,
+      "priceMovePct": 0.1744603554806802,
+      "prevFlow": 0.12004263374422647,
+      "currFlow": 0.9261028608209646,
+      "flowPctChange": 6.714782922825584,
+      "flowAbsChange": 0.8060602270767381,
+      "flowScale": 1575779.5599834132,
+      "minFlowAbsThreshold": 0.010395367880400951,
+      "atr": 223.97857142857134
+    }
+  ]
+}

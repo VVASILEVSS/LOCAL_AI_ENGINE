@@ -1,0 +1,15 @@
+AUTOTUNE OVERRIDE applied for BTCUSDT 15m: {'pivotLeft': 12, 'pivotRight': 12, 'minFlowAbsFrac': 0.06, 'minFlowPct': 0.25, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for BTCUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for BTCUSDT 4h: {'pivotLeft': 18, 'pivotRight': 18, 'minFlowAbsFrac': 0.1, 'minFlowPct': 0.18, 'minPriceMovePct': 0.015}
+AUTOTUNE OVERRIDE applied for BTCUSDT 1d: {'pivotLeft': 20, 'pivotRight': 20, 'minFlowAbsFrac': 0.12, 'minFlowPct': 0.15, 'minPriceMovePct': 0.02}
+AUTOTUNE OVERRIDE applied for ETHUSDT 15m: {'pivotLeft': 12, 'pivotRight': 12, 'minFlowAbsFrac': 0.06, 'minFlowPct': 0.25, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for ETHUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for ETHUSDT 4h: {'pivotLeft': 18, 'pivotRight': 18, 'minFlowAbsFrac': 0.1, 'minFlowPct': 0.18, 'minPriceMovePct': 0.015}
+AUTOTUNE OVERRIDE applied for ETHUSDT 1d: {'pivotLeft': 20, 'pivotRight': 20, 'minFlowAbsFrac': 0.12, 'minFlowPct': 0.15, 'minPriceMovePct': 0.02}
+AUTOTUNE OVERRIDE applied for XAUTUSDT 15m: {'pivotLeft': 12, 'pivotRight': 12, 'minFlowAbsFrac': 0.06, 'minFlowPct': 0.25, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for XAUTUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for XAUTUSDT 4h: {'pivotLeft': 18, 'pivotRight': 18, 'minFlowAbsFrac': 0.1, 'minFlowPct': 0.18, 'minPriceMovePct': 0.015}
+AUTOTUNE OVERRIDE applied for XAUTUSDT 1d: {'pivotLeft': 20, 'pivotRight': 20, 'minFlowAbsFrac': 0.12, 'minFlowPct': 0.15, 'minPriceMovePct': 0.02}
+AUTOTUNE OVERRIDE applied for BTCUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for BTCUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
+AUTOTUNE OVERRIDE applied for BTCUSDT 1h: {'pivotLeft': 16, 'pivotRight': 16, 'minFlowAbsFrac': 0.08, 'minFlowPct': 0.2, 'minPriceMovePct': 0.01}
