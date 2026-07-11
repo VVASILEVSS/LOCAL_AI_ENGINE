@@ -11,23 +11,7 @@ import pandas as pd
 import numpy as np
 
 
-def ema(series: pd.Series, span: int) -> pd.Series:
-    return series.ewm(span=span, adjust=False).mean()
-
-
-def atr(df: pd.DataFrame, n: int) -> pd.Series:
-    high = df["high"]
-    low = df["low"]
-    close = df["close"]
-    prev_close = close.shift(1)
-    tr1 = high - low
-    tr2 = (high - prev_close).abs()
-    tr3 = (low - prev_close).abs()
-    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-    return tr.rolling(window=n, min_periods=1).mean()
-
-
-def _safe_float(v: object) -> Optional[float]:
+def _safe_float(v) -> Optional[float]:
     try:
         if v is None:
             return None
@@ -39,6 +23,22 @@ def _safe_float(v: object) -> Optional[float]:
         return float(s)
     except Exception:
         return None
+
+
+def ema(series: pd.Series, span: int) -> pd.Series:
+    return series.ewm(span=span, adjust=False).mean()
+
+
+def atr(df: pd.DataFrame, n: int) -> pd.Series:
+    high = pd.to_numeric(df["high"], errors="coerce")
+    low = pd.to_numeric(df["low"], errors="coerce")
+    close = pd.to_numeric(df["close"], errors="coerce")
+    prev_close = close.shift(1)
+    tr1 = high - low
+    tr2 = (high - prev_close).abs()
+    tr3 = (low - prev_close).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    return tr.rolling(window=n, min_periods=1).mean()
 
 
 def detect_pivots(highs: pd.Series, lows: pd.Series, left: int, right: int):
@@ -53,33 +53,47 @@ def detect_pivots(highs: pd.Series, lows: pd.Series, left: int, right: int):
         high_center = _safe_float(highs.iat[i])
         low_center = _safe_float(lows.iat[i])
 
-        if high_center is not None and low_center is not None:
-            high_others = seg_high.drop(seg_high.index[seg_high.index == seg_high.index[left]])
-            low_others = seg_low.drop(seg_low.index[seg_low.index == seg_low.index[left]])
+        if high_center is None or low_center is None:
+            continue
 
-            if high_center == seg_high.max() and (len(high_others) == 0 or high_center > float(high_others.max())):
-                ph[i] = True
-            if low_center == seg_low.min() and (len(low_others) == 0 or low_center < float(low_others.min())):
-                pl[i] = True
+        high_others = seg_high.drop(labels=[seg_high.index[left]])
+        low_others = seg_low.drop(labels=[seg_low.index[left]])
+
+        high_max = _safe_float(seg_high.max())
+        low_min = _safe_float(seg_low.min())
+        high_others_max = _safe_float(high_others.max()) if len(high_others) > 0 else None
+        low_others_min = _safe_float(low_others.min()) if len(low_others) > 0 else None
+
+        if high_max is not None and high_center == high_max and (high_others_max is None or high_center > high_others_max):
+            ph[i] = True
+
+        if low_min is not None and low_center == low_min and (low_others_min is None or low_center < low_others_min):
+            pl[i] = True
 
     return pl, ph
 
 
 def analyze_file(
-    infile: str,
-    profile: str = "1h",
-    cmfLen: int = 20,
-    emaLen: int = 21,
-    atrLen: int = 14,
-    pivotLeftBase: int = 12,
-    pivotRightBase: int = 12,
+    infile,
+    profile="1h",
+    cmfLen=20,
+    emaLen=21,
+    atrLen=14,
+    pivotLeftBase=12,
+    pivotRightBase=12,
 ):
     df = pd.read_csv(Path(infile))
 
     if "time" in df.columns:
         df["time"] = pd.to_datetime(df["time"], errors="coerce")
 
-    df = df.reset_index(drop=True)
+    # Жёсткая нормализация типов
+    for col in ["open", "high", "low", "close", "volume"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+
     n = len(df)
     small = 1e-9
 
@@ -120,20 +134,23 @@ def analyze_file(
 
     for i in range(n):
         if pl_bool[i]:
-            currPriceLow = _safe_float(df["low"].iat[i]) or 0.0
-            currFlowLow = _safe_float(flowNorm.iat[i]) or 0.0
+            currPriceLow = _safe_float(df["low"].iat[i])
+            currFlowLow = _safe_float(flowNorm.iat[i])
+            if currPriceLow is None or currFlowLow is None:
+                continue
 
             if prevPriceLow is not None and prevFlowLow is not None:
                 raw = (currPriceLow < prevPriceLow) and (currFlowLow > prevFlowLow)
                 if raw:
                     raw_bull += 1
 
-                priceMovePct = abs(currPriceLow - prevPriceLow) / max(prevPriceLow, small)
+                priceMovePct = abs(currPriceLow - prevPriceLow) / max(abs(prevPriceLow), small)
                 if priceMovePct >= profPricePct:
                     price_ok_cnt += 1
 
                 flowPctChange = abs(currFlowLow - prevFlowLow) / max(abs(prevFlowLow), small)
-                minFlowAbsChange = max(abs(_safe_float(flowScale.iat[i]) or 0.0) * minFlowAbsFrac, 1e-9)
+                flow_scale_i = _safe_float(flowScale.iat[i]) or 0.0
+                minFlowAbsChange = max(abs(flow_scale_i) * minFlowAbsFrac, 1e-9)
                 flowAbsChange = abs(currFlowLow - prevFlowLow)
 
                 if flowPctChange >= profAdPct and flowAbsChange >= minFlowAbsChange:
@@ -148,20 +165,23 @@ def analyze_file(
             prevFlowLow = currFlowLow
 
         if ph_bool[i]:
-            currPriceHigh = _safe_float(df["high"].iat[i]) or 0.0
-            currFlowHigh = _safe_float(flowNorm.iat[i]) or 0.0
+            currPriceHigh = _safe_float(df["high"].iat[i])
+            currFlowHigh = _safe_float(flowNorm.iat[i])
+            if currPriceHigh is None or currFlowHigh is None:
+                continue
 
             if prevPriceHigh is not None and prevFlowHigh is not None:
                 raw = (currPriceHigh > prevPriceHigh) and (currFlowHigh < prevFlowHigh)
                 if raw:
                     raw_bear += 1
 
-                priceMovePct = abs(currPriceHigh - prevPriceHigh) / max(prevPriceHigh, small)
+                priceMovePct = abs(currPriceHigh - prevPriceHigh) / max(abs(prevPriceHigh), small)
                 if priceMovePct >= profPricePct:
                     price_ok_cnt += 1
 
                 flowPctChange = abs(currFlowHigh - prevFlowHigh) / max(abs(prevFlowHigh), small)
-                minFlowAbsChange = max(abs(_safe_float(flowScale.iat[i]) or 0.0) * minFlowAbsFrac, 1e-9)
+                flow_scale_i = _safe_float(flowScale.iat[i]) or 0.0
+                minFlowAbsChange = max(abs(flow_scale_i) * minFlowAbsFrac, 1e-9)
                 flowAbsChange = abs(currFlowHigh - prevFlowHigh)
 
                 if flowPctChange >= profAdPct and flowAbsChange >= minFlowAbsChange:
@@ -197,7 +217,6 @@ if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Usage: python diag_pivots.py INPUT_CSV PROFILE")
         sys.exit(1)
-
     infile = sys.argv[1]
     profile = sys.argv[2]
     res = analyze_file(infile, profile=profile)
