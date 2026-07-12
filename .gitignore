@@ -1,13 +1,43 @@
 # Секреты проекта
 .env
+.env.local
+.env.*.local
 
 # Данные и логи бота
 bot.log
 history_db.json
+*.log
+logs/
+
+# База данных (НЕ коммитить в Git — может содержать прогнозы/настройки)
+*.db
+*.sqlite
+*.sqlite3
 
 # Виртуальное окружение
 .venv/
+venv/
+ENV/
 
 # Кэш Python
 __pycache__/
 *.pyc
+*.pyo
+
+# Мусорные/временные файлы
+_junk/
+*.bak
+*.orig
+*.errbak
+*.prepatch.bak
+*.bak.*
+*.zip
+*.lnk
+*.tmp
+
+# IDE и ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
