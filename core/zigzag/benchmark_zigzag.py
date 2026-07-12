@@ -195,7 +195,14 @@ def run_benchmark(
     )
 
     for tf in timeframes:
-        bars = exchange.fetch_ohlcv(symbol, tf, limit=limit)
+        try:
+            bars = exchange.fetch_ohlcv(symbol, tf, limit=limit)
+        except Exception as e:
+            print(f"  {tf}: fetch failed ({type(e).__name__}), skipping")
+            continue
+        if not bars or len(bars) < 5:
+            print(f"  {tf}: insufficient data ({len(bars) if bars else 0} bars), skipping")
+            continue
         df = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 

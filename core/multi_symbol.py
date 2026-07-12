@@ -215,7 +215,7 @@ def _format_context(current_symbol: str, ctx: dict[str, Any]) -> str:
         elif v <= 40:
             hints.append("Fear — осторожность, возможны дальнейшие продажи")
         elif v >= 75:
-            hints.append("Extreme Greed — риск коррекции,慎重")
+            hints.append("Extreme Greed — риск коррекции, осторожность")
         elif v >= 60:
             hints.append("Greed — рынок оптимистичен, но возможен разворот")
 
