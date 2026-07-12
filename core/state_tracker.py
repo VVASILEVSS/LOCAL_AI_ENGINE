@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 STATE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "state")
+_STATE_MAX_AGE_DAYS = 30  # удалять state-файлы старше 30 дней
 
 
 ZONE_STATUS_VALUES = {
@@ -447,6 +448,7 @@ def build_state_context(state_diff: dict, current: dict, previous: dict | None =
 
 
 def update_and_save_state(symbol: str, timeframe: str, current: dict) -> dict:
+    _cleanup_old_states()
     previous = load_state(symbol, timeframe)
     state_diff = compare_state(previous, current)
     payload = dict(current or {})
@@ -454,3 +456,28 @@ def update_and_save_state(symbol: str, timeframe: str, current: dict) -> dict:
     payload["state_context"] = build_state_context(state_diff, payload, previous)
     save_state(symbol, timeframe, payload)
     return payload
+
+
+def _cleanup_old_states() -> int:
+    """Удаляет state-файлы старше _STATE_MAX_AGE_DAYS. Возвращает кол-во удалённых."""
+    import logging
+    _log = logging.getLogger(__name__)
+    removed = 0
+    now = datetime.now(timezone.utc)
+    try:
+        for fname in os.listdir(STATE_DIR):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(STATE_DIR, fname)
+            try:
+                mtime = datetime.fromtimestamp(os.path.getmtime(fpath), tz=timezone.utc)
+                if (now - mtime).days > _STATE_MAX_AGE_DAYS:
+                    os.remove(fpath)
+                    removed += 1
+            except Exception:
+                continue
+    except FileNotFoundError:
+        pass
+    if removed:
+        _log.info("GC: удалено %d старых state-файлов (старше %d дн.)", removed, _STATE_MAX_AGE_DAYS)
+    return removed

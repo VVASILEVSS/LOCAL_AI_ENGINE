@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -12,6 +14,12 @@ from typing import Optional
 
 import ccxt
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Retry конфигурация для Binance API
+_BINANCE_MAX_RETRIES = 3
+_BINANCE_RETRY_DELAYS = [1.0, 3.0, 7.0]  # секунд
 
 
 @dataclass
@@ -70,20 +78,48 @@ class OhlcvDataProvider:
         tf = self._normalize_tf(req.timeframe)
         market_type = req.market_type if req.market_type in ("future", "spot") else "future"
 
-        exchange = ccxt.binance({"options": {"defaultType": market_type}})
-        bars = exchange.fetch_ohlcv(req.symbol, tf, limit=req.limit)
+        last_exc: Exception | None = None
+        for attempt in range(1, _BINANCE_MAX_RETRIES + 1):
+            try:
+                exchange = ccxt.binance({
+                    "options": {"defaultType": market_type},
+                    "enableRateLimit": True,
+                })
+                bars = exchange.fetch_ohlcv(req.symbol, tf, limit=req.limit)
 
-        df = pd.DataFrame(
-            bars,
-            columns=["timestamp", "open", "high", "low", "close", "volume"],
-        )
+                df = pd.DataFrame(
+                    bars,
+                    columns=["timestamp", "open", "high", "low", "close", "volume"],
+                )
 
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-        df["time"] = df["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
+                df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+                df["time"] = df["timestamp"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Канонический порядок для всех downstream-скриптов
-        df = df[["time", "timestamp", "open", "high", "low", "close", "volume"]]
-        return df
+                # Канонический порядок для всех downstream-скриптов
+                df = df[["time", "timestamp", "open", "high", "low", "close", "volume"]]
+                return df
+
+            except (ccxt.NetworkError, ccxt.ExchangeNotAvailable, ccxt.RateLimitExceeded) as e:
+                last_exc = e
+                logger.warning(
+                    "Binance attempt %d/%d failed for %s %s: %s",
+                    attempt, _BINANCE_MAX_RETRIES, req.symbol, tf, e,
+                )
+                if attempt < _BINANCE_MAX_RETRIES:
+                    delay = _BINANCE_RETRY_DELAYS[min(attempt - 1, len(_BINANCE_RETRY_DELAYS) - 1)]
+                    import time
+                    time.sleep(delay)
+                continue
+
+            except Exception as e:
+                last_exc = e
+                logger.error("Binance fatal error for %s %s: %s", req.symbol, tf, e)
+                break
+
+        raise ConnectionError(
+            f"Binance API unavailable after {_BINANCE_MAX_RETRIES} attempts "
+            f"for {req.symbol} {tf}: {last_exc}"
+        ) from last_exc
 
     def _ensure_numeric(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()

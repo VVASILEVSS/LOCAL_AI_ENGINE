@@ -862,6 +862,27 @@ def enforce_risk_rules(data: dict) -> dict:
                 candidates.append(v)
 
     candidates.extend(_extract_zigzag_levels_from_context(data))
+
+    # Добавляем уровни из liquidity-magnet pools если есть
+    liquidity_pools = data.get("liquidity_pools") or data.get("liquidity_context", {})
+    if isinstance(liquidity_pools, dict):
+        for pool_key in ("resistance_pools", "support_pools", "equal_highs", "equal_lows", "pools"):
+            pools = liquidity_pools.get(pool_key) or []
+            if isinstance(pools, list):
+                for p in pools:
+                    if isinstance(p, dict):
+                        lvl = _safe_float(p.get("level") or p.get("price"))
+                        if lvl is not None:
+                            candidates.append(lvl)
+                    elif isinstance(p, (int, float)):
+                        candidates.append(float(p))
+    elif isinstance(liquidity_pools, list):
+        for p in liquidity_pools:
+            if isinstance(p, dict):
+                lvl = _safe_float(p.get("level") or p.get("price"))
+                if lvl is not None:
+                    candidates.append(lvl)
+
     candidates = sorted(set(round(x, 6) for x in candidates))
 
     # -----------------------------

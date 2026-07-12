@@ -297,6 +297,24 @@ async def run_hourly_analysis(bot: Bot):
             if not isinstance(ltf_volume, dict):
                 ltf_volume = {}
 
+            # Liquidity heatmap (лёгкий текстовый контекст)
+            try:
+                from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
+                from core.data_provider import OhlcvDataProvider
+                provider = OhlcvDataProvider()
+                ltf_tf = timeframes[-1]
+                try:
+                    ltf_df = provider.read_current_csv(symbol_id, ltf_tf)
+                    hm = build_liquidity_heatmap(ltf_df, current_price=live_price, symbol=symbol_id, timeframe=ltf_tf)
+                    heatmap_text = build_liquidity_context_text(hm)
+                except FileNotFoundError:
+                    heatmap_text = "Liquidity heatmap: CSV недоступен."
+            except Exception as e:
+                heatmap_text = f"Liquidity heatmap: ошибка ({type(e).__name__})."
+
+            # Добавляем heatmap в metrics
+            metrics_str += f"\n{heatmap_text}"
+
             prev_ctx = {
                 "metrics": metrics_str,
                 "tf_context": tf_context,
@@ -304,6 +322,7 @@ async def run_hourly_analysis(bot: Bot):
                 "tf_zones": tf_zones,
                 "zigzag_context": zigzag_context,
                 "volume_context": ltf_volume,
+                "heatmap_context": heatmap_text,
                 "current_price": live_price,
                 "last_closed_price": last_closed_price,
                 "prev_trend": prev_trend,
