@@ -197,8 +197,16 @@ def normalize_analysis(data: dict) -> dict:
     return data
 
 
-async def run_hourly_analysis(bot: Bot) -> None:
+async def run_hourly_analysis(
+    bot: Bot,
+    symbol_filter: str = "",
+    llm_api_key: str = "",
+    llm_base_url: str = "",
+    llm_model: str = "",
+) -> None:
     symbols = _get_symbols()
+    if symbol_filter:
+        symbols = [s for s in symbols if s == symbol_filter]
     timeframes = sort_timeframes(_get_timeframes())
     filter_active = get_setting("filter_mode", True)
 
@@ -364,7 +372,10 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 "multi_symbol": get_multi_symbol_context(symbol_id, cache_buster=cycle_id),
             }
 
-            parsed = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)
+            parsed = await analyze_multi_images(
+                chart_bytes_list, prev_analysis=prev_ctx,
+                llm_api_key=llm_api_key, llm_base_url=llm_base_url, llm_model=llm_model,
+            )
             parsed = normalize_analysis(parsed)
 
             # -----------------------------
