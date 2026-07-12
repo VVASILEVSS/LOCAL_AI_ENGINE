@@ -34,6 +34,13 @@ LLM_MODE = "cloud" if LLM_API_KEY else "local"
 # (БЕЗ /v1 — service добавляет сам, иначе будет /v1/v1/ → 404).
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 
+# --- A/B ТЕСТ ПРОМПТОВ (P3-4) ---
+# "A" = текущий промпт (strict fact-based + 2 few-shot примера)
+# "B" = альтернативный промпт (rules-based, без few-shot, приоритет signal_status)
+PROMPT_VARIANT = os.getenv("PROMPT_VARIANT", "A").upper().strip()
+if PROMPT_VARIANT not in ("A", "B"):
+    PROMPT_VARIANT = "A"
+
 # --- СИСТЕМНЫЙ ПРОМПТ ДЛЯ СЕРИИ + ДИНАМИКА ---
 SERIES_PROMPT = """Ты — старший трейдер-аналитик. Тебе прислана серия графиков одного актива на разных таймфреймах.
 ЗАДАЧА:

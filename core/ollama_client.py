@@ -10,7 +10,7 @@ import logging
 from collections import Counter
 from typing import List, Optional, Dict, Any, Tuple
 
-from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY
+from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY, PROMPT_VARIANT
 from core.ollama_service import generate as llm_generate, LLMError
 
 logger = logging.getLogger(__name__)
@@ -150,6 +150,44 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
 
 ВЕРНИ ТОЛЬКО ОДИН JSON-ОБЪЕКТ ПО ЭТОЙ СХЕМЕ. БЕЗ markdown, БЕЗ пояснений, БЕЗ комментариев вне JSON.
 """
+
+# --- P3-4: A/B тест промптов ---
+# Variant B: rules-based, без few-shot, акцент на приоритет signal_status.
+# Гипотеза: убирая few-shot примеры (которые стоят ~5000 токенов), LLM получает
+# меньше "якорей" и может лучше адаптироваться к контексту. Взволнованные правила
+# приоритета помогают избежать противоречий (false_breakout + accumulation одновременно).
+PRO_TA_SYSTEM_PROMPT_B = """Ты — алгоритмический трейдер. Работай СТРОГО ПО ФАКТУ.
+
+ПРИОРИТЕТ SIGNAL_STATUS (выбери ровно один):
+1. aggressive_breakout — пробой границы зоны с объёмом >1.5x, закрытие за границей.
+2. retest — цена вернулась к пробитой зоне, отскок с объёмом.
+3. false_breakout — выход за границу + возврат внутрь + объёмное подтверждение возврата.
+4. reversal — смена направления после тренда, подтверждение объёмом и структурой.
+5. accumulation — цена в диапазоне, объём <1.0x, нет пробоя.
+6. no_signal — цена между уровнями, объём низкий, пробоя нет.
+
+ЖЁСТКИЕ ПРАВИЛА:
+- Если signal_status = no_signal / accumulation / false_breakout → primary risk block = null.
+- Если signal_status = aggressive_breakout / retest → заполни entry_conditions + primary risk block.
+- false_breakout только при явном выходе за границу + возврате внутрь + объёме. Иначе → retest или no_signal.
+- TP1/TP2/TP3 бери из структурных уровней, ZigZag, confluence. Не выдумывай.
+- SL за структурным уровнем, не внутри зоны.
+- Фибо только для глубины коррекции, не для SL/TP.
+- Приоритет у старших ТФ: 1D > 4H > 1H > 15m.
+- Младший пробой не означает старший пробой.
+- ABC риск: если wave_phase = correction_up → abc_risk_down; correction_down → abc_risk_up.
+- Не выдумывай данные. Анализируй только закрытые свечи.
+- Все числа — number or null.
+
+ВЕРНИ ТОЛЬКО ОДИН JSON-ОБЪЕКТ ПО СХЕМЕ ИЗ USER PROMPT. БЕЗ markdown, БЕЗ пояснений.
+"""
+
+
+def _get_system_prompt() -> str:
+    """Выбор системного промпта по PROMPT_VARIANT (P3-4 A/B тест)."""
+    if PROMPT_VARIANT == "B":
+        return PRO_TA_SYSTEM_PROMPT_B
+    return PRO_TA_SYSTEM_PROMPT
 
 PRO_TA_USER_PROMPT = """Тип рынка: {market_type}
 
@@ -1992,7 +2030,7 @@ async def analyze_multi_images(
     # P2-3: Self-consistency — 2 прогона с голосованием по signal_status
     # -----------------------------
     messages = [
-        {"role": "system", "content": PRO_TA_SYSTEM_PROMPT},
+        {"role": "system", "content": _get_system_prompt()},
         {"role": "user", "content": content_parts},
     ]
 

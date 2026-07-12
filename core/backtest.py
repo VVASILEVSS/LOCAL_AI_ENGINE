@@ -68,6 +68,7 @@ def init_backtest_table() -> None:
             -- Метаданные
             consistency_runs INTEGER,
             consistency_agreed INTEGER,
+            prompt_variant TEXT DEFAULT 'A',
             raw_json TEXT
         )
     """)
@@ -77,6 +78,11 @@ def init_backtest_table() -> None:
         ON signal_log(symbol, timestamp)
         WHERE checked_at IS NULL
     """)
+    # P3-4: миграция — добавить prompt_variant если отсутствует (existing DB)
+    try:
+        c.execute("ALTER TABLE signal_log ADD COLUMN prompt_variant TEXT DEFAULT 'A'")
+    except Exception:
+        pass  # колонка уже существует
     _conn().commit()
     _conn().close()
     logger.info("backtest table ready")
@@ -86,6 +92,7 @@ def save_signal_log(
     parsed: dict,
     symbol: str,
     timeframes: list[str] | None = None,
+    prompt_variant: str = "A",
 ) -> int | None:
     """Сохранить полный прогноз в signal_log. Возвращает id строки."""
     if not isinstance(parsed, dict):
@@ -113,6 +120,7 @@ def save_signal_log(
         rr = _safe_float(primary.get("rr"))
 
         now = datetime.now(timezone.utc).isoformat()
+        variant = (prompt_variant or "A").upper()[:1]
 
         conn = _conn()
         c = conn.cursor()
@@ -120,21 +128,21 @@ def save_signal_log(
             INSERT INTO signal_log
               (symbol, timestamp, signal_status, direction, entry_price,
                sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
-               consistency_runs, consistency_agreed, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               consistency_runs, consistency_agreed, prompt_variant, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol, now, status, direction, entry,
             sl, tp1, tp2, tp3, rr,
             parsed.get("confidence"),
             parsed.get("htf_structure"),
             parsed.get("abc_risk"),
-            runs, agreed,
+            runs, agreed, variant,
             json.dumps(parsed, ensure_ascii=False, default=str)[:8000],
         ))
         conn.commit()
         row_id = c.lastrowid
         conn.close()
-        logger.info("signal_log saved: id=%d %s %s dir=%s", row_id, symbol, status, direction)
+        logger.info("signal_log saved: id=%d %s %s dir=%s variant=%s", row_id, symbol, status, direction, variant)
         return row_id
     except Exception as e:
         logger.warning("save_signal_log failed: %s", e)
@@ -326,10 +334,25 @@ def get_backtest_context(symbol: str = "BTCUSDT", last_n: int = 30) -> str:
             f"{s}: {w}/{n} ({w/n*100:.0f}%)" for s, n, w in by_signal if n > 0
         ) if by_signal else "нет данных"
 
-        conn.close()
-
         rr_plan_str = f"{avg_rr_plan:.1f}" if avg_rr_plan else "N/A"
         rr_real_str = f"{avg_rr_real:.1f}" if avg_rr_real else "N/A"
+
+        # P3-4: A/B сравнение по prompt_variant
+        c.execute("""
+            SELECT prompt_variant,
+                   COUNT(*) as cnt,
+                   SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins
+            FROM signal_log
+            WHERE symbol = ? AND checked_at IS NOT NULL AND prompt_variant IS NOT NULL
+            GROUP BY prompt_variant
+            ORDER BY prompt_variant
+        """, (symbol,))
+        ab_rows = c.fetchall()
+        ab_str = " | ".join(
+            f"V{v}: {w}/{n} ({w/n*100:.0f}%)" for v, n, w in ab_rows if n and n > 0
+        ) if ab_rows else "нет данных"
+
+        conn.close()
 
         return (
             f"Backtest ({symbol}, checked: {total}):\n"
@@ -338,6 +361,7 @@ def get_backtest_context(symbol: str = "BTCUSDT", last_n: int = 30) -> str:
             f"No hit: {(no_hit/total*100) if total else 0:.0f}%\n"
             f"Avg RR planned: {rr_plan_str} | Avg RR realised: {rr_real_str}\n"
             f"By signal: {by_signal_str}\n"
+            f"A/B variants: {ab_str}\n"
             f"Last 5: {recent_str}"
         )
     except Exception as e:

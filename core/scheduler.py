@@ -18,7 +18,7 @@ from core.state_tracker import (
 )
 from core.binance_metrics import fetch_binance_metrics
 from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce_risk_rules
-from core.config import MY_CHAT_ID
+from core.config import MY_CHAT_ID, PROMPT_VARIANT
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
 from core.zigzag.benchmark_zigzag import run_benchmark
 
@@ -417,7 +417,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
 
                 # P3-1: сохранить прогноз в backtest
                 try:
-                    save_signal_log(parsed, symbol_id, timeframes)
+                    save_signal_log(parsed, symbol_id, timeframes, prompt_variant=PROMPT_VARIANT)
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
 
