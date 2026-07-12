@@ -388,15 +388,22 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 tf_zones_clean = {}
                 key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
 
+                # Сначала записываем зоны из metrics (auto_chart), затем LLM-зоны
+                # перезаписывают их — LLM имеет приоритет
+                for k, v in tf_zones.items():
+                    norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
+                    tf_zones_clean[norm_k] = v
+
                 llm_zones = parsed.get("tf_zones") or {}
                 if isinstance(llm_zones, dict):
                     for k, v in llm_zones.items():
                         norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
-                        tf_zones_clean[norm_k] = v
-
-                for k, v in tf_zones.items():
-                    norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
-                    tf_zones_clean[norm_k] = v
+                        # LLM-зона перезаписывает metrics-зону только если она не пустая
+                        if isinstance(v, dict):
+                            upper = v.get("upper")
+                            lower = v.get("lower")
+                            if upper is not None or lower is not None:
+                                tf_zones_clean[norm_k] = v
 
                 parsed["tf_zones"] = tf_zones_clean
 

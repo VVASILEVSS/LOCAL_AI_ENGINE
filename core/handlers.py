@@ -264,15 +264,20 @@ async def cmd_scan(message: types.Message) -> None:
             tf_zones_clean = {}
             key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
 
+            # Сначала metrics-зоны, затем LLM-зоны перезаписывают (LLM имеет приоритет)
+            for k, v in tf_zones.items():
+                norm_k = key_map.get(k.strip().lower(), k.strip().upper())
+                tf_zones_clean[norm_k] = v
+
             llm_zones = parsed_result.get("tf_zones") or {}
             if isinstance(llm_zones, dict):
                 for k, v in llm_zones.items():
                     norm_k = key_map.get(k.strip().lower(), k.strip().upper())
-                    tf_zones_clean[norm_k] = v
-
-            for k, v in tf_zones.items():
-                norm_k = key_map.get(k.strip().lower(), k.strip().upper())
-                tf_zones_clean[norm_k] = v
+                    if isinstance(v, dict):
+                        upper = v.get("upper")
+                        lower = v.get("lower")
+                        if upper is not None or lower is not None:
+                            tf_zones_clean[norm_k] = v
 
             parsed_result["tf_zones"] = tf_zones_clean
 
