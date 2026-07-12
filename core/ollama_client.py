@@ -2,10 +2,12 @@ import io
 import base64
 import json
 import re
+import time
 import asyncio
 import httpx
 from PIL import Image
 import logging
+from collections import Counter
 from typing import List, Optional, Dict, Any, Tuple
 
 from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY
@@ -1945,41 +1947,117 @@ async def analyze_multi_images(
     # NOTE: payload больше не формируется здесь — ollama_service.generate()
     # собирает его сам из messages + model + temperature + max_tokens.
 
-    try:
-        async with LLM_QUEUE_LOCK:
-            result = await llm_generate(
-                messages=[
-                    {"role": "system", "content": PRO_TA_SYSTEM_PROMPT},
-                    {"role": "user", "content": content_parts},
-                ],
-                model=MODEL_NAME,
-                temperature=0.02,
-                max_tokens=1200,
-                timeout=30,
+    # -----------------------------
+    # P2-3: Self-consistency — 2 прогона с голосованием по signal_status
+    # -----------------------------
+    messages = [
+        {"role": "system", "content": PRO_TA_SYSTEM_PROMPT},
+        {"role": "user", "content": content_parts},
+    ]
+
+    # Конфигурация прогонов: небольшая вариация temperature для разнообразия
+    RUN_TEMPERATURES = [0.15, 0.25]
+    RUN_TIMEOUT_LIMIT = 40  # сек — если первый прогон >40с, второй пропускаем
+    RUN_TOTAL = len(RUN_TEMPERATURES)
+
+    results: list[dict[str, Any]] = []
+    run_signals: list[str] = []
+    run_times: list[float] = []
+
+    for run_idx, temp in enumerate(RUN_TEMPERATURES):
+        run_start = time.monotonic()
+
+        # Защита от таймаута: если первый прогон занял >40с — второй пропускаем
+        if run_idx > 0 and run_times[-1] > RUN_TIMEOUT_LIMIT:
+            logger.info(
+                "Self-consistency: skip run %d/%d (prev run took %.1fs > %ds limit)",
+                run_idx + 1, RUN_TOTAL, run_times[-1], RUN_TIMEOUT_LIMIT,
+            )
+            break
+
+        try:
+            async with LLM_QUEUE_LOCK:
+                result = await llm_generate(
+                    messages=messages,
+                    model=MODEL_NAME,
+                    temperature=temp,
+                    max_tokens=1200,
+                    timeout=30,
+                )
+
+            raw = result["content"]
+            logger.warning(f"RAW LLM OUTPUT (run {run_idx + 1}/{RUN_TOTAL}, temp={temp}):\n{raw}")
+            parsed = parse_llm_json(raw)
+
+            if parsed.get("error"):
+                logger.warning(
+                    "Self-consistency: run %d/%d parse failed: %s",
+                    run_idx + 1, RUN_TOTAL, parsed.get("message"),
+                )
+                run_times.append(time.monotonic() - run_start)
+                continue
+
+            signal = str(parsed.get("signal_status", "no_signal"))
+            logger.info(
+                "Self-consistency: run %d/%d, signal=%s, temp=%.2f",
+                run_idx + 1, RUN_TOTAL, signal, temp,
             )
 
-        raw = result["content"]
-        logger.warning(f"RAW LLM OUTPUT:\n{raw}")
-        parsed = parse_llm_json(raw)
+            results.append(parsed)
+            run_signals.append(signal)
+            run_times.append(time.monotonic() - run_start)
 
-        if parsed.get("error"):
-            logger.warning(f"LLM parse fallback: {parsed.get('message')}")
-            return {"error": True, "message": "Не удалось распарсить JSON от модели.", "raw": parsed.get("raw", raw)}
+        except LLMError as e:
+            mode_hint = "cloud" if LLM_MODE == "cloud" else "local (LM Studio)"
+            logger.warning(
+                "Self-consistency: run %d/%d LLM error: %s",
+                run_idx + 1, RUN_TOTAL, e,
+            )
+            run_times.append(time.monotonic() - run_start)
+            # Продолжаем к следующему прогону — второй может сработать
+            continue
+        except Exception as e:
+            logger.exception("Self-consistency: run %d/%d unexpected error", run_idx + 1, RUN_TOTAL)
+            run_times.append(time.monotonic() - run_start)
+            continue
 
-        # Пробрасываем liquidity_pools из prev_analysis в data для enforce_risk_rules
-        if isinstance(prev_analysis, dict) and prev_analysis.get("liquidity_pools"):
-            parsed["liquidity_pools"] = prev_analysis["liquidity_pools"]
+    # -----------------------------
+    # Голосование по signal_status
+    # -----------------------------
+    if not results:
+        return {"error": True, "message": "Both runs failed (no valid LLM output)"}
 
-        parsed = enforce_risk_rules(parsed)
-        parsed["error"] = False
-        return parsed
+    signals = [r.get("signal_status", "no_signal") for r in results]
+    winner_signal = Counter(signals).most_common(1)[0][0]
+    agreed = len(set(signals)) == 1
 
-    except LLMError as e:
-        mode_hint = "cloud" if LLM_MODE == "cloud" else "local (LM Studio)"
-        return {
-            "error": True,
-            "message": f"LLM ({mode_hint}): {e}",
-        }
-    except Exception as e:
-        logger.exception("Ошибка запроса")
-        return {"error": True, "message": f"Неожиданная ошибка LLM: {type(e).__name__}: {e}"}
+    if not agreed:
+        logger.warning(
+            "Self-consistency disagreement: %s vs %s — taking first (temp=%.2f, more deterministic)",
+            signals[0] if len(signals) > 0 else "N/A",
+            signals[1] if len(signals) > 1 else "N/A",
+            RUN_TEMPERATURES[0],
+        )
+        # Берём первый (более детерминированный, temperature=0.15)
+        final = results[0]
+    else:
+        # Консенсус — берём первый (или любой, они одинаковы по signal)
+        final = results[0]
+
+    # Пробрасываем liquidity_pools из prev_analysis в data для enforce_risk_rules
+    if isinstance(prev_analysis, dict) and prev_analysis.get("liquidity_pools"):
+        final["liquidity_pools"] = prev_analysis["liquidity_pools"]
+
+    final = enforce_risk_rules(final)
+    final["error"] = False
+
+    # Метаданные self-consistency
+    final["_consistency"] = {
+        "runs": len(results),
+        "signals": signals,
+        "agreed": agreed,
+        "temperatures": RUN_TEMPERATURES[:len(results)],
+        "run_times_sec": [round(t, 2) for t in run_times],
+    }
+
+    return final
