@@ -298,6 +298,7 @@ async def run_hourly_analysis(bot: Bot):
                 ltf_volume = {}
 
             # Liquidity heatmap (лёгкий текстовый контекст)
+            heatmap_data = {}
             try:
                 from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
                 from core.data_provider import OhlcvDataProvider
@@ -307,6 +308,7 @@ async def run_hourly_analysis(bot: Bot):
                     ltf_df = provider.read_current_csv(symbol_id, ltf_tf)
                     hm = build_liquidity_heatmap(ltf_df, current_price=live_price, symbol=symbol_id, timeframe=ltf_tf)
                     heatmap_text = build_liquidity_context_text(hm)
+                    heatmap_data = hm  # структура для enforce_risk_rules
                 except FileNotFoundError:
                     heatmap_text = "Liquidity heatmap: CSV недоступен."
             except Exception as e:
@@ -314,6 +316,24 @@ async def run_hourly_analysis(bot: Bot):
 
             # Добавляем heatmap в metrics
             metrics_str += f"\n{heatmap_text}"
+
+            # Формируем liquidity_pools для _pick_tp_levels из heatmap levels
+            liquidity_pools = {}
+            if isinstance(heatmap_data.get("levels"), list):
+                resistance_pools = [
+                    {"level": z["level"], "strength": z.get("strength", 0)}
+                    for z in heatmap_data["levels"]
+                    if z.get("kind") == "resistance" and z.get("level") is not None
+                ]
+                support_pools = [
+                    {"level": z["level"], "strength": z.get("strength", 0)}
+                    for z in heatmap_data["levels"]
+                    if z.get("kind") == "support" and z.get("level") is not None
+                ]
+                liquidity_pools = {
+                    "resistance_pools": resistance_pools,
+                    "support_pools": support_pools,
+                }
 
             prev_ctx = {
                 "metrics": metrics_str,
@@ -323,6 +343,7 @@ async def run_hourly_analysis(bot: Bot):
                 "zigzag_context": zigzag_context,
                 "volume_context": ltf_volume,
                 "heatmap_context": heatmap_text,
+                "liquidity_pools": liquidity_pools,
                 "current_price": live_price,
                 "last_closed_price": last_closed_price,
                 "prev_trend": prev_trend,

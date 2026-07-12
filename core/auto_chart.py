@@ -472,9 +472,10 @@ def get_technical_metrics(df: pd.DataFrame, timeframe: str = "1h") -> dict:
     df['sma20'] = df['close'].rolling(20).mean()
     df['sma50'] = df['close'].rolling(50).mean()
 
+    # RSI по Wilder EMA (стандарт TradingView), не SMA
     delta = df['close'].diff()
-    gain = delta.where(delta > 0, 0).rolling(14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    gain = delta.where(delta > 0, 0.0).ewm(alpha=1/14, min_periods=14).mean()
+    loss = (-delta.where(delta < 0, 0.0)).ewm(alpha=1/14, min_periods=14).mean()
     rs = gain / loss
     df['rsi'] = (100 - (100 / (1 + rs))).fillna(50)
 
@@ -488,10 +489,13 @@ def get_technical_metrics(df: pd.DataFrame, timeframe: str = "1h") -> dict:
     high_close = (df['high'] - prev_close).abs()
     low_close = (df['low'] - prev_close).abs()
     tr = pd.DataFrame({'hl': high_low, 'hc': high_close, 'lc': low_close}).max(axis=1)
-    df['atr'] = tr.rolling(14).mean()
+    # ATR по Wilder EMA (стандарт TradingView), не SMA
+    df['atr'] = tr.ewm(alpha=1/14, min_periods=14).mean()
 
+    # Volume ratio: среднее 3 последних свечей (стабильнее одной)
     vol_ma = df['volume'].rolling(20).mean().iloc[-1]
-    vol_ratio = df['volume'].iloc[-1] / max(vol_ma, 1e-6)
+    vol_recent = df['volume'].tail(3).mean()
+    vol_ratio = vol_recent / max(vol_ma, 1e-6)
     vol_trend = 'растёт' if vol_ratio > 1.2 else ('падает' if vol_ratio < 0.8 else 'нейтральный')
 
     last = df.iloc[-1]

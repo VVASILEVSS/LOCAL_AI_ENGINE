@@ -229,6 +229,21 @@ async def cmd_scan(message: types.Message):
         if not isinstance(ltf_volume, dict):
             ltf_volume = {}
 
+        # Liquidity heatmap (как в scheduler.py)
+        try:
+            from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
+            from core.data_provider import OhlcvDataProvider
+            provider = OhlcvDataProvider()
+            ltf_tf = timeframes[-1]
+            try:
+                ltf_df = provider.read_current_csv(symbol, ltf_tf)
+                hm = build_liquidity_heatmap(ltf_df, symbol=symbol, timeframe=ltf_tf)
+                heatmap_text = build_liquidity_context_text(hm)
+            except FileNotFoundError:
+                heatmap_text = "Liquidity heatmap: CSV недоступен."
+        except Exception:
+            heatmap_text = "Liquidity heatmap: ошибка."
+
         prev_ctx = {
             "metrics": metrics_str,
             "tf_context": tf_context,
@@ -236,6 +251,7 @@ async def cmd_scan(message: types.Message):
             "tf_zones": tf_zones,
             "zigzag_context": zigzag_context,
             "volume_context": ltf_volume,
+            "heatmap_context": heatmap_text,
         }
 
         raw_result = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)

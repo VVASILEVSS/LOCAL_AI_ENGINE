@@ -48,6 +48,9 @@ ZigZag контекст:
 Объёмный контекст:
 {volume_context}
 
+Liquidity heatmap:
+{liquidity_context}
+
 State / history context:
 {state_context}
 
@@ -1749,6 +1752,7 @@ async def analyze_multi_images(
         zigzag_str = json.dumps(prev_analysis.get("zigzag_context") or {}, ensure_ascii=False, indent=2)
         volume_str = json.dumps(prev_analysis.get("volume_context") or {}, ensure_ascii=False, indent=2)
         state_str = json.dumps(prev_analysis.get("state_context") or {}, ensure_ascii=False, indent=2)
+        liquidity_str = str(prev_analysis.get("heatmap_context") or "Liquidity heatmap недоступна.")
     else:
         metrics_str = str(prev_analysis) or "Данные недоступны."
         tf_ctx_str = "Один таймфрейм."
@@ -1756,6 +1760,7 @@ async def analyze_multi_images(
         zigzag_str = "{}"
         volume_str = "{}"
         state_str = "{}"
+        liquidity_str = "Liquidity heatmap недоступна."
 
     user_text = PRO_TA_USER_PROMPT.format(
         market_type=market_type,
@@ -1763,6 +1768,7 @@ async def analyze_multi_images(
         tf_context=tf_ctx_str,
         zigzag_context=zigzag_str,
         volume_context=volume_str,
+        liquidity_context=liquidity_str,
         state_context=state_str,
         backtest=bt_str,
     )
@@ -1795,6 +1801,10 @@ async def analyze_multi_images(
         if parsed.get("error"):
             logger.warning(f"LLM parse fallback: {parsed.get('message')}")
             return {"error": True, "message": "Не удалось распарсить JSON от модели.", "raw": parsed.get("raw", raw)}
+
+        # Пробрасываем liquidity_pools из prev_analysis в data для enforce_risk_rules
+        if isinstance(prev_analysis, dict) and prev_analysis.get("liquidity_pools"):
+            parsed["liquidity_pools"] = prev_analysis["liquidity_pools"]
 
         parsed = enforce_risk_rules(parsed)
         parsed["error"] = False
