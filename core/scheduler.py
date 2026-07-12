@@ -9,7 +9,13 @@ from aiogram import Bot
 
 from core.db import init_all_tables, save_forecast, update_actual_prices, get_setting, set_setting
 from core.auto_chart import fetch_and_plot
-from core.state_tracker import update_and_save_state
+from core.state_tracker import (
+    update_and_save_state,
+    load_state,
+    compare_state,
+    build_state_context,
+)
+from core.binance_metrics import fetch_binance_metrics
 from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce_risk_rules
 from core.config import MY_CHAT_ID
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
@@ -21,8 +27,8 @@ scheduler = AsyncIOScheduler()
 
 
 def _get_timeframes() -> list:
-    val = get_setting("timeframes", ["1h", "4h", "1D"])
-    return val if isinstance(val, list) else ["1h", "4h", "1D"]
+    val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
+    return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
 
 
 def _get_symbols() -> list:
@@ -290,6 +296,13 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 f"RSI: {m_ltf.get('rsi', 'N/A')} | Сессия: {m_ltf.get('session', 'N/A')}"
             )
 
+            # Binance market context: funding rate, open interest, order book imbalance
+            try:
+                binance_ctx = fetch_binance_metrics(symbol_id)
+                metrics_str += f"\n{binance_ctx}"
+            except Exception as e:
+                logger.warning("binance_metrics failed for %s: %s", symbol_id, e)
+
             zigzag_context = _build_zigzag_context(symbol=symbol_id, timeframes=timeframes)
 
             # Собираем volume_context с младшего ТФ
@@ -335,6 +348,12 @@ async def run_hourly_analysis(bot: Bot) -> None:
                     "support_pools": support_pools,
                 }
 
+            # Load previous state and build state_context BEFORE LLM call
+            # so the LLM sees what changed vs last analysis
+            _prev_state = load_state(symbol_id, timeframes[-1])
+            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
+            _state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
+
             prev_ctx = {
                 "metrics": metrics_str,
                 "tf_context": tf_context,
@@ -350,6 +369,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 "current_substructure": current_substructure,
                 "tf_span_map": zigzag_context.get("stack", {}).get("tf_span_map", {}),
                 "confluence_levels": zigzag_context.get("confluence_levels", []),
+                "state_context": _state_context,
             }
 
             parsed = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)

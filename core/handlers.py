@@ -39,8 +39,8 @@ def clean_analysis_report(text: str) -> str:
 
 
 def _get_timeframes() -> list[str]:
-    val = get_setting("timeframes", ["1h"])
-    return val if isinstance(val, list) else ["1h"]
+    val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
+    return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
 
 
 def _get_symbols() -> list[str]:

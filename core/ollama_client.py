@@ -32,6 +32,121 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
 - Определи, не находится ли рынок в зоне завершения импульса (риск конца 5-й волны и ABC).
 - Если цена между ключевыми уровнями и без подтверждения — no_signal или accumulation.
 - false_breakout ставь только если есть явный выход за границу зоны, возврат внутрь и объёмное подтверждение. Если есть только реакция у уровня без явного выхода — используй retest, reversal или no_signal.
+
+ПРИМЕРЫ ОТВЕТОВ (few-shot):
+
+ПРИМЕР 1 — no_signal (цена между уровнями, без подтверждения):
+{
+  "price": 63895.5,
+  "current_price": 63895.5,
+  "last_closed_price": 63869.0,
+  "prev_trend": "down",
+  "current_substructure": "balance",
+  "htf_structure": "correction",
+  "htf_structure_comment": "1D: SMA cross bear, цена ниже SMA200",
+  "trend_structure": "down",
+  "trend_structure_comment": "4H: нисходящая структура, SMA cross bear",
+  "ltf_structure": "balance",
+  "ltf_structure_comment": "15m: цена внутри зоны, без пробоя",
+  "accumulation_state": "none",
+  "accumulation_state_comment": "Явного накопления нет",
+  "wave_phase": "correction_up",
+  "wave_phase_comment": "Откат вверх внутри нисходящего тренда, риск ABC вниз",
+  "abc_risk": "abc_risk_down",
+  "abc_risk_comment": "Коррекция вверх может быть волной B → ожидается C вниз",
+  "global_structure": "correction",
+  "global_structure_comment": "Коррекция внутри нисходящего тренда",
+  "key_zones": { "resistance": 64245.0, "support": 63640.0 },
+  "key_zones_comment": "Resistance 4H, Support 4H",
+  "tf_zones": {
+    "15m": { "upper": 63950.0, "lower": 63820.0 },
+    "1h": { "upper": 64100.0, "lower": 63750.0 },
+    "4h": { "upper": 64245.0, "lower": 63640.0 },
+    "1D": { "upper": 64680.0, "lower": 61929.0 }
+  },
+  "tf_zones_comment": "Цена внутри всех зон, пробоя нет",
+  "tf_span_map": { "15m": 130.0, "1h": 350.0, "4h": 605.0, "1D": 2751.0 },
+  "confluence_levels": [
+    { "level": 64245.0, "timeframes": ["4H", "1D"], "priority": "high", "count": 2, "spread": 435.0, "kind": "resistance" },
+    { "level": 63640.0, "timeframes": ["4H"], "priority": "medium", "count": 1, "spread": 0, "kind": "support" }
+  ],
+  "signal_status": "no_signal",
+  "signal_status_comment": "Цена между уровнями, объём низкий, пробоя нет",
+  "entry_conditions": {
+    "aggressive": null,
+    "conservative": null,
+    "current_status": "Ожидание пробоя resistance 64245 или breakdown support 63640"
+  },
+  "entry_conditions_comment": "Вход только после пробоя с объёмом",
+  "risk_management": {
+    "primary": { "sl": null, "tp1": null, "tp2": null, "tp3": null, "rr": null },
+    "alternative": { "sl": null, "tp1": null, "tp2": null, "tp3": null, "rr": null }
+  },
+  "risk_management_comment": "Нет сигнала — нет SL/TP",
+  "scenario_status": "no_alternative",
+  "scenario_status_comment": "Ждём пробоя уровня для активации сценария",
+  "fact_feedback": "RSI нейтральный, funding нейтральный, объём ниже среднего",
+  "confidence": "low",
+  "confidence_reason": "Нет пробоя, объём не подтверждает, цена в зоне баланса",
+  "missing_data": ["Пробой resistance с объёмом", "Закрытие свечи выше 64245"]
+}
+
+ПРИМЕР 2 — aggressive_breakout (пробой resistance с объёмом):
+{
+  "price": 64310.0,
+  "current_price": 64310.0,
+  "last_closed_price": 64245.0,
+  "prev_trend": "up",
+  "current_substructure": "breakout_up",
+  "htf_structure": "trend",
+  "htf_structure_comment": "1D: цена выше SMA50, структура восходящая",
+  "trend_structure": "up",
+  "trend_structure_comment": "4H: SMA cross bull, HH+HL",
+  "ltf_structure": "breakout_up",
+  "ltf_structure_comment": "15m: пробой resistance 64245 с объёмом 2.1x",
+  "accumulation_state": "none",
+  "accumulation_state_comment": "Накопления нет, импульс",
+  "wave_phase": "impulse_up",
+  "wave_phase_comment": "Импульс вверх, 3-я волна",
+  "abc_risk": "none",
+  "abc_risk_comment": "ABC риск отсутствует, импульс",
+  "global_structure": "trend",
+  "global_structure_comment": "Восходящий тренд подтверждён",
+  "key_zones": { "resistance": 65000.0, "support": 64245.0 },
+  "key_zones_comment": "Бывший resistance стал support",
+  "tf_zones": {
+    "15m": { "upper": 64400.0, "lower": 64200.0 },
+    "1h": { "upper": 64500.0, "lower": 64100.0 },
+    "4h": { "upper": 65000.0, "lower": 64245.0 },
+    "1D": { "upper": 66000.0, "lower": 63640.0 }
+  },
+  "tf_zones_comment": "4H resistance 64245 пробит, стал support",
+  "tf_span_map": { "15m": 200.0, "1h": 400.0, "4h": 755.0, "1D": 2360.0 },
+  "confluence_levels": [
+    { "level": 64245.0, "timeframes": ["4H", "1h"], "priority": "high", "count": 2, "spread": 255.0, "kind": "support" }
+  ],
+  "signal_status": "aggressive_breakout",
+  "signal_status_comment": "Пробой 4H resistance с объёмом 2.1x, закрытие выше",
+  "entry_conditions": {
+    "aggressive": "Лонг на 64300, SL ниже 64200, объём подтверждает",
+    "conservative": "Ретест 64245 → лонг при отскоке",
+    "current_status": "Пробой подтверждён, ждем ретест"
+  },
+  "entry_conditions_comment": "Aggressive: вход на пробое. Conservative: ждем ретест",
+  "risk_management": {
+    "primary": { "sl": 64150.0, "tp1": 64600.0, "tp2": 65000.0, "tp3": 66000.0, "rr": 3.5 },
+    "alternative": { "sl": 64200.0, "tp1": 64500.0, "tp2": 64800.0, "tp3": null, "rr": 2.0 }
+  },
+  "risk_management_comment": "Primary: RR 3.5, SL ниже зоны пробоя. Alternative: tighter SL на ретесте",
+  "scenario_status": "primary_valid",
+  "scenario_status_comment": "Пробой подтверждён объёмом, primary сценарий активен",
+  "fact_feedback": "Пробой 4H resistance, объём 2.1x, funding +0.01%, OI растёт",
+  "confidence": "high",
+  "confidence_reason": "Пробой с объёмом, структура подтверждена на 4H+1D, OI растёт",
+  "missing_data": []
+}
+
+ВЕРНИ ТОЛЬКО ОДИН JSON-ОБЪЕКТ ПО ЭТОЙ СХЕМЕ. БЕЗ markdown, БЕЗ пояснений, БЕЗ комментариев вне JSON.
 """
 
 PRO_TA_USER_PROMPT = """Тип рынка: {market_type}
