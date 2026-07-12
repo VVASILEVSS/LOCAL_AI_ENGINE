@@ -11,6 +11,8 @@ TOKEN: str = _raw_token
 MY_CHAT_ID: int = int(os.getenv("MY_CHAT_ID", "0"))
 
 # --- НАСТРОЙКИ ЛОКАЛЬНОГО ИИ ---
+# Полный URL endpoint (включая /v1/chat/completions) для backward compat
+# с ollama_client.py который делает POST напрямую.
 LOCAL_AI_ENDPOINT = os.getenv(
     "LOCAL_AI_ENDPOINT",
     "http://localhost:1234/v1/chat/completions",
@@ -19,6 +21,18 @@ MODEL_NAME = os.getenv(
     "MODEL_NAME",
     "qwen_qwen2.5-vl-7b-instruct",
 )
+
+# --- НАСТРОЙКИ ОБЛАЧНОЙ LLM ---
+# Пустой ключ = local mode (LM Studio / Ollama на localhost, без авторизации).
+# Непустой = cloud mode (Alibaba GLM, OpenRouter и др. — любой OpenAI-compatible).
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+LLM_MODE = "cloud" if LLM_API_KEY else "local"
+
+# base_url для ollama_service (БЕЗ /chat/completions на конце —
+# service сам добавляет /v1/chat/completions). Для local mode это
+# http://localhost:1234, для cloud — https://...maas.aliyuncs.com/compatible-mode
+# (БЕЗ /v1 — service добавляет сам, иначе будет /v1/v1/ → 404).
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 
 # --- СИСТЕМНЫЙ ПРОМПТ ДЛЯ СЕРИИ + ДИНАМИКА ---
 SERIES_PROMPT = """Ты — старший трейдер-аналитик. Тебе прислана серия графиков одного актива на разных таймфреймах.

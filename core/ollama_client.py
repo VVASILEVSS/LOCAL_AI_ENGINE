@@ -8,7 +8,8 @@ from PIL import Image
 import logging
 from typing import List, Optional, Dict, Any, Tuple
 
-from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME
+from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY
+from core.ollama_service import generate as llm_generate, LLMError
 
 logger = logging.getLogger(__name__)
 LLM_QUEUE_LOCK = asyncio.Lock()
@@ -1750,30 +1751,23 @@ async def analyze_multi_images(
         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_images[0]}"}}
     )
 
-    payload = {
-        "model": MODEL_NAME,
-        "temperature": 0.02,
-        "stream": False,
-        "max_tokens": 1200,
-        "messages": [
-            {"role": "system", "content": PRO_TA_SYSTEM_PROMPT},
-            {"role": "user", "content": content_parts}
-        ]
-    }
+    # NOTE: payload больше не формируется здесь — ollama_service.generate()
+    # собирает его сам из messages + model + temperature + max_tokens.
 
     try:
         async with LLM_QUEUE_LOCK:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=180.0, write=60.0, pool=10.0)) as client:
-                resp = await client.post(LOCAL_AI_ENDPOINT, json=payload)
+            result = await llm_generate(
+                messages=[
+                    {"role": "system", "content": PRO_TA_SYSTEM_PROMPT},
+                    {"role": "user", "content": content_parts},
+                ],
+                model=MODEL_NAME,
+                temperature=0.02,
+                max_tokens=1200,
+                timeout=30,
+            )
 
-        if resp.status_code != 200:
-            try:
-                err = resp.json().get("error", {}).get("message", resp.text)
-            except Exception:
-                err = resp.text[:200]
-            return {"error": True, "message": f"LM Studio (HTTP {resp.status_code}): {err}"}
-
-        raw = resp.json()["choices"][0]["message"]["content"]
+        raw = result["content"]
         logger.warning(f"RAW LLM OUTPUT:\n{raw}")
         parsed = parse_llm_json(raw)
 
@@ -1785,10 +1779,12 @@ async def analyze_multi_images(
         parsed["error"] = False
         return parsed
 
-    except httpx.ReadTimeout:
-        return {"error": True, "message": "LM Studio не ответил за 90 сек."}
-    except httpx.ConnectError:
-        return {"error": True, "message": "LM Studio выключен или порт 1234 недоступен."}
+    except LLMError as e:
+        mode_hint = "cloud" if LLM_MODE == "cloud" else "local (LM Studio)"
+        return {
+            "error": True,
+            "message": f"LLM ({mode_hint}): {e}",
+        }
     except Exception as e:
         logger.exception("Ошибка запроса")
-        return {"error": True, "message": f"Ошибка: {type(e).__name__}"}
+        return {"error": True, "message": f"Неожиданная ошибка LLM: {type(e).__name__}: {e}"}
