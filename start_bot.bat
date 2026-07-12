@@ -1,7 +1,7 @@
 @echo off
 title 🤖 LOCAL_AI_ENGINE Bot
 color 0A
-cd /d "D:\telega\LOCAL_AI_ENGINE"
+cd /d "%~dp0"
 
 echo ========================================
 echo  🚀 Запуск LOCAL_AI_ENGINE Бота
