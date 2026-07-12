@@ -15,6 +15,10 @@ import subprocess
 import logging
 import time
 
+# Загрузка .env (DASHBOARD_LLM_* для облака)
+from dotenv import load_dotenv
+load_dotenv()
+
 # Фикс DNS для aiohttp на Windows
 import aiohttp
 from aiohttp.resolver import ThreadedResolver
@@ -248,70 +252,44 @@ async def cmd_version(message: Message):
         await message.answer(f"❌ {e}")
 
 @dp.message(Command("scan"))
+@dp.message(F.text.lower().startswith("/scan"))
 async def cmd_scan(message: Message):
-    """Анализ через облачную LLM (Alibaba GLM) — дашборд-бот сам делает анализ."""
+    """Анализ через облако — полный контекст как в scheduler."""
     if message.from_user.id != ADMIN_CHAT_ID: return
     if not DASHBOARD_LLM_API_KEY:
         await message.answer("❌ DASHBOARD_LLM_API_KEY не задан в .env")
         return
-    args = message.text.split()
-    if len(args) < 2:
+    text = message.text.strip()
+    for prefix in ("/scan", "/SCAN", "/Scan"):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    if not text:
         await message.answer("Использование: /scan BTC | ETH | XAUT")
         return
-    symbol = args[1].upper()
+    symbol = text.upper().split()[0]
     symbol_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "XAUT": "XAUTUSDT"}
     full = symbol_map.get(symbol, symbol + "USDT" if not symbol.endswith("USDT") else symbol)
 
     await message.answer(f"🔍 Анализ {full} через облако ({DASHBOARD_MODEL_NAME})...")
 
     try:
-        from core.auto_chart import fetch_and_plot
-        from core.binance_metrics import fetch_binance_metrics
-        from core.ollama_client import analyze_multi_images, format_json_for_tg
-        from core.config import TIMEFRAMES
-
-        timeframes = TIMEFRAMES if TIMEFRAMES else ["15m", "1h", "4h", "1D"]
-
-        # Сбор графиков
-        chart_paths = []
-        for tf in timeframes:
-            try:
-                result = await fetch_and_plot(full, tf, limit=100)
-                if result and result[0]:
-                    chart_paths.append(result[0])
-            except Exception as e:
-                logging.warning(f"Chart {tf} failed: {e}")
-
-        if not chart_paths:
-            await message.answer(f"❌ Не удалось получить графики для {full}")
-            return
-
-        # Метрики
-        try:
-            metrics = fetch_binance_metrics(full)
-        except Exception as e:
-            metrics = f"Метрики недоступны: {e}"
-
-        # LLM анализ через облако
-        parsed = await analyze_multi_images(
-            images=chart_paths,
-            metrics=metrics,
-            symbol=full,
-            timeframes=timeframes,
+        from core.scheduler import run_hourly_analysis
+        import core.scheduler as sched_mod
+        from aiogram import Bot
+        dash_bot = Bot(token=DASH_TOKEN)
+        import core.config as cfg
+        cfg.MY_CHAT_ID = message.chat.id
+        # Ручной /scan ВСЕГДА отправляет результат
+        cfg.AUTO_SIGNAL_ONLY = False
+        sched_mod.AUTO_SIGNAL_ONLY = False
+        await run_hourly_analysis(
+            bot=dash_bot,
+            symbol_filter=full,
             llm_api_key=DASHBOARD_LLM_API_KEY,
             llm_base_url=DASHBOARD_LLM_BASE_URL,
             llm_model=DASHBOARD_MODEL_NAME,
         )
-
-        if isinstance(parsed, dict) and parsed.get("error"):
-            await message.answer(f"❌ LLM: {parsed.get('message', 'unknown')}")
-            return
-
-        msg_text = format_json_for_tg(parsed)
-        if len(msg_text) > 4000:
-            msg_text = msg_text[:3900] + "\n... (обрезано)"
-        await message.answer(msg_text)
-
     except Exception as e:
         await message.answer(f"❌ {type(e).__name__}: {e}")
 
