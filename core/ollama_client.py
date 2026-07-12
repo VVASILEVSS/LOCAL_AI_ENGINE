@@ -1268,6 +1268,7 @@ def enforce_risk_rules(data: dict) -> dict:
             if sl_val is not None and current_price is not None and sl_val <= current_price:
                 above = [x for x in candidates if current_price is not None and x > current_price]
                 rm["alternative"]["sl"] = above[0] if above else (max(candidates) if candidates else None)
+
     # -----------------------------
     # 12) RR
     # -----------------------------
@@ -1461,6 +1462,54 @@ def enforce_risk_rules(data: dict) -> dict:
     if alt_has_risk and alternative.get("sl") is not None:
         alt_direction = "short" if direction_hint == "long" else "long"
         alternative["sl"] = _apply_sl_buffer(_safe_float(alternative.get("sl")), alt_direction)
+
+    # -----------------------------
+    # 12.6b) P2-4: SL/TP logical validation
+    # LONG  → SL must be < price, TP must be > price
+    # SHORT → SL must be > price, TP must be < price
+    # RR must be > 1.0, otherwise clear risk block (unrealistic)
+    # -----------------------------
+    active_signals = ("aggressive_breakout", "retest", "reversal", "false_breakout")
+    if signal_status in active_signals and current_price is not None:
+        for block_name, block_dir in (("primary", direction_hint), ("alternative", alt_direction)):
+            block = rm.get(block_name)
+            if not isinstance(block, dict):
+                continue
+            sl = _safe_float(block.get("sl"))
+            tp1 = _safe_float(block.get("tp1"))
+            rr = _safe_float(block.get("rr"))
+
+            if block_dir == "long":
+                if sl is not None and sl >= current_price:
+                    block["sl"] = None
+                    block["sl_invalid"] = True
+                if tp1 is not None and tp1 <= current_price:
+                    block["tp1"] = None
+                    block["tp1_invalid"] = True
+            else:  # short
+                if sl is not None and sl <= current_price:
+                    block["sl"] = None
+                    block["sl_invalid"] = True
+                if tp1 is not None and tp1 >= current_price:
+                    block["tp1"] = None
+                    block["tp1_invalid"] = True
+
+            # Recalc RR after possible corrections
+            block["rr"] = _calc_rr(current_price, _safe_float(block.get("sl")), _safe_float(block.get("tp1")))
+            rr = _safe_float(block.get("rr"))
+
+            # RR < 1.0 — risk > reward, signal is unrealistic
+            if rr is not None and rr < 1.0:
+                block["sl"] = None
+                block["tp1"] = None
+                block["tp2"] = None
+                block["tp3"] = None
+                block["rr"] = None
+                block["rr_invalid"] = True
+
+        rm["primary"] = rm.get("primary", primary)
+        rm["alternative"] = rm.get("alternative", alternative)
+        data["risk_management"] = rm
 
     # -----------------------------
     # 12.7) Volume bias influence
