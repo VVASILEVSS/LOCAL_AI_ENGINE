@@ -200,11 +200,28 @@ class OhlcvDataProvider:
 
         return removed
 
+    def _tf_ttl_seconds(self, timeframe: str) -> float:
+        """TTL кэша по таймфрейму: одна свеча. M15=15мин, 1H=1час и т.д."""
+        tf = timeframe.strip().lower()
+        ttl_map = {
+            "15m": 15 * 60,
+            "1h": 60 * 60,
+            "4h": 4 * 60 * 60,
+            "1d": 24 * 60 * 60,
+            "1w": 7 * 24 * 60 * 60,
+        }
+        return ttl_map.get(tf, 60 * 60)  # default 1h
+
     def ensure_ohlcv(self, req: OhlcvRequest) -> tuple[pd.DataFrame, Path]:
         path = self.current_path(req.symbol, req.timeframe)
 
         if path.exists() and not req.force_refresh:
-            return self.read_current_csv(req.symbol, req.timeframe), path
+            # TTL: если файл старее одной свечи данного ТФ — обновить
+            file_age = (datetime.now(timezone.utc) - datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)).total_seconds()
+            ttl = self._tf_ttl_seconds(req.timeframe)
+            if file_age < ttl:
+                return self.read_current_csv(req.symbol, req.timeframe), path
+            logger.info(f"Cache TTL expired for {req.symbol} {req.timeframe} (age={file_age:.0f}s, ttl={ttl:.0f}s) — refreshing")
 
         df = self.fetch_from_binance(req)
         path = self.save_current_csv(df, req.symbol, req.timeframe)
