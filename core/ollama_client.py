@@ -832,6 +832,8 @@ def enforce_risk_rules(data: dict) -> dict:
 
     def _normalize_wave_abc(src: dict) -> None:
         wave_comment = str(src.get("wave_phase_comment", "")).lower()
+        wave_phase = str(src.get("wave_phase", "")).lower()
+        abc_risk = str(src.get("abc_risk", "")).lower()
 
         if "abc вниз" in wave_comment or "abc-коррекции вниз" in wave_comment:
             src["abc_risk"] = "abc_risk_down"
@@ -841,6 +843,12 @@ def enforce_risk_rules(data: dict) -> dict:
             src["abc_risk"] = "abc_risk_up"
             if not src.get("abc_risk_comment"):
                 src["abc_risk_comment"] = "Риск ABC вверх по волновой фазе"
+        elif wave_phase == "correction_down" and abc_risk == "none":
+            src["abc_risk"] = "abc_risk_up"
+            src["abc_risk_comment"] = "Риск ABC вверх после коррекции вниз"
+        elif wave_phase == "correction_up" and abc_risk == "none":
+            src["abc_risk"] = "abc_risk_down"
+            src["abc_risk_comment"] = "Риск ABC вниз после коррекции вверх"
 
     # -----------------------------
     # 1) Цена
@@ -1737,6 +1745,8 @@ def _format_num(v):
         if v is None:
             return "Н/Д"
         f = float(v)
+        if f != f or f in (float("inf"), float("-inf")):  # NaN or Inf
+            return "Н/Д"
         if abs(f - round(f)) < 1e-9:
             return str(int(round(f)))
         return f"{f:.2f}"

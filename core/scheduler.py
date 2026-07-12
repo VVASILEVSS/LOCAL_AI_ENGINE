@@ -194,24 +194,6 @@ def normalize_analysis(data: dict) -> dict:
             data["trend_structure"] = "balance"
             data["trend_structure_comment"] = "Баланс на старших ТФ с локальной коррекцией на младшем ТФ"
 
-    abc_risk = str(data.get("abc_risk", "")).lower()
-    wave_comment = str(data.get("wave_phase_comment", "")).lower()
-
-    if "abc вверх" in wave_comment or "abc-коррекции вверх" in wave_comment:
-        data["abc_risk"] = "abc_risk_up"
-        if not data.get("abc_risk_comment"):
-            data["abc_risk_comment"] = "Риск ABC вверх по волновой фазе"
-    elif "abc вниз" in wave_comment or "abc-коррекции вниз" in wave_comment:
-        data["abc_risk"] = "abc_risk_down"
-        if not data.get("abc_risk_comment"):
-            data["abc_risk_comment"] = "Риск ABC вниз по волновой фазе"
-    elif wave_phase == "correction_down" and abc_risk == "none":
-        data["abc_risk"] = "abc_risk_up"
-        data["abc_risk_comment"] = "Риск ABC вверх после коррекции вниз"
-    elif wave_phase == "correction_up" and abc_risk == "none":
-        data["abc_risk"] = "abc_risk_down"
-        data["abc_risk_comment"] = "Риск ABC вниз после коррекции вверх"
-
     return data
 
 
@@ -468,7 +450,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
         except Exception as e:
             logger.error(f"Ошибка {symbol_id}: {e}")
             await bot.send_message(MY_CHAT_ID, f"⚠️ Не удалось проанализировать {format_symbol(symbol_id)}: {type(e).__name__}")
-            
+            continue
 async def update_prices_and_reschedule(bot: Bot) -> None:
     try:
         symbols = _get_symbols()

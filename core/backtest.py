@@ -1,13 +1,21 @@
 """
 P3-1: Backtest pipeline — сохраняет полные LLM-прогнозы и проверяет точность.
 
-Таблица signal_log:
-  - Каждый прогноз сохраняется с signal_status, direction, SL, TP1, confidence
-  - Через N часов проверяется: достиг ли цена TP/SL?
+Таблица signal_log (28 колонок):
+  id, symbol, timestamp, signal_status, direction, entry_price,
+  sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
+  checked_at, actual_price, sl_hit, tp1_hit, tp2_hit, tp3_hit,
+  max_favorable, max_adverse, outcome, rr_realised,
+  consistency_runs, consistency_agreed, prompt_variant, raw_json
+
+  - Каждый прогноз сохраняется с signal_status, direction, SL, TP1-3, confidence
+  - Через CHECK_HORIZON_HOURS (4) проверяется: достиг ли цена TP/SL?
   - Статистика формируется для LLM-контекста (accuracy%, avg RR realised)
+  - prompt_variant (P3-4 A/B тест) сохраняется для сравнения промптов
+  - raw_json обрезается до 8000 символов
 
 Интеграция:
-  scheduler.py → save_signal_log(parsed, symbol, timeframes)
+  scheduler.py → save_signal_log(parsed, symbol, timeframes, prompt_variant=PROMPT_VARIANT)
   scheduler.py → backtest_context = get_backtest_context(symbol)
   prev_ctx["backtest"] = backtest_context
 """
@@ -189,43 +197,47 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
         rr_realised = None
 
         if direction == "long":
+            # Сначала TP (tp3 > tp2 > tp1), потом SL
+            if tp1 is not None and actual >= tp1:
+                tp1_hit = 1
+            if tp2 is not None and actual >= tp2:
+                tp2_hit = 1
+            if tp3 is not None and actual >= tp3:
+                tp3_hit = 1
             if sl is not None and actual <= sl:
                 sl_hit = 1
+            # Outcome priority: tp3 > tp2 > tp1 > sl_hit > no_hit
+            if tp3_hit:
+                outcome = "tp3_hit"
+            elif tp2_hit:
+                outcome = "tp2_hit"
+            elif tp1_hit:
+                outcome = "tp1_hit"
+            elif sl_hit:
                 outcome = "sl_hit"
             else:
-                if tp1 is not None and actual >= tp1:
-                    tp1_hit = 1
-                if tp2 is not None and actual >= tp2:
-                    tp2_hit = 1
-                if tp3 is not None and actual >= tp3:
-                    tp3_hit = 1
-                if tp1_hit and not sl_hit:
-                    outcome = "tp1_hit"
-                    if tp2_hit:
-                        outcome = "tp2_hit"
-                    if tp3_hit:
-                        outcome = "tp3_hit"
-                elif not tp1_hit:
-                    outcome = "no_hit"
+                outcome = "no_hit"
         elif direction == "short":
+            # Сначала TP (tp3 > tp2 > tp1), потом SL
+            if tp1 is not None and actual <= tp1:
+                tp1_hit = 1
+            if tp2 is not None and actual <= tp2:
+                tp2_hit = 1
+            if tp3 is not None and actual <= tp3:
+                tp3_hit = 1
             if sl is not None and actual >= sl:
                 sl_hit = 1
+            # Outcome priority: tp3 > tp2 > tp1 > sl_hit > no_hit
+            if tp3_hit:
+                outcome = "tp3_hit"
+            elif tp2_hit:
+                outcome = "tp2_hit"
+            elif tp1_hit:
+                outcome = "tp1_hit"
+            elif sl_hit:
                 outcome = "sl_hit"
             else:
-                if tp1 is not None and actual <= tp1:
-                    tp1_hit = 1
-                if tp2 is not None and actual <= tp2:
-                    tp2_hit = 1
-                if tp3 is not None and actual <= tp3:
-                    tp3_hit = 1
-                if tp1_hit and not sl_hit:
-                    outcome = "tp1_hit"
-                    if tp2_hit:
-                        outcome = "tp2_hit"
-                    if tp3_hit:
-                        outcome = "tp3_hit"
-                elif not tp1_hit:
-                    outcome = "no_hit"
+                outcome = "no_hit"
         else:
             outcome = "no_direction"
 
