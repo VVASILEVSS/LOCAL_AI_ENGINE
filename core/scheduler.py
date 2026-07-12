@@ -80,6 +80,7 @@ def _build_zigzag_context(symbol: str, timeframes: list[str]) -> dict:
                 "swing_direction": data.get("swing_direction"),
                 "pattern_tags": data.get("pattern_tags", [])[:5],
                 "pivot_count": data.get("pivot_count"),
+                "price_position": data.get("price_position"),
                 "zones": data.get("levels", {}),
             }
 

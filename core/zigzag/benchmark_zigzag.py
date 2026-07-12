@@ -71,7 +71,7 @@ def _cluster_levels(levels: List[float], tolerance_ratio: float = 0.0035) -> Lis
 
 
 def _extract_levels(tf_result: Dict[str, Any]) -> List[float]:
-    zones = tf_result.get("zones", {}) or {}
+    zones = tf_result.get("zones") or tf_result.get("levels") or {}
     levels = []
     levels.extend(zones.get("resistance", []) or [])
     levels.extend(zones.get("support", []) or [])

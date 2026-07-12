@@ -1900,6 +1900,47 @@ def format_json_for_tg(data: dict) -> str:
     return _cleanup_empty_lines("\n".join(filtered))
 
 
+def _format_zigzag_context_compact(ctx: dict) -> str:
+    """
+    Компактный текстовый сериализатор ZigZag контекста для промпта LLM.
+    ~700 chars вместо 3584 chars сырого JSON — меньше токенов, больше сигнала.
+    """
+    if not ctx or not isinstance(ctx, dict) or ctx.get("error"):
+        return ctx.get("message", "ZigZag недоступен.") if isinstance(ctx, dict) else "{}"
+
+    lines = []
+
+    # Stack summary
+    stack = ctx.get("stack") or {}
+    if stack:
+        lines.append(
+            f"Stack: bias={stack.get('stack_bias','?')} align={stack.get('alignment','?')} "
+            f"dom={stack.get('dominant_tf','?')} | {' '.join(f'{k}:{v}' for k,v in (stack.get('directions') or {}).items())}"
+        )
+
+    # Per-TF zones
+    tfs = ctx.get("timeframes") or {}
+    for tf, data in tfs.items():
+        if not isinstance(data, dict):
+            continue
+        lines.append(
+            f"{tf}: [{data.get('lower','?')}–{data.get('upper','?')}] "
+            f"mode={data.get('market_mode','?')} swing={data.get('swing_direction','?')} "
+            f"pivots={data.get('pivot_count','?')} pos={data.get('price_position','?')}"
+        )
+
+    # Confluence levels
+    confluence = ctx.get("confluence_levels") or []
+    if confluence:
+        cf_str = ", ".join(
+            f"{c.get('level','?')}({'+'.join(c.get('timeframes',[]))},{c.get('priority','?')})"
+            for c in confluence[:6]
+        )
+        lines.append(f"Confluence: {cf_str}")
+
+    return "\n".join(lines) if lines else "ZigZag недоступен."
+
+
 async def analyze_multi_images(
     images: List[bytes],
     market_type: str = "crypto",
@@ -1915,7 +1956,7 @@ async def analyze_multi_images(
         metrics_str = str(prev_analysis.get("metrics") or "Данные недоступны.")
         tf_ctx_str = str(prev_analysis.get("tf_context") or "Один таймфрейм.")
         bt_str = str(prev_analysis.get("backtest") or "Статистика ещё формируется.")
-        zigzag_str = json.dumps(prev_analysis.get("zigzag_context") or {}, ensure_ascii=False, indent=2)
+        zigzag_str = _format_zigzag_context_compact(prev_analysis.get("zigzag_context") or {})
         volume_str = json.dumps(prev_analysis.get("volume_context") or {}, ensure_ascii=False, indent=2)
         state_str = json.dumps(prev_analysis.get("state_context") or {}, ensure_ascii=False, indent=2)
         liquidity_str = str(prev_analysis.get("heatmap_context") or "Liquidity heatmap недоступна.")
@@ -1981,8 +2022,8 @@ async def analyze_multi_images(
                     messages=messages,
                     model=MODEL_NAME,
                     temperature=temp,
-                    max_tokens=1200,
-                    timeout=30,
+                    max_tokens=2000,
+                    timeout=45,
                 )
 
             raw = result["content"]
