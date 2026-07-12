@@ -212,6 +212,8 @@ State / history context:
 Историческая точность:
 {backtest}
 
+{multi_symbol}
+
 Верни ТОЛЬКО валидный JSON без markdown, пояснений или комментариев. Строгая схема:
 {{
   "price": <number|null>,
@@ -1998,6 +2000,7 @@ async def analyze_multi_images(
         volume_str = json.dumps(prev_analysis.get("volume_context") or {}, ensure_ascii=False, indent=2)
         state_str = json.dumps(prev_analysis.get("state_context") or {}, ensure_ascii=False, indent=2)
         liquidity_str = str(prev_analysis.get("heatmap_context") or "Liquidity heatmap недоступна.")
+        multi_str = str(prev_analysis.get("multi_symbol") or "Мульти-символьный контекст: данные недоступны.")
     else:
         metrics_str = str(prev_analysis) or "Данные недоступны."
         tf_ctx_str = "Один таймфрейм."
@@ -2006,6 +2009,7 @@ async def analyze_multi_images(
         volume_str = "{}"
         state_str = "{}"
         liquidity_str = "Liquidity heatmap недоступна."
+        multi_str = "Мульти-символьный контекст: данные недоступны."
 
     user_text = PRO_TA_USER_PROMPT.format(
         market_type=market_type,
@@ -2016,6 +2020,7 @@ async def analyze_multi_images(
         liquidity_context=liquidity_str,
         state_context=state_str,
         backtest=bt_str,
+        multi_symbol=multi_str,
     )
 
     content_parts: List[Dict[str, Any]] = [{"type": "text", "text": user_text}]

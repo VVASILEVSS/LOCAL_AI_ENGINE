@@ -9,6 +9,7 @@ from aiogram import Bot
 
 from core.db import init_all_tables, save_forecast, update_actual_prices, get_setting, set_setting
 from core.backtest import init_backtest_table, save_signal_log, check_pending_forecasts, get_backtest_context
+from core.multi_symbol import get_multi_symbol_context, invalidate_cache as invalidate_multi_cache
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import (
     update_and_save_state,
@@ -219,6 +220,12 @@ async def run_hourly_analysis(bot: Bot) -> None:
     timeframes = sort_timeframes(_get_timeframes())
     filter_active = get_setting("filter_mode", True)
 
+    # P3-3: multi-symbol context — one API call per cycle, shared across symbols
+    import time as _time
+    cycle_id = str(_time.time())
+    invalidate_multi_cache()
+    multi_symbol_ctx = get_multi_symbol_context("BTCUSDT", cache_buster=cycle_id)
+
     for symbol_id in symbols:
         try:
             chart_bytes_list: list[bytes] = []
@@ -372,6 +379,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 "tf_span_map": zigzag_context.get("stack", {}).get("tf_span_map", {}),
                 "confluence_levels": zigzag_context.get("confluence_levels", []),
                 "state_context": _state_context,
+                "multi_symbol": get_multi_symbol_context(symbol_id, cache_buster=cycle_id),
             }
 
             parsed = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)
