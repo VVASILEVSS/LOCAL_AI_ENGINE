@@ -1,64 +1,124 @@
 # LOCAL_AI_ENGINE
 
-Telegram-бот для технического анализа криптовалют на **локальной LLM** (LM Studio).
-
-## Стек
-- **Python 3.13** + aiogram 3.x + APScheduler
-- **ccxt 4.5.54** (Binance spot + futures)
-- **LM Studio** локально, модель `qwen2.5-vl-7b-instruct`
-- **SQLite** (`forecasts.db`) + JSON state-файлы
-
-## Пары и таймфреймы
-- BTCUSDT, ETHUSDT, XAUTUSDT (spot), XAGUSDT (futures)
-- 15m, 1h, 4h, 1D
-
-## Запуск
-```bash
-python -m venv venv
-source venv/Scripts/activate  # Windows git-bash
-pip install -r requirements.txt
-# Создать .env: TOKEN=<bot_token> MY_CHAT_ID=<chat_id>
-python main.py
-# Требуется LM Studio на localhost:1234
-```
+Telegram-бот для технического анализа криптовалют через LLM (локальную или облачную).
 
 ## Архитектура
+
 ```
-main.py → core/config.py (промпты) → core/scheduler.py (автоанализ)
-       → core/ollama_client.py (LLM + JSON-парсер + risk-rules)
-       → core/auto_chart.py (графики OHLCV + Fib)
-       → core/zigzag/ (multi-TF структура)
-       → core/volume_filters.py (A/D-контекст)
-       → core/liquidity_magnet/ (зоны ликвидности)
-       → core/state_tracker.py (история уровней)
-       → core/db.py (SQLite прогнозы + backtest)
+main.py                     — точка входа, graceful shutdown
+core/
+├── config.py               — TOKEN, LLM endpoint/model, system prompts
+├── handlers.py             — Telegram-команды, inline-клавиатуры
+├── scheduler.py            — APScheduler, автоанализ по таймеру
+├── ollama_service.py       — единый транспорт LLM (cloud + local)
+├── ollama_client.py        — JSON-парсинг LLM-ответа, risk-rules
+├── auto_chart.py           — OHLCV-графики, Fib, structural levels
+├── state_tracker.py        — история уровней, зоны (saved/broken/rebuilt)
+├── volume_filters.py       — A/D-объём, divergence, bullish/bearish bias
+├── data_provider.py        — OHLCV через ccxt, CSV-архив
+├── db.py                   — SQLite (прогнозы, настройки, backtest)
+├── utils.py                — markets cache, symbol validation
+├── binance_metrics.py      — дополнительные метрики Binance
+├── liquidity_magnet/       — liquidity pools, equal highs/lows
+│   ├── __init__.py
+│   └── liquidity_magnet.py
+├── liquidity_heatmap.py    — heatmap (планируется к интеграции)
+└── zigzag/                 — изолированный ZigZag-модуль
+    ├── structural_zigzag.py
+    ├── benchmark_zigzag.py
+    └── ...
 ```
 
-## Техническое задание
-См. `TZ/README.md` — roadmap Wyckoff/ZigZag/A-D/Liquidity (P0→P2).
+## Установка
 
----
+```bash
+git clone https://github.com/VVASILEVSS/LOCAL_AI_ENGINE.git
+cd LOCAL_AI_ENGINE
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# .venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+```
 
-## 🔍 AI-аудит проекта
+## Настройка
 
-Полный аудит проекта (архитектура, функционал, реализация, безопасность, предложения) выполнен AI-агентом в ветке:
+1. Скопируй `.env.example` в `.env`
+2. Заполни `TOKEN` (Telegram Bot Token от @BotFather)
+3. Заполни `MY_CHAT_ID` (твой Telegram ID)
+4. Настрой LLM:
 
-### 👉 [`ai-review/agent-audit`](https://github.com/VVASILEVSS/LOCAL_AI_ENGINE/tree/ai-review/agent-audit)
+### Облачная LLM (Alibaba GLM и др.) — рекомендуется
+```env
+LLM_API_KEY=sk-xxxxxxxx
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode
+MODEL_NAME=qwen-plus
+```
 
-**Артефакты ветки:**
-| Файл | Назначение |
-|---|---|
-| [`docs/AI_AUDIT_REVIEW.md`](docs/AI_AUDIT_REVIEW.md) | Полный аудит: оценка 6/10, 18 предложений (P0→P2) |
-| [`docs/AI_AGENT_SKILL.md`](docs/AI_AGENT_SKILL.md) | Скилл: known-issues, команды, pitfalls |
-| [`docs/AI_AGENT_PROMPT.md`](docs/AI_AGENT_PROMPT.md) | Промт для инициализации AI-агента |
-| [`docs/AI_AUDIT_PROGRESS.md`](docs/AI_AUDIT_PROGRESS.md) | История и прогресс работы в ветке |
+### Локальная LLM (LM Studio / Ollama)
+```env
+LLM_API_KEY=
+LOCAL_AI_ENDPOINT=http://localhost:1234/v1/chat/completions
+MODEL_NAME=qwen_qwen2.5-vl-7b-instruct
+```
 
-**Ключевые находки (P0):**
-1. 🔴 Дубль `liquidity_magnet.py` (файл == пакет, идентичны)
-2. 🔴 `requirements.txt` в UTF-16 (должен быть UTF-8)
-3. 🔴 `config.py` хардкод endpoint/model (нет env)
-4. 🔴 `main.py` перетирает settings при старте
-5. 🔴 Нет иерархии сигналов (ТЗ P0.1 — модель противоречива)
+## Запуск
 
-**Аудитор:** Hermes Agent (GLM 5.2 Fast Preview, провайдер Alibaba DashScope)
-**Дата:** 2026-07-12
+```bash
+# Linux/macOS
+chmod +x start_bot.sh
+./start_bot.sh
+
+# Windows
+start_bot.bat
+
+# Или напрямую
+python main.py
+```
+
+## Команды бота
+
+| Команда | Описание |
+|---------|----------|
+| `/scan BTC` | Быстрый анализ по выбранным ТФ |
+| `/add ETH/USDT` | Добавить инструмент |
+| `/remove XAGUSDT` | Удалить инструмент |
+| `/settings` | Текущая конфигурация |
+| `/timeframes` | Выбрать таймфреймы |
+| `/timer 30` | Интервал автоотчётов (мин) |
+| `/filter on/off` | Фильтр сигналов |
+| `/export` | Экспорт CSV + бэктест |
+| Фото → `/analyze_all` | Анализ скриншотов графиков |
+
+## Пайплайн анализа
+
+```
+Binance API (OHLCV)
+    ↓
+auto_chart.py (графики + метрики)
+    ↓
+zigzag/ (структурные уровни)
+    ↓
+volume_filters.py (A/D контекст)
+    ↓
+ollama_service.py → LLM (cloud/local)
+    ↓
+ollama_client.py (JSON-парсинг + normalize)
+    ↓
+enforce_risk_rules (иерархия сигналов, state)
+    ↓
+state_tracker.py (сохранение истории)
+    ↓
+Telegram + SQLite
+```
+
+## Обмен файлами
+
+Папка `exchange/` — общая зона между оператором и AI-агентами:
+- `exchange/inbox/` — задачи от оператора
+- `exchange/outbox/` — отчёты от агентов
+
+## Пары и таймфреймы
+
+- Пары: BTCUSDT, ETHUSDT, XAUTUSDT (spot), XAGUSDT (futures)
+- ТФ: 15m, 1h, 4h, 1D
+- Интервал автоанализа: 60 минут (настраивается)

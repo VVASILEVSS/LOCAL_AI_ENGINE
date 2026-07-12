@@ -8,7 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from core.config import TOKEN
 from core.handlers import router
-from core.scheduler import start_scheduler
+from core.scheduler import start_scheduler, scheduler
 from core.utils import load_markets_cache
 
 
@@ -32,7 +32,9 @@ async def main():
     try:
         await dp.start_polling(bot)
     finally:
+        scheduler.shutdown(wait=False)
         await bot.session.close()
+        print("Бот остановлен.")
 
 if __name__ == "__main__":
     try:

@@ -292,12 +292,18 @@ async def run_hourly_analysis(bot: Bot):
 
             zigzag_context = _build_zigzag_context(symbol=symbol_id, timeframes=timeframes)
 
+            # Собираем volume_context с младшего ТФ
+            ltf_volume = all_metrics[timeframes[-1]].get("volume_context", {})
+            if not isinstance(ltf_volume, dict):
+                ltf_volume = {}
+
             prev_ctx = {
                 "metrics": metrics_str,
                 "tf_context": tf_context,
                 "backtest": "Статистика формируется в фоне.",
                 "tf_zones": tf_zones,
                 "zigzag_context": zigzag_context,
+                "volume_context": ltf_volume,
                 "current_price": live_price,
                 "last_closed_price": last_closed_price,
                 "prev_trend": prev_trend,

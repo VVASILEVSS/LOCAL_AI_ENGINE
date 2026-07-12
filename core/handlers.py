@@ -225,12 +225,17 @@ async def cmd_scan(message: types.Message):
                 "confluence_levels": [],
             }
 
+        ltf_volume = all_metrics[timeframes[-1]].get("volume_context", {})
+        if not isinstance(ltf_volume, dict):
+            ltf_volume = {}
+
         prev_ctx = {
             "metrics": metrics_str,
             "tf_context": tf_context,
             "backtest": f"Win Rate: {stats['win_rate']}%, MAE: {stats['mae_pct']}%",
             "tf_zones": tf_zones,
             "zigzag_context": zigzag_context,
+            "volume_context": ltf_volume,
         }
 
         raw_result = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)
