@@ -900,6 +900,12 @@ def enforce_risk_rules(data: dict) -> dict:
                 "Цена внутри ключевого диапазона без подтверждённого выноса и возврата, false_breakout понижен до no_signal"
             )
             signal_status = "no_signal"
+    def _zone_label(tf_str: str) -> str:
+        """Нормализация имени ТФ для компактных меток."""
+        tf = str(tf_str).strip().upper().replace("MIN", "M")
+        label_map = {"5M": "5M", "15M": "15M", "1H": "1H", "4H": "4H", "1D": "1D"}
+        return label_map.get(tf, tf)
+
     # -----------------------------
     # 5.1) Merge close tf zones
     # -----------------------------
@@ -971,6 +977,40 @@ def enforce_risk_rules(data: dict) -> dict:
             data["abc_risk"] = "abc_risk_up"
         else:
             data["abc_risk"] = "unknown"
+
+
+    # -----------------------------
+    # 8.1) Иерархия сигналов (P0.1 из ТЗ)
+    # Если current_substructure противоречит signal_status -
+    # приоритет у substructure (более конкретное поле).
+    # -----------------------------
+    SIGNAL_PRIORITY = {
+        "aggressive_breakout": 0,
+        "retest": 1,
+        "reversal": 2,
+        "false_breakout": 3,
+        "accumulation": 4,
+        "no_signal": 5,
+    }
+    raw_sub = str(data.get("current_substructure", "")).lower()
+    llm_signal = str(data.get("signal_status", "")).lower()
+
+    sub_to_signal = {
+        "breakout_up": "aggressive_breakout",
+        "breakout_down": "aggressive_breakout",
+        "false_breakout_up": "false_breakout",
+        "false_breakout_down": "false_breakout",
+        "reversal_attempt_up": "reversal",
+        "reversal_attempt_down": "reversal",
+    }
+    if raw_sub in sub_to_signal and llm_signal in SIGNAL_PRIORITY:
+        resolved = sub_to_signal[raw_sub]
+        if SIGNAL_PRIORITY.get(resolved, 99) < SIGNAL_PRIORITY.get(llm_signal, 99):
+            data["signal_status"] = resolved
+            data["signal_status_comment"] = (
+                f"Иерархия: substructure={raw_sub} приоритетнее signal={llm_signal}"
+            )
+            signal_status = resolved
 
     # -----------------------------
     # 9) Определение направления

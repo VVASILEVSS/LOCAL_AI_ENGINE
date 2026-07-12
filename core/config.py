@@ -11,8 +11,14 @@ TOKEN: str = _raw_token
 MY_CHAT_ID: int = int(os.getenv("MY_CHAT_ID", "0"))
 
 # --- НАСТРОЙКИ ЛОКАЛЬНОГО ИИ ---
-LOCAL_AI_ENDPOINT = "http://localhost:1234/v1/chat/completions"
-MODEL_NAME = "qwen_qwen2.5-vl-7b-instruct"  # Точное имя из LM Studio
+LOCAL_AI_ENDPOINT = os.getenv(
+    "LOCAL_AI_ENDPOINT",
+    "http://localhost:1234/v1/chat/completions",
+)
+MODEL_NAME = os.getenv(
+    "MODEL_NAME",
+    "qwen_qwen2.5-vl-7b-instruct",
+)
 
 # --- СИСТЕМНЫЙ ПРОМПТ ДЛЯ СЕРИИ + ДИНАМИКА ---
 SERIES_PROMPT = """Ты — старший трейдер-аналитик. Тебе прислана серия графиков одного актива на разных таймфреймах.

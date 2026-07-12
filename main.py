@@ -3,8 +3,6 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
-from core.db import set_setting
-set_setting('symbols', ["BTCUSDT", "XAUTUSDT"])
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.storage.memory import MemoryStorage
 
@@ -18,19 +16,19 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
-    
-    # ✅ Загружаем кэш рынков для мгновенного форматирования
+
+    # Загружаем кэш рынков для мгновенного форматирования
     await load_markets_cache()
-    
+
     session = AiohttpSession()
     bot = Bot(token=TOKEN, session=session)
-    
-    print("✅ Бот запущен! Ожидание сообщений...")
-    print(f"📂 Папка проекта: {os.getcwd()}")
-    
-    # 🕒 Запуск почасового планировщика
+
+    print("Бот запущен! Ожидание сообщений...")
+    print(f"Папка проекта: {os.getcwd()}")
+
+    # Запуск планировщика автоанализа
     start_scheduler(bot)
-    
+
     try:
         await dp.start_polling(bot)
     finally:
@@ -40,4 +38,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n❌ Бот остановлен.")
+        print("\nБот остановлен.")
