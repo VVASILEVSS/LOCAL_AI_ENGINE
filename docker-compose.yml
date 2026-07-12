@@ -1,0 +1,32 @@
+# ── LOCAL_AI_ENGINE — docker-compose ────────────────────────────────
+# Usage:
+#   1. cp .env.example .env  →  fill TOKEN, MY_CHAT_ID, LLM_API_KEY, LLM_BASE_URL
+#   2. docker compose up -d --build
+#   3. docker compose logs -f bot
+
+services:
+  bot:
+    build: .
+    container_name: local-ai-engine
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=INFO
+      - PYTHONPATH=/app
+    volumes:
+      # Persistent state: forecasts.db, state_tracker, logs
+      - ./data:/app/data
+      - ./logs:/app/logs
+      # .env is read by env_file above; no need to mount it separately
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

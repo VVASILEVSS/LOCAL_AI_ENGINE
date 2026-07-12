@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 
 from aiogram import Bot, Dispatcher
@@ -8,12 +7,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from core.config import TOKEN
 from core.handlers import router
+from core.logging_setup import setup_logging
 from core.scheduler import start_scheduler, scheduler
 from core.utils import load_markets_cache
 
+logger = setup_logging()
 
-async def main():
-    logging.basicConfig(level=logging.INFO)
+
+async def main() -> None:
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
@@ -23,8 +24,8 @@ async def main():
     session = AiohttpSession()
     bot = Bot(token=TOKEN, session=session)
 
-    print("Бот запущен! Ожидание сообщений...")
-    print(f"Папка проекта: {os.getcwd()}")
+    logger.info("Бот запущен! Ожидание сообщений...")
+    logger.info("Папка проекта: %s", os.getcwd())
 
     # Запуск планировщика автоанализа
     start_scheduler(bot)
@@ -34,10 +35,11 @@ async def main():
     finally:
         scheduler.shutdown(wait=False)
         await bot.session.close()
-        print("Бот остановлен.")
+        logger.info("Бот остановлен.")
+
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nБот остановлен.")
+        logger.info("Бот остановлен (Ctrl+C).")

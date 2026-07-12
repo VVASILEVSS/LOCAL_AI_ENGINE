@@ -1,0 +1,72 @@
+# ── LOCAL_AI_ENGINE — .dockerignore ──────────────────────────────────
+# Prevent large/unnecessary files from entering the Docker build context.
+
+# Secrets (must be injected via env_file, not baked into image)
+.env
+.env.local
+.env.*.local
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Data & logs (mounted as volumes, not copied)
+*.db
+*.sqlite
+*.sqlite3
+bot.log
+*.log
+logs/
+data/
+forecasts.db
+history_db.json
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Junk / temp
+_junk/
+*.bak
+*.orig
+*.errbak
+*.prepatch.bak
+*.bak.*
+*.zip
+*.lnk
+*.tmp
+
+# Docker files (don't copy into image)
+Dockerfile
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
+
+# CI / docs (not needed at runtime)
+.github/
+docs/
+exchange/
+*.md
+README.md
+LICENSE
+
+# Scripts (shell — for local run, not needed inside container)
+start_bot.sh

@@ -206,7 +206,7 @@ def normalize_analysis(data: dict) -> dict:
     return data
 
 
-async def run_hourly_analysis(bot: Bot):
+async def run_hourly_analysis(bot: Bot) -> None:
     symbols = _get_symbols()
     timeframes = sort_timeframes(_get_timeframes())
     filter_active = get_setting("filter_mode", True)
@@ -433,7 +433,7 @@ async def run_hourly_analysis(bot: Bot):
             logger.error(f"Ошибка {symbol_id}: {e}")
             await bot.send_message(MY_CHAT_ID, f"⚠️ Не удалось проанализировать {format_symbol(symbol_id)}: {type(e).__name__}")
             
-async def update_prices_and_reschedule(bot: Bot):
+async def update_prices_and_reschedule(bot: Bot) -> None:
     try:
         symbols = _get_symbols()
         prices = {}
@@ -450,7 +450,7 @@ async def update_prices_and_reschedule(bot: Bot):
 
     await run_hourly_analysis(bot)
 
-def start_scheduler(bot: Bot):
+def start_scheduler(bot: Bot) -> None:
     init_all_tables()
     raw_mins = get_setting("interval_minutes", 60)
     current_minutes = int(raw_mins) if raw_mins is not None else 60
@@ -471,7 +471,7 @@ def start_scheduler(bot: Bot):
     )
 
 
-def update_timer(new_minutes: int):
+def update_timer(new_minutes: int) -> None:
     set_setting("interval_minutes", new_minutes)
     try:
         scheduler.reschedule_job("analysis_job", trigger="interval", minutes=new_minutes)

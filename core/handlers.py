@@ -85,7 +85,7 @@ def get_tf_keyboard() -> InlineKeyboardMarkup:
 
 @router.message(Command("start"))
 @router.message(Command("menu"))
-async def show_main_menu(message: types.Message):
+async def show_main_menu(message: types.Message) -> None:
     await message.answer(
         "👋 Гибридный режим активен. Все данные обрабатываются локально.\n\n"
         "Выберите действие ниже или используйте команды в чате:",
@@ -94,7 +94,7 @@ async def show_main_menu(message: types.Message):
 
 
 @router.message(Command("timeframes"))
-async def cmd_timeframes(message: types.Message):
+async def cmd_timeframes(message: types.Message) -> None:
     selected = _get_timeframes()
     txt = f"📊 ТЕКУЩИЕ ТАЙМФРЕЙМЫ:\n{', '.join(selected)}\n\n"
     txt += "Нажмите на ТФ, чтобы добавить/удалить.\n"
@@ -103,7 +103,7 @@ async def cmd_timeframes(message: types.Message):
 
 
 @router.callback_query(lambda c: c.data is not None and (c.data.startswith("tf_toggle_") or c.data == "close_tf"))
-async def tf_callback(callback: types.CallbackQuery):
+async def tf_callback(callback: types.CallbackQuery) -> None:
     await callback.answer()
 
     if not callback.data:
@@ -149,7 +149,7 @@ def clean_tp_sl(text: str, current_price: float, direction: str) -> str:
 
 
 @router.message(Command("scan"))
-async def cmd_scan(message: types.Message):
+async def cmd_scan(message: types.Message) -> None:
     if message.text is None:
         return
 
@@ -295,7 +295,7 @@ async def cmd_scan(message: types.Message):
 
 
 @router.message(Command("add"))
-async def cmd_add(message: types.Message):
+async def cmd_add(message: types.Message) -> None:
     if message.text is None:
         return
     parts = message.text.split()
@@ -320,7 +320,7 @@ async def cmd_add(message: types.Message):
 
 
 @router.message(Command("remove"))
-async def cmd_remove(message: types.Message):
+async def cmd_remove(message: types.Message) -> None:
     if message.text is None:
         return
     parts = message.text.split()
@@ -342,7 +342,7 @@ async def cmd_remove(message: types.Message):
 
 
 @router.message(Command("settings"))
-async def cmd_settings(message: types.Message):
+async def cmd_settings(message: types.Message) -> None:
     symbols = _get_symbols()
     timer = get_setting("interval_minutes", 60)
     timeframes = _get_timeframes()
@@ -363,7 +363,7 @@ async def cmd_settings(message: types.Message):
 
 
 @router.message(Command("timer"))
-async def cmd_timer(message: types.Message):
+async def cmd_timer(message: types.Message) -> None:
     if message.text is None:
         return
     parts = message.text.split()
@@ -380,7 +380,7 @@ async def cmd_timer(message: types.Message):
 
 
 @router.message(Command("filter"))
-async def cmd_filter(message: types.Message):
+async def cmd_filter(message: types.Message) -> None:
     if message.text is None:
         return
     args = message.text.split()
@@ -401,7 +401,7 @@ async def cmd_filter(message: types.Message):
 
 
 @router.message(Command("export"))
-async def cmd_export(message: types.Message):
+async def cmd_export(message: types.Message) -> None:
     stats = get_backtest_stats()
     csv_data = get_history_df()
     filename = f"forecasts_{stats['total']}_win{stats['win_rate']}%.csv"
@@ -412,7 +412,7 @@ async def cmd_export(message: types.Message):
 
 
 @router.message(lambda msg: msg.photo)
-async def collect_photos(message: types.Message):
+async def collect_photos(message: types.Message) -> None:
     assert message.from_user is not None
     assert message.bot is not None
 
@@ -438,7 +438,7 @@ async def collect_photos(message: types.Message):
 
 
 @router.message(Command("analyze_all"))
-async def cmd_analyze_all(message: types.Message):
+async def cmd_analyze_all(message: types.Message) -> None:
     assert message.from_user is not None
     user_id = message.from_user.id
 
@@ -462,7 +462,7 @@ async def cmd_analyze_all(message: types.Message):
 
 
 @router.callback_query()
-async def callbacks_handler(callback: types.CallbackQuery):
+async def callbacks_handler(callback: types.CallbackQuery) -> None:
     await callback.answer()
     if not callback.message or isinstance(callback.message, InaccessibleMessage):
         return
