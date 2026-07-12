@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 
 from core.db import init_all_tables, save_forecast, update_actual_prices, get_setting, set_setting
+from core.backtest import init_backtest_table, save_signal_log, check_pending_forecasts, get_backtest_context
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import (
     update_and_save_state,
@@ -357,7 +358,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
             prev_ctx = {
                 "metrics": metrics_str,
                 "tf_context": tf_context,
-                "backtest": "Статистика формируется в фоне.",
+                "backtest": get_backtest_context(symbol_id),
                 "tf_zones": tf_zones,
                 "zigzag_context": zigzag_context,
                 "volume_context": ltf_volume,
@@ -413,6 +414,12 @@ async def run_hourly_analysis(bot: Bot) -> None:
 
                 parsed = enforce_risk_rules(parsed)
 
+                # P3-1: сохранить прогноз в backtest
+                try:
+                    save_signal_log(parsed, symbol_id, timeframes)
+                except Exception as bt_err:
+                    logger.warning("save_signal_log failed: %s", bt_err)
+
             if isinstance(parsed, dict) and parsed.get("error"):
                 logger.error(f"Ошибка анализа {symbol_id}: {parsed.get('message')}")
                 await bot.send_message(MY_CHAT_ID, f"⚠️ Ошибка анализа {format_symbol(symbol_id)}: {parsed.get('message')}")
@@ -465,6 +472,13 @@ async def update_prices_and_reschedule(bot: Bot) -> None:
                 pass
         if prices:
             update_actual_prices(prices)
+            # P3-1: проверить накопленные прогнозы
+            try:
+                checked = check_pending_forecasts(prices)
+                if checked:
+                    logger.info("backtest: checked %d forecasts", checked)
+            except Exception as bt_err:
+                logger.warning("check_pending_forecasts failed: %s", bt_err)
     except Exception as e:
         logger.error(f"Ошибка обновления цен: {e}")
 
@@ -472,6 +486,7 @@ async def update_prices_and_reschedule(bot: Bot) -> None:
 
 def start_scheduler(bot: Bot) -> None:
     init_all_tables()
+    init_backtest_table()
     raw_mins = get_setting("interval_minutes", 60)
     current_minutes = int(raw_mins) if raw_mins is not None else 60
 
