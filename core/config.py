@@ -60,6 +60,16 @@ E) ОЦЕНКА ВЕРОЯТНОСТИ: Long: XX% | Short: XX%
 F) ПРОГНОЗ: 2-3 предложения + уровни входа/стоп/тейк.
 """
 
+# --- РЕЖИМ УВЕДОМЛЕНИЙ ---
+# true  = авто-цикл отправляет в TG ТОЛЬКО при подтверждённом сигнале
+#          (aggressive_breakout, retest, reversal).
+# false = авто-цикл отправляет в TG каждый результат (как ручной запрос).
+# Ручной /analyse ВСЕГДА отправляет полный результат, независимо от флага.
+AUTO_SIGNAL_ONLY = os.getenv("AUTO_SIGNAL_ONLY", "true").lower().strip() in ("true", "1", "yes")
+
+# Статусы signal_status, при которых отправляется сообщение в AUTO_SIGNAL_ONLY режиме.
+ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+
 # --- ГЛОБАЛЬНЫЙ КЭШ ПРЕДЫДУЩИХ АНАЛИЗОВ (для отслеживания динамики) ---
 # Структура: { user_id: "текст прошлого анализа" }
 USER_ANALYSIS_CACHE = {}

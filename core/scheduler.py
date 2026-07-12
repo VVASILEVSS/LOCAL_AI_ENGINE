@@ -19,7 +19,7 @@ from core.state_tracker import (
 )
 from core.binance_metrics import fetch_binance_metrics
 from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce_risk_rules
-from core.config import MY_CHAT_ID, PROMPT_VARIANT
+from core.config import MY_CHAT_ID, PROMPT_VARIANT, AUTO_SIGNAL_ONLY, ACTIONABLE_SIGNALS
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
 from core.zigzag.benchmark_zigzag import run_benchmark
 
@@ -423,11 +423,13 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 await bot.send_message(MY_CHAT_ID, f"⚠️ Ошибка анализа {format_symbol(symbol_id)}: {parsed.get('message')}")
                 continue
 
-            status = str(parsed.get("signal_status", "unknown"))
-            # Авто-режим: отправлять только при подтверждённом сигнале
-            auto_mode = get_setting("auto_mode", False)
-            active_signals = ("aggressive_breakout", "retest", "reversal", "false_breakout")
-            send_to_tg = (not auto_mode) or (status in active_signals)
+            status = str(parsed.get("signal_status", "unknown")).lower()
+
+            # AUTO_SIGNAL_ONLY: в авто-цикле отправляем только при подтверждённом сигнале
+            if AUTO_SIGNAL_ONLY:
+                send_to_tg = status in ACTIONABLE_SIGNALS
+            else:
+                send_to_tg = True
 
             ltf_zone = tf_zones.get(timeframes[-1], {})
             upper = ltf_zone.get("upper")
