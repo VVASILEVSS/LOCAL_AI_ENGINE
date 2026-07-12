@@ -32,6 +32,7 @@ def init_settings() -> None:
     c.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('symbols', '["BTCUSDT", "ETHUSDT", "XAUTUSDT"]')''')
     c.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('interval_minutes', '60')''')
     c.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('timeframes', '["15m","1h","4h","1D"]')''')
+    c.execute('''INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_mode', 'false')''')
     conn.commit()
     conn.close()
 

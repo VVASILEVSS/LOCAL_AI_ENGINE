@@ -405,6 +405,15 @@ async def cmd_filter(message: types.Message) -> None:
         await message.answer(f"⚙️ Фильтр сигналов: {status}\nИспользуйте: `/filter on` или `/filter off`")
 
 
+@router.message(Command("auto"))
+async def cmd_auto(message: types.Message) -> None:
+    """Тогл авто-режима: только сигналы в TG."""
+    state = not get_setting("auto_mode", False)
+    set_setting("auto_mode", state)
+    status_text = "🔇 ON (только сигналы)" if state else "📢 OFF (все анализы)"
+    await message.answer(f"Авто-режим: {status_text}")
+
+
 @router.message(Command("export"))
 async def cmd_export(message: types.Message) -> None:
     stats = get_backtest_stats()

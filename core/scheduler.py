@@ -424,7 +424,10 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 continue
 
             status = str(parsed.get("signal_status", "unknown"))
-            send_to_tg = True
+            # Авто-режим: отправлять только при подтверждённом сигнале
+            auto_mode = get_setting("auto_mode", False)
+            active_signals = ("aggressive_breakout", "retest", "reversal", "false_breakout")
+            send_to_tg = (not auto_mode) or (status in active_signals)
 
             ltf_zone = tf_zones.get(timeframes[-1], {})
             upper = ltf_zone.get("upper")
