@@ -1994,7 +1994,10 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
 async def analyze_multi_images(
     images: List[bytes],
     market_type: str = "crypto",
-    prev_analysis: Optional[Dict[str, Any]] = None
+    prev_analysis: Optional[Dict[str, Any]] = None,
+    llm_api_key: str = "",
+    llm_base_url: str = "",
+    llm_model: str = "",
 ) -> Dict[str, Any]:
     b64_images = [prepare_image_for_llm(img) for img in images]
     b64_images = [img for img in b64_images if img]
@@ -2073,10 +2076,12 @@ async def analyze_multi_images(
             async with LLM_QUEUE_LOCK:
                 result = await llm_generate(
                     messages=messages,
-                    model=MODEL_NAME,
+                    model=llm_model or MODEL_NAME,
                     temperature=temp,
                     max_tokens=2000,
                     timeout=45,
+                    api_key=llm_api_key,
+                    base_url=llm_base_url,
                 )
 
             raw = result["content"]
