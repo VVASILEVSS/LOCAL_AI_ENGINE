@@ -1938,8 +1938,9 @@ def format_json_for_tg(data: dict) -> str:
                 pr = item.get("priority", "low")
                 sp = item.get("spread")
                 kind = item.get("kind", "mixed")
+                spread_str = f"spread={_format_num(sp)}" if sp and float(sp) != 0 else f"count={item.get('count', '?')}"
                 confluence_text.append(
-                    f"• {_format_num(lvl)} | TF: {fmt(tfs)} | {pr} | spread={_format_num(sp)} | {kind}"
+                    f"• {_format_num(lvl)} | TF: {fmt(tfs)} | {pr} | {spread_str} | {kind}"
                 )
 
     tf_span_text = []
@@ -2133,32 +2134,19 @@ async def analyze_multi_images(
     RUN_TIMEOUT_LIMIT = 40  # сек — если первый прогон >40с, второй пропускаем
     RUN_TOTAL = len(RUN_TEMPERATURES)
 
-    results: list[dict[str, Any]] = []
-    run_signals: list[str] = []
-    run_times: list[float] = []
-
-    for run_idx, temp in enumerate(RUN_TEMPERATURES):
+    async def _single_run(run_idx: int, temp: float) -> dict[str, Any] | None:
+        """Один прогон LLM. Возвращает parsed dict или None."""
         run_start = time.monotonic()
-
-        # Защита от таймаута: если первый прогон занял >40с — второй пропускаем
-        if run_idx > 0 and run_times[-1] > RUN_TIMEOUT_LIMIT:
-            logger.info(
-                "Self-consistency: skip run %d/%d (prev run took %.1fs > %ds limit)",
-                run_idx + 1, RUN_TOTAL, run_times[-1], RUN_TIMEOUT_LIMIT,
-            )
-            break
-
         try:
-            async with LLM_QUEUE_LOCK:
-                result = await llm_generate(
-                    messages=messages,
-                    model=llm_model or MODEL_NAME,
-                    temperature=temp,
-                    max_tokens=2000,
-                    timeout=45,
-                    api_key=llm_api_key,
-                    base_url=llm_base_url,
-                )
+            result = await llm_generate(
+                messages=messages,
+                model=llm_model or MODEL_NAME,
+                temperature=temp,
+                max_tokens=2000,
+                timeout=45,
+                api_key=llm_api_key,
+                base_url=llm_base_url,
+            )
 
             raw = result["content"]
             logger.warning(f"RAW LLM OUTPUT (run {run_idx + 1}/{RUN_TOTAL}, temp={temp}):\n{raw}")
@@ -2169,18 +2157,16 @@ async def analyze_multi_images(
                     "Self-consistency: run %d/%d parse failed: %s",
                     run_idx + 1, RUN_TOTAL, parsed.get("message"),
                 )
-                run_times.append(time.monotonic() - run_start)
-                continue
+                return None
 
             signal = str(parsed.get("signal_status", "no_signal"))
+            elapsed = time.monotonic() - run_start
             logger.info(
-                "Self-consistency: run %d/%d, signal=%s, temp=%.2f",
-                run_idx + 1, RUN_TOTAL, signal, temp,
+                "Self-consistency: run %d/%d, signal=%s, temp=%.2f, took=%.1fs",
+                run_idx + 1, RUN_TOTAL, signal, temp, elapsed,
             )
-
-            results.append(parsed)
-            run_signals.append(signal)
-            run_times.append(time.monotonic() - run_start)
+            parsed["_run_time"] = elapsed
+            return parsed
 
         except LLMError as e:
             mode_hint = "cloud" if LLM_MODE == "cloud" else "local (LM Studio)"
@@ -2188,13 +2174,18 @@ async def analyze_multi_images(
                 "Self-consistency: run %d/%d LLM error: %s",
                 run_idx + 1, RUN_TOTAL, e,
             )
-            run_times.append(time.monotonic() - run_start)
-            # Продолжаем к следующему прогону — второй может сработать
-            continue
+            return None
         except Exception as e:
             logger.exception("Self-consistency: run %d/%d unexpected error", run_idx + 1, RUN_TOTAL)
-            run_times.append(time.monotonic() - run_start)
-            continue
+            return None
+
+    # P6: Параллельные прогоны через asyncio.gather (~30 сек вместо ~60)
+    # Lock НЕ нужен — каждый прогон независимый HTTP запрос к cloud API.
+    run_coros = [_single_run(i, t) for i, t in enumerate(RUN_TEMPERATURES)]
+    run_results = await asyncio.gather(*run_coros)
+
+    results: list[dict[str, Any]] = [r for r in run_results if r is not None]
+    run_times: list[float] = [r.get("_run_time", 0) for r in results]
 
     # -----------------------------
     # Голосование по signal_status
