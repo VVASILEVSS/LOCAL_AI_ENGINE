@@ -354,10 +354,36 @@ def _fill_missing_tf_zones(
         vp_timeframes = {}
 
     filled = False
+    price = result.get("price") or result.get("current_price")
+    price_safe = price if isinstance(price, (int, float)) and price > 0 else None
+    stick_tol = 0.005  # 0.5% — если parent и child зоны совпадают в пределах tolerance
+
     for tf in timeframes:
         norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
         if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
-            continue  # LLM вернул зону для этого ТФ
+            # Проверка «прилипания»: если эта зона = parent зоне (D1=H4=H1)
+            # → LLM скопировал, заменяем на fallback (VP/ZigZag)
+            if price_safe and norm_key != "1D":
+                parent_idx = canonical_order.index(norm_key) - 1 if norm_key in canonical_order else -1
+                if parent_idx >= 0:
+                    parent_tf = canonical_order[parent_idx]
+                    parent_z = tf_zones.get(parent_tf)
+                    child_z = tf_zones[norm_key]
+                    if (isinstance(parent_z, dict) and isinstance(child_z, dict)
+                            and parent_z.get("lower") is not None and child_z.get("lower") is not None
+                            and parent_z.get("upper") is not None and child_z.get("upper") is not None):
+                        ldiff = abs(parent_z["lower"] - child_z["lower"]) / price_safe
+                        udiff = abs(parent_z["upper"] - child_z["upper"]) / price_safe
+                        if ldiff < stick_tol and udiff < stick_tol:
+                            logging.info(
+                                "DASHBOARD: %s zone sticks to %s (diff l=%.3f%% u=%.3f%%), replacing with fallback for %s",
+                                norm_key, parent_tf, ldiff * 100, udiff * 100, result.get("symbol", "?"),
+                            )
+                            # Удаляем прилипшую зону — fallback ниже подставит реальную
+                            del tf_zones[norm_key]
+            # После проверки — если зона всё ещё на месте, пропускаем
+            if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
+                continue
 
         zone = None
         source = None
