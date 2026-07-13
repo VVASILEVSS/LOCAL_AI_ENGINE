@@ -891,15 +891,10 @@ def enforce_risk_rules(data: dict) -> dict:
         nesting_order = ["1D", "4H", "1H", "15M", "5M"]
         cap_pct = 0.10  # ±10% от цены
 
-        # 2a-1: ограничить D1 зону
-        d1 = tf_zones.get("1D")
-        if isinstance(d1, dict):
-            d1_upper = d1.get("upper")
-            d1_lower = d1.get("lower")
-            if d1_upper is not None and abs(d1_upper - price) / price > cap_pct:
-                d1["upper"] = round(price * (1 + cap_pct), 2)
-            if d1_lower is not None and abs(price - d1_lower) / price > cap_pct:
-                d1["lower"] = round(price * (1 - cap_pct), 2)
+        # 2a-1: D1 cap УБРАН. Был нужен для сырых экстремумов (57758-67255).
+        # Теперь LLM анализирует зоны по графикам + fallback VP/ZigZag —
+        # cap режет реалистичные зоны в сильных трендах (support на -30% обрезался до -10%).
+        # Оставлена только валидация lower>price (2a-1b ниже).
 
         # 2a-1b: валидация для ВСЕХ ТФ — lower не выше цены, upper не ниже цены.
         # Если lower > price → вся зона выше цены (XAUT D1 lower=4367 > price=4058).
