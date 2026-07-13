@@ -147,24 +147,235 @@ def get_stats():
 
 dp = Dispatcher(storage=MemoryStorage())
 
+# ── Inline Keyboard ──────────────────────────────────────────────────────────
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+
+SYMBOLS_SCAN = ["BTCUSDT", "XAUTUSDT"]  # из _get_symbols()
+
+def _main_keyboard() -> InlineKeyboardMarkup:
+    """Главная клавиатура /start."""
+    scan_btns = []
+    for sym in SYMBOLS_SCAN:
+        label = sym.replace("USDT", "")
+        if label == "XAUT":
+            label = "XAUT (золото)"
+        scan_btns.append([InlineKeyboardButton(text=f"📊 Анализ {label}", callback_data=f"scan_{sym}")])
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        *scan_btns,
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="cmd_stats"),
+         InlineKeyboardButton(text="⚙️ Настройки", callback_data="cmd_settings")],
+        [InlineKeyboardButton(text="🔇 Авто-режим", callback_data="cmd_auto"),
+         InlineKeyboardButton(text="🔄 Статус ботов", callback_data="cmd_status")],
+        [InlineKeyboardButton(text=_autoscan_button_label(), callback_data="toggle_autoscan")],
+    ])
+
+
+def _autoscan_button_label() -> str:
+    interval = get_setting("autoscan_interval", 30)
+    active = get_setting("autoscan_active", False)
+    if active:
+        return f"⏹ Остановить автоскан ({interval} мин)"
+    return f"▶ Запустить автоскан ({interval} мин)"
+
+
+# ── /start с inline keyboard ────────────────────────────────────────────────
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     if message.from_user.id != ADMIN_CHAT_ID: return
     await message.answer(
         "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
-        "Команды:\n"
-        "/status — статус обоих ботов\n"
-        "/stats — статистика\n"
-        "/scan BTC — анализ через облако\n"
-        "/scan ETH — анализ ETH\n"
-        "/scan XAUT — анализ золота\n"
-        "/startbot — запустить основной бот\n"
-        "/stopbot — остановить основной бот\n"
-        "/auto — тогл авто-режима\n"
-        "/settings — настройки\n"
-        "/version — git HEAD\n\n"
-        f"Веб: http://localhost:{WEB_PORT}"
+        "Нажми кнопку или введи команду:\n"
+        "/scan BTC | ETH | XAUT — анализ через облако",
+        reply_markup=_main_keyboard(),
+        parse_mode="Markdown",
     )
+
+
+# ── Callback handlers ────────────────────────────────────────────────────────
+
+@dp.callback_query(F.data.startswith("scan_"))
+async def cb_scan(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID:
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    symbol = callback.data.removeprefix("scan_")
+    symbol_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "XAUT": "XAUTUSDT"}
+    full = symbol_map.get(symbol, symbol)
+    label = full.replace("USDT", "")
+    if label == "XAUT":
+        label = "XAUT (золото)"
+
+    await callback.message.edit_text(f"🔍 Анализ {label} через облако ({DASHBOARD_MODEL_NAME})...")
+    await _do_scan(callback.bot, full, callback.message.chat.id)
+    # Обновить клавиатуру после анализа
+    await callback.message.answer("Выбери действие:", reply_markup=_main_keyboard())
+
+
+@dp.callback_query(F.data == "cmd_stats")
+async def cb_stats(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    s = get_stats()
+    text = (f"📈 *Статистика*\n\nПроверено: {s['checked']}\n"
+            f"Accuracy: {s['accuracy']}%\nWins: {s['wins']}\n"
+            f"SL: {s['sl_rate']}%\nPending: {s['pending']}\n\n")
+    if s.get("ab_variants"):
+        text += "🧪 *A/B:*\n"
+        for v in s["ab_variants"]:
+            text += f"  {v['variant']}: {v['wins']}/{v['total']}\n"
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+
+
+@dp.callback_query(F.data == "cmd_settings")
+async def cb_settings(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    rows = _query_db("SELECT key, value FROM settings ORDER BY key")
+    text = "⚙️ *Настройки:*\n"
+    for r in rows:
+        text += f"  {r['key']} = {r['value']}\n"
+    if not rows:
+        text += "  _(пусто)_\n"
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+
+
+@dp.callback_query(F.data == "cmd_auto")
+async def cb_auto(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    state = not get_setting("auto_mode", False)
+    set_setting("auto_mode", state)
+    label = "🔇 ON (только сигналы)" if state else "📢 OFF (все анализы)"
+    await callback.message.edit_text(f"Авто-режим: {label}", reply_markup=_main_keyboard())
+
+
+@dp.callback_query(F.data == "cmd_status")
+async def cb_status(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    running = is_main_bot_running()
+    uptime = int(time.time() - main_bot_started_at) if main_bot_started_at and running else 0
+    pid = main_bot_process.pid if running else "—"
+    status = "🟢 Running" if running else "🔴 Stopped"
+    cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+    autoscan = get_setting("autoscan_active", False)
+    autoscan_iv = get_setting("autoscan_interval", 30)
+    text = (
+        f"📊 *Статус*\n\n"
+        f"Основной бот: {status} (PID {pid}, {uptime//60} мин)\n"
+        f"Дашборд: 🟢 Active\n"
+        f"  LLM: {DASHBOARD_MODEL_NAME} ({cloud})\n"
+        f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+        f"  Авто-режим: {'ON' if get_setting('auto_mode', False) else 'OFF'}"
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+
+
+# ── Автоскан ─────────────────────────────────────────────────────────────────
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+autoscan_scheduler = AsyncIOScheduler()
+
+
+async def _autoscan_cycle(bot: Bot):
+    """Циклический анализ всех символов через облако."""
+    if not DASHBOARD_LLM_API_KEY:
+        logging.warning("autoscan: DASHBOARD_LLM_API_KEY not set, skipping")
+        return
+    import core.config as cfg
+    import core.scheduler as sched_mod
+    old_auto = cfg.AUTO_SIGNAL_ONLY
+    old_my_chat = cfg.MY_CHAT_ID
+    try:
+        # Автоскан: AUTO_SIGNAL_ONLY — только сигналы
+        cfg.MY_CHAT_ID = ADMIN_CHAT_ID
+        sched_mod.AUTO_SIGNAL_ONLY = True
+        sched_mod.ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+        await run_hourly_analysis(
+            bot=bot,
+            llm_api_key=DASHBOARD_LLM_API_KEY,
+            llm_base_url=DASHBOARD_LLM_BASE_URL,
+            llm_model=DASHBOARD_MODEL_NAME,
+        )
+    except Exception as e:
+        logging.error(f"autoscan cycle error: {e}")
+    finally:
+        cfg.AUTO_SIGNAL_ONLY = old_auto
+        cfg.MY_CHAT_ID = old_my_chat
+
+
+def _start_autoscan(bot: Bot) -> bool:
+    interval = get_setting("autoscan_interval", 30)
+    autoscan_scheduler.add_job(
+        _autoscan_cycle, "interval", minutes=interval,
+        args=[bot], id="autoscan_job", replace_existing=True,
+        max_instances=1, coalesce=True,
+    )
+    if not autoscan_scheduler.running:
+        autoscan_scheduler.start()
+    set_setting("autoscan_active", True)
+    logging.info(f"Autoscan started: every {interval} min, symbols: {SYMBOLS_SCAN}")
+    return True
+
+
+def _stop_autoscan() -> bool:
+    try:
+        autoscan_scheduler.remove_job("autoscan_job")
+    except Exception:
+        pass
+    set_setting("autoscan_active", False)
+    logging.info("Autoscan stopped")
+    return True
+
+
+@dp.callback_query(F.data == "toggle_autoscan")
+async def cb_toggle_autoscan(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    active = get_setting("autoscan_active", False)
+    if active:
+        _stop_autoscan()
+        text = "⏹ Автоскан остановлен"
+    else:
+        if not DASHBOARD_LLM_API_KEY:
+            await callback.answer("❌ DASHBOARD_LLM_API_KEY не задан", show_alert=True)
+            return
+        _start_autoscan(callback.bot)
+        iv = get_setting("autoscan_interval", 30)
+        text = f"▶ Автоскан запущен (каждые {iv} мин)"
+    await callback.message.edit_text(text, reply_markup=_main_keyboard())
+
+
+# ── Настройка интервала автоскана ────────────────────────────────────────────
+
+@dp.message(Command("autoscan"))
+async def cmd_autoscan(message: Message):
+    """Ручное управление: /autoscan, /autoscan 45, /autoscan off"""
+    if message.from_user.id != ADMIN_CHAT_ID: return
+    parts = message.text.strip().split()
+    if len(parts) >= 2:
+        arg = parts[1].lower()
+        if arg in ("off", "stop", "0"):
+            _stop_autoscan()
+            await message.answer("⏹ Автоскан остановлен")
+            return
+        try:
+            minutes = int(arg)
+            if minutes < 5:
+                await message.answer("❌ Минимум 5 минут")
+                return
+            set_setting("autoscan_interval", minutes)
+            active = get_setting("autoscan_active", False)
+            if active:
+                _stop_autoscan()
+                _start_autoscan(message.bot)
+            await message.answer(f"✅ Интервал: {minutes} мин" + (" (автоскан перезапущен)" if active else ""))
+            return
+        except ValueError:
+            pass
+    # Без аргументов — текущий статус
+    active = get_setting("autoscan_active", False)
+    iv = get_setting("autoscan_interval", 30)
+    text = f"Автоскан: {'🟢 ON' if active else '🔴 OFF'} ({iv} мин)\n\nУправление:\n/autoscan 30 — интервал\n/autoscan off — стоп"
+    await message.answer(text)
 
 @dp.message(Command("status"))
 async def cmd_status(message: Message):
@@ -265,33 +476,42 @@ async def cmd_scan(message: Message):
             text = text[len(prefix):].strip()
             break
     if not text:
-        await message.answer("Использование: /scan BTC | ETH | XAUT")
+        await message.answer("Использование: /scan BTC | ETH | XAUT", reply_markup=_main_keyboard())
         return
-    symbol = text.upper().split()[0]
     symbol_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "XAUT": "XAUTUSDT"}
+    symbol = text.upper().split()[0]
     full = symbol_map.get(symbol, symbol + "USDT" if not symbol.endswith("USDT") else symbol)
-
     await message.answer(f"🔍 Анализ {full} через облако ({DASHBOARD_MODEL_NAME})...")
+    await _do_scan(message.bot, full, message.chat.id)
 
+
+async def _do_scan(bot: Bot, symbol: str, chat_id: int):
+    """Общий код сканирования через облако (для /scan и кнопок)."""
     try:
         from core.scheduler import run_hourly_analysis
-        import core.scheduler as sched_mod
-        from aiogram import Bot
-        dash_bot = Bot(token=DASH_TOKEN)
         import core.config as cfg
-        cfg.MY_CHAT_ID = message.chat.id
-        # Ручной /scan ВСЕГДА отправляет результат
-        cfg.AUTO_SIGNAL_ONLY = False
-        sched_mod.AUTO_SIGNAL_ONLY = False
-        await run_hourly_analysis(
-            bot=dash_bot,
-            symbol_filter=full,
-            llm_api_key=DASHBOARD_LLM_API_KEY,
-            llm_base_url=DASHBOARD_LLM_BASE_URL,
-            llm_model=DASHBOARD_MODEL_NAME,
-        )
+        import core.scheduler as sched_mod
+        # Сохраняем оригинальные значения
+        old_chat = cfg.MY_CHAT_ID
+        old_auto = cfg.AUTO_SIGNAL_ONLY
+        try:
+            cfg.MY_CHAT_ID = chat_id
+            # Ручной /scan ВСЕГДА отправляет результат
+            cfg.AUTO_SIGNAL_ONLY = False
+            sched_mod.AUTO_SIGNAL_ONLY = False
+            await run_hourly_analysis(
+                bot=bot,
+                symbol_filter=symbol,
+                llm_api_key=DASHBOARD_LLM_API_KEY,
+                llm_base_url=DASHBOARD_LLM_BASE_URL,
+                llm_model=DASHBOARD_MODEL_NAME,
+            )
+        finally:
+            cfg.MY_CHAT_ID = old_chat
+            cfg.AUTO_SIGNAL_ONLY = old_auto
+            sched_mod.AUTO_SIGNAL_ONLY = old_auto
     except Exception as e:
-        await message.answer(f"❌ {type(e).__name__}: {e}")
+        await bot.send_message(chat_id, f"❌ {type(e).__name__}: {e}")
 
 # ── Flask web ──────────────────────────────────────────────────────────────
 
@@ -378,10 +598,11 @@ async def main():
     session = AiohttpSession()
     bot = Bot(token=DASH_TOKEN, session=session)
     await bot.set_my_commands([
-        BotCommand(command="start", description="Привет + команды"),
-        BotCommand(command="status", description="Статус"),
-        BotCommand(command="stats", description="Статистика"),
+        BotCommand(command="start", description="Меню с кнопками"),
         BotCommand(command="scan", description="Анализ: /scan BTC"),
+        BotCommand(command="autoscan", description="Автоскан: /autoscan 30"),
+        BotCommand(command="status", description="Статус ботов"),
+        BotCommand(command="stats", description="Статистика"),
         BotCommand(command="startbot", description="Запустить основной бот"),
         BotCommand(command="stopbot", description="Остановить основной бот"),
         BotCommand(command="auto", description="Тогл авто-режима"),
