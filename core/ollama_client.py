@@ -877,7 +877,10 @@ def enforce_risk_rules(data: dict) -> dict:
     def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
         """
         1. Младший ТФ должен быть ВНУТРИ старшего: lower_child >= lower_parent,
-           upper_child <= upper_parent. Если нарушено — расширяем родительскую зону.
+           upper_child <= upper_parent. Если нарушено — СУЖАЕМ CHILD до parent,
+           потому что старший ТФ авторитетнее (D1 ⊃ 4H ⊃ 1H ⊃ 15M ⊃ 5M).
+           Раньше расширяли parent — это приводило к слиянию всех зон в одну
+           (матрёшка раскручивалась вверх: H1→H4→D1).
         2. D1 зона ограничивается ±10% от текущей цены (LLM иногда берёт
            исторический максимум за 100 свечей).
         Порядок вложенности: 1D ⊃ 4H ⊃ 1H ⊃ 15M ⊃ 5M
@@ -915,12 +918,13 @@ def enforce_risk_rules(data: dict) -> dict:
             if p_lower is None and p_upper is None:
                 continue
 
-            # Если child lower < parent lower → расширяем parent lower
+            # Если child выходит ЗА parent — СУЗИТЬ child до parent.
+            # Старший ТФ авторитетнее: D1 ⊃ 4H ⊃ 1H ⊃ 15M ⊃ 5M.
+            # Раньше расширяли parent → все зоны сливались в одну максимальную.
             if c_lower is not None and p_lower is not None and c_lower < p_lower:
-                parent["lower"] = c_lower
-            # Если child upper > parent upper → расширяем parent upper
+                child["lower"] = p_lower
             if c_upper is not None and p_upper is not None and c_upper > p_upper:
-                parent["upper"] = c_upper
+                child["upper"] = p_upper
 
         return tf_zones
 

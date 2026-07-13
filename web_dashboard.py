@@ -313,15 +313,18 @@ async def show_main_menu(message: Message) -> None:
 # ── /scan (полная копия из handlers.py, но через cloud LLM) ────────────────
 
 def _fill_missing_tf_zones(
-    result: dict, prev_tf_zones: dict, timeframes: list[str]
+    result: dict, prev_tf_zones: dict, timeframes: list[str],
+    zigzag_timeframes: dict | None = None,
 ) -> None:
     """
-    Если LLM не вернул зону для какого-то ТФ — берёт из prev_analysis.tf_zones
-    (зоны, которые были переданы LLM в контексте), НЕ из сырых структурных
-    экстремумов (max/min за 120 свечей — не зоны консолидации).
+    Если LLM не вернул зону для какого-то ТФ:
+      1. Берёт из zigzag_timeframes (ZigZag benchmark — настоящие зоны из pivots).
+      2. Если ZigZag нет зоны — берёт из prev_tf_zones (fallback-2, для HTF
+         которых ZigZag не загрузил, например 1D fetch failed).
+      3. Если зоны нет нигде — НЕ подставляем мусор, оставляем N/A.
 
-    Если зоны нет ни в LLM-ответе, ни в prev_analysis — НЕ подставляем мусор.
-    Оставляем отсутствующей — format_json_for_tg покажет "N/A" для этого ТФ.
+    НЕ используем all_metrics[tf]["zone"] = get_structural_extremums()
+    (сырые max/min за 120 свечей — не зоны консолидации).
 
     Матрёшка + D1 cap применяются ВНЕ функции — через re-run enforce_risk_rules()
     в caller (_do_full_scan) после fallback.
@@ -340,23 +343,43 @@ def _fill_missing_tf_zones(
         tf_zones = {}
         result["tf_zones"] = tf_zones
 
+    if not isinstance(zigzag_timeframes, dict):
+        zigzag_timeframes = {}
+
     filled = False
     for tf in timeframes:
         norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
         if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
             continue  # LLM вернул зону для этого ТФ
-        # Fallback из prev_analysis.tf_zones (НЕ из сырых экстремумов)
-        prev_zone = prev_tf_zones.get(tf) or prev_tf_zones.get(norm_key)
-        if isinstance(prev_zone, dict) and (prev_zone.get("upper") is not None or prev_zone.get("lower") is not None):
+
+        zone = None
+        source = None
+
+        # Fallback-1: ZigZag benchmark (настоящие зоны из pivots)
+        zz = zigzag_timeframes.get(tf) or zigzag_timeframes.get(norm_key)
+        if isinstance(zz, dict) and (zz.get("upper") is not None or zz.get("lower") is not None):
             zone = {
-                "upper": prev_zone.get("upper"),
-                "lower": prev_zone.get("lower"),
+                "upper": zz.get("upper"),
+                "lower": zz.get("lower"),
             }
+            source = "zigzag"
+
+        # Fallback-2: prev_tf_zones (для ТФ которых ZigZag не загрузил, напр. 1D fetch failed)
+        if zone is None:
+            prev_zone = prev_tf_zones.get(tf) or prev_tf_zones.get(norm_key)
+            if isinstance(prev_zone, dict) and (prev_zone.get("upper") is not None or prev_zone.get("lower") is not None):
+                zone = {
+                    "upper": prev_zone.get("upper"),
+                    "lower": prev_zone.get("lower"),
+                }
+                source = "prev_analysis"
+
+        if zone is not None:
             tf_zones[norm_key] = zone
             filled = True
             logging.info(
-                "DASHBOARD: filled missing %s zone from prev_analysis for %s",
-                norm_key, result.get("symbol", "?"),
+                "DASHBOARD: filled missing %s zone from %s for %s",
+                norm_key, source, result.get("symbol", "?"),
             )
 
     # Пересобрать tf_zones в каноническом порядке (D1→H4→H1→M15→M5).
@@ -496,7 +519,10 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                 # Гарантировать symbol в result для логирования fallback
                 if not parsed_result.get("symbol"):
                     parsed_result["symbol"] = symbol
-                _fill_missing_tf_zones(parsed_result, tf_zones, timeframes)
+                _fill_missing_tf_zones(
+                    parsed_result, tf_zones, timeframes,
+                    zigzag_timeframes=zigzag_context.get("timeframes", {}),
+                )
                 # Re-run enforce_risk_rules: применит матрёшку + D1 cap
                 # к fallback-зонам, добавленным из prev_analysis.
                 parsed_result = enforce_risk_rules(parsed_result)
