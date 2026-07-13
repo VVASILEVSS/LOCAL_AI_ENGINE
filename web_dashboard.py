@@ -61,7 +61,7 @@ DASHBOARD_MODEL_NAME = os.getenv("DASHBOARD_MODEL_NAME", "glm-5.2-fast-preview")
 
 # ── Импорты из core (общий код с KXROBO) ────────────────────────────────────
 
-from core.ollama_client import analyze_multi_images, format_json_for_tg
+from core.ollama_client import analyze_multi_images, enforce_risk_rules, format_json_for_tg
 from core.config import USER_ANALYSIS_CACHE
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import update_and_save_state
@@ -332,7 +332,8 @@ def _fill_missing_tf_zones(
     }
     # Канонический порядок от старшего к младшему
     canonical_order = ["1D", "4H", "1H", "15M", "5M"]
-    cap_pct = 0.10  # ±10% от цены — синхронно с _validate_zone_nesting()
+    # D1 cap ±10% и матрёшка применяются ВНЕ этой функции — через re-run
+    # enforce_risk_rules() в caller (_do_full_scan) после fallback.
 
     if not isinstance(result, dict):
         return
@@ -354,20 +355,11 @@ def _fill_missing_tf_zones(
                 "upper": chart_zone.get("upper"),
                 "lower": chart_zone.get("lower"),
             }
-            # D1 cap ±10% — fallback зона идёт ПОСЛЕ enforce_risk_rules,
-            # поэтому cap здесь не применялся. Применяем вручную.
-            if norm_key == "1D" and price is not None:
-                upper = zone.get("upper")
-                lower = zone.get("lower")
-                if upper is not None and abs(upper - price) / price > cap_pct:
-                    zone["upper"] = round(price * (1 + cap_pct), 2)
-                if lower is not None and abs(price - lower) / price > cap_pct:
-                    zone["lower"] = round(price * (1 - cap_pct), 2)
             tf_zones[norm_key] = zone
             filled = True
             logging.info(
-                "DASHBOARD: filled missing %s zone from chart data for %s (D1 cap applied=%s)",
-                norm_key, result.get("symbol", "?"), norm_key == "1D",
+                "DASHBOARD: filled missing %s zone from chart data for %s",
+                norm_key, result.get("symbol", "?"),
             )
 
     # Пересобрать tf_zones в каноническом порядке (D1→H4→H1→M15→M5).
@@ -501,11 +493,16 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             # tf_zones, D1 cap, nesting, confluence — всё валидировано.
             # Но LLM может не вернуть зону для какого-то ТФ (часто 1D) —
             # заполняем отсутствующие из данных графика как fallback.
+            # ВАЖНО: после fallback перезапускаем enforce_risk_rules,
+            # чтобы матрёшка и D1 cap применились к обновлённым зонам.
             if isinstance(parsed_result, dict):
                 # Гарантировать symbol в result для логирования fallback
                 if not parsed_result.get("symbol"):
                     parsed_result["symbol"] = symbol
                 _fill_missing_tf_zones(parsed_result, all_metrics, timeframes)
+                # Re-run enforce_risk_rules: применит матрёшку + D1 cap
+                # к fallback-зонам, добавленным из metrics.
+                parsed_result = enforce_risk_rules(parsed_result)
 
             if isinstance(parsed_result, dict) and parsed_result.get("error"):
                 await bot.send_message(chat_id, f"⚠️ Ошибка анализа: {parsed_result.get('message')}")
