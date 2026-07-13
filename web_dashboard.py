@@ -528,10 +528,15 @@ async def cmd_scan(message: Message) -> None:
         return
     if message.text is None:
         return
-    # Support multi-symbol: /scan BTC | ETH | XAUT  OR  /scan BTC ETH XAUT  OR  /scan BTC
+    # Support multi-symbol: /scan BTC | ETH | XAUT  OR  /scan BTC,ETH,XAUT  OR  /scan BTC ETH XAUT  OR  /scan BTC
     raw_text = message.text.split(maxsplit=1)
     raw_syms_str = raw_text[1] if len(raw_text) > 1 else "BTC"
-    raw_syms = [s.strip().upper().replace("/", "").replace("USDT", "") for s in raw_syms_str.split("|")]
+    # Normalize separators: '|' and ',' and whitespace (multiple spaces) → split
+    # /scan BTC | ETH | XAUT  →  ["BTC", "ETH", "XAUT"]
+    # /scan BTC,ETH,XAUT     →  ["BTC", "ETH", "XAUT"]
+    # /scan BTC ETH XAUT     →  ["BTC", "ETH", "XAUT"]
+    raw_syms_str_norm = raw_syms_str.replace("|", " ").replace(",", " ")
+    raw_syms = [s.strip().upper().replace("/", "").replace("USDT", "") for s in raw_syms_str_norm.split()]
     raw_syms = [s for s in raw_syms if s]  # filter empty
     if not raw_syms:
         raw_syms = ["BTC"]
