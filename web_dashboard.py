@@ -315,13 +315,18 @@ async def show_main_menu(message: Message) -> None:
 def _fill_missing_tf_zones(
     result: dict, prev_tf_zones: dict, timeframes: list[str],
     zigzag_timeframes: dict | None = None,
+    vp_timeframes: dict | None = None,
 ) -> None:
     """
-    Если LLM не вернул зону для какого-то ТФ:
-      1. Берёт из zigzag_timeframes (ZigZag benchmark — настоящие зоны из pivots).
-      2. Если ZigZag нет зоны — берёт из prev_tf_zones (fallback-2, для HTF
-         которых ZigZag не загрузил, например 1D fetch failed).
-      3. Если зоны нет нигде — НЕ подставляем мусор, оставляем N/A.
+    Если LLM не вернул зону для какого-то ТФ — берёт из fallback источников.
+
+    Приоритет fallback:
+    0. Volume Profile POC (настоящие зоны консолидации по объёму)
+    1. ZigZag benchmark
+    2. prev_tf_zones (для ТФ которых ZigZag/VP не загрузили)
+
+    Если нет нигде — зона не вставляется (N/A).
+    Если нет нигде — зона не вставляется (N/A).
 
     НЕ используем all_metrics[tf]["zone"] = get_structural_extremums()
     (сырые max/min за 120 свечей — не зоны консолидации).
@@ -345,6 +350,8 @@ def _fill_missing_tf_zones(
 
     if not isinstance(zigzag_timeframes, dict):
         zigzag_timeframes = {}
+    if not isinstance(vp_timeframes, dict):
+        vp_timeframes = {}
 
     filled = False
     for tf in timeframes:
@@ -355,23 +362,38 @@ def _fill_missing_tf_zones(
         zone = None
         source = None
 
-        # Fallback-1: ZigZag benchmark (настоящие зоны из pivots)
-        zz = zigzag_timeframes.get(tf) or zigzag_timeframes.get(norm_key)
-        if isinstance(zz, dict) and (zz.get("upper") is not None or zz.get("lower") is not None):
-            zone = {
-                "upper": zz.get("upper"),
-                "lower": zz.get("lower"),
-            }
-            source = "zigzag"
+        # Поиск ключа: tf (raw), norm_key (canonical), tf_lower (VP/ZigZag return lowercase)
+        tf_lower = tf.lower()
+        lookup_keys = [tf, norm_key, tf_lower]
 
-        # Fallback-2: prev_tf_zones (для ТФ которых ZigZag не загрузил, напр. 1D fetch failed)
+        def _find_zone(d):
+            """Ищем зону по любому варианту ключа (case-insensitive)."""
+            if not isinstance(d, dict):
+                return None
+            for k in lookup_keys:
+                v = d.get(k)
+                if isinstance(v, dict) and (v.get("upper") is not None or v.get("lower") is not None):
+                    return v
+            return None
+
+        # Fallback-0: Volume Profile POC (настоящие зоны консолидации по объёму)
+        vp = _find_zone(vp_timeframes)
+        if vp is not None:
+            zone = {"upper": vp.get("upper"), "lower": vp.get("lower")}
+            source = "volume_profile"
+
+        # Fallback-1: ZigZag benchmark
         if zone is None:
-            prev_zone = prev_tf_zones.get(tf) or prev_tf_zones.get(norm_key)
-            if isinstance(prev_zone, dict) and (prev_zone.get("upper") is not None or prev_zone.get("lower") is not None):
-                zone = {
-                    "upper": prev_zone.get("upper"),
-                    "lower": prev_zone.get("lower"),
-                }
+            zz = _find_zone(zigzag_timeframes)
+            if zz is not None:
+                zone = {"upper": zz.get("upper"), "lower": zz.get("lower")}
+                source = "zigzag"
+
+        # Fallback-2: prev_tf_zones (для ТФ которых ZigZag/VP не загрузили, напр. 1D fetch failed)
+        if zone is None:
+            prev_zone = _find_zone(prev_tf_zones)
+            if prev_zone is not None:
+                zone = {"upper": prev_zone.get("upper"), "lower": prev_zone.get("lower")}
                 source = "prev_analysis"
 
         if zone is not None:
@@ -467,6 +489,24 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                     "symbol": symbol, "stack": {}, "timeframes": {}, "confluence_levels": [],
                 }
 
+            # Volume Profile POC — настоящие зоны консолидации по объёму
+            try:
+                from core.volume_profile import run_volume_profile
+                vp_result = run_volume_profile(
+                    symbol=symbol, timeframes=timeframes,
+                    limit=200, bins=50, value_area_pct=0.70,
+                    market_type="future",
+                )
+                vp_context = {
+                    "symbol": vp_result.get("symbol", symbol),
+                    "timeframes": vp_result.get("timeframes", {}),
+                }
+            except Exception as e:
+                vp_context = {
+                    "error": True, "message": f"VP: {type(e).__name__}",
+                    "symbol": symbol, "timeframes": {},
+                }
+
             ltf_volume = all_metrics[timeframes[-1]].get("volume_context", {})
             if not isinstance(ltf_volume, dict):
                 ltf_volume = {}
@@ -522,6 +562,7 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                 _fill_missing_tf_zones(
                     parsed_result, tf_zones, timeframes,
                     zigzag_timeframes=zigzag_context.get("timeframes", {}),
+                    vp_timeframes=vp_context.get("timeframes", {}),
                 )
                 # Re-run enforce_risk_rules: применит матрёшку + D1 cap
                 # к fallback-зонам, добавленным из prev_analysis.
