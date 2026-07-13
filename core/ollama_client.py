@@ -654,6 +654,11 @@ def enforce_risk_rules(data: dict) -> dict:
                 continue
 
             tf_key = str(tf).strip().upper().replace("MIN", "M")
+
+            # Пропускать мусорные ключи: гибридные ("1D/4H"), с пробелами, не-ТФ
+            if "/" in tf_key or " " in tf_key:
+                continue
+
             upper = _safe_float(z.get("upper"))
             lower = _safe_float(z.get("lower"))
 
@@ -864,6 +869,61 @@ def enforce_risk_rules(data: dict) -> dict:
     # 2) Базовые блоки
     # -----------------------------
     data["tf_zones"] = _normalize_tf_zones(data.get("tf_zones") or {})
+
+    # -----------------------------
+    # 2a) Валидация матрёшки зон + ограничение D1
+    # -----------------------------
+    def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
+        """
+        1. Младший ТФ должен быть ВНУТРИ старшего: lower_child >= lower_parent,
+           upper_child <= upper_parent. Если нарушено — расширяем родительскую зону.
+        2. D1 зона ограничивается ±10% от текущей цены (LLM иногда берёт
+           исторический максимум за 100 свечей).
+        Порядок вложенности: 1D ⊃ 4H ⊃ 1H ⊃ 15M ⊃ 5M
+        """
+        if not tf_zones or price is None:
+            return tf_zones
+
+        nesting_order = ["1D", "4H", "1H", "15M", "5M"]
+        cap_pct = 0.10  # ±10% от цены
+
+        # 2a-1: ограничить D1 зону
+        d1 = tf_zones.get("1D")
+        if isinstance(d1, dict):
+            d1_upper = d1.get("upper")
+            d1_lower = d1.get("lower")
+            if d1_upper is not None and abs(d1_upper - price) / price > cap_pct:
+                d1["upper"] = round(price * (1 + cap_pct), 2)
+            if d1_lower is not None and abs(price - d1_lower) / price > cap_pct:
+                d1["lower"] = round(price * (1 - cap_pct), 2)
+
+        # 2a-2: валидация вложенности (от старшего к младшему)
+        for i in range(len(nesting_order) - 1):
+            parent_tf = nesting_order[i]
+            child_tf = nesting_order[i + 1]
+            parent = tf_zones.get(parent_tf)
+            child = tf_zones.get(child_tf)
+            if not isinstance(parent, dict) or not isinstance(child, dict):
+                continue
+
+            p_upper = parent.get("upper")
+            p_lower = parent.get("lower")
+            c_upper = child.get("upper")
+            c_lower = child.get("lower")
+
+            if p_lower is None and p_upper is None:
+                continue
+
+            # Если child lower < parent lower → расширяем parent lower
+            if c_lower is not None and p_lower is not None and c_lower < p_lower:
+                parent["lower"] = c_lower
+            # Если child upper > parent upper → расширяем parent upper
+            if c_upper is not None and p_upper is not None and c_upper > p_upper:
+                parent["upper"] = c_upper
+
+        return tf_zones
+
+    data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
 
