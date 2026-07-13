@@ -51,7 +51,10 @@ def build_volume_profile(
     """
     try:
         exchange = ccxt.binance({"options": {"defaultType": market_type}})
-        bars = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        # Binance принимает lowercase timeframe ('1d', '4h', '1h', '15m').
+        # forecasts.db хранит '1D' (uppercase) — нормализуем.
+        tf_normalized = timeframe.lower()
+        bars = exchange.fetch_ohlcv(symbol, tf_normalized, limit=limit)
     except Exception as e:
         logger.warning("VP: fetch_ohlcv failed for %s %s: %s", symbol, timeframe, e)
         return {"upper": None, "lower": None, "poc": None, "total_volume": 0.0, "bins": bins}

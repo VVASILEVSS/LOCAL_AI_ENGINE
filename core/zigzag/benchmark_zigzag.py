@@ -196,7 +196,10 @@ def run_benchmark(
 
     for tf in timeframes:
         try:
-            bars = exchange.fetch_ohlcv(symbol, tf, limit=limit)
+            # Binance принимает lowercase timeframe ('1d', '4h', '1h', '15m').
+            # forecasts.db хранит '1D' (uppercase) — нормализуем.
+            tf_norm = tf.lower()
+            bars = exchange.fetch_ohlcv(symbol, tf_norm, limit=limit)
         except Exception as e:
             print(f"  {tf}: fetch failed ({type(e).__name__}), skipping")
             continue
