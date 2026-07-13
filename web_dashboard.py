@@ -941,6 +941,44 @@ async def cmd_stopbot(message: Message) -> None:
     await message.answer("🛑 Остановлен" if ok else "❌ Ошибка")
 
 
+@dp.message(Command("help"))
+async def cmd_help(message: Message) -> None:
+    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+    text = """📖 *Справка*
+
+*Анализ:*
+/scan BTC — анализ любой пары (SOL, XAG, DOGE...)
+/analyze_all — анализ загруженных скриншотов
+📎 Отправь 1–5 фото графиков → /analyze_all
+
+*Портфель:*
+/add XAGUSDT — добавить тикер в список
+/remove XAGUSDT — удалить тикер
+/settings — текущая конфигурация
+
+*Таймфреймы и таймер:*
+/timeframes — выбрать ТФ (15m, 1h, 4h, 1D)
+/timer 30 — интервал авто-отчётов (мин 5)
+
+*Автоскан (облако):*
+/autoscan — статус автоскана
+/autoscan 30 — установить интервал
+/autoscan off — остановить
+Кнопка «Автоскан: тикеры» — выбор монет для цикла
+
+*Режимы:*
+/auto — тогл авто-режима (только сигналы / все)
+/filter on/off — фильтр сигналов
+
+*Прочее:*
+/export — скачать CSV бэктеста
+/status — статус обоих ботов
+/stats — статистика точности
+/version — git HEAD
+/startbot / stopbot — управл. основным ботом"""
+    await message.answer(text, parse_mode="Markdown")
+
+
 @dp.message(Command("version"))
 async def cmd_version(message: Message) -> None:
     if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
@@ -1146,6 +1184,7 @@ async def main():
     session = AiohttpSession()
     bot = Bot(token=DASH_TOKEN, session=session)
     await bot.set_my_commands([
+        BotCommand(command="help", description="📖 Справка по командам"),
         BotCommand(command="start", description="Меню с кнопками"),
         BotCommand(command="scan", description="Анализ: /scan BTC или /scan SOL"),
         BotCommand(command="add", description="Добавить тикер"),
