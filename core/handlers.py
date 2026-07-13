@@ -260,26 +260,9 @@ async def cmd_scan(message: types.Message) -> None:
         if isinstance(parsed_result, dict):
             parsed_result = update_and_save_state(symbol, timeframes[-1], parsed_result)
 
-        if isinstance(parsed_result, dict) and "tf_zones" in parsed_result:
-            tf_zones_clean = {}
-            key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
-
-            # Сначала metrics-зоны, затем LLM-зоны перезаписывают (LLM имеет приоритет)
-            for k, v in tf_zones.items():
-                norm_k = key_map.get(k.strip().lower(), k.strip().upper())
-                tf_zones_clean[norm_k] = v
-
-            llm_zones = parsed_result.get("tf_zones") or {}
-            if isinstance(llm_zones, dict):
-                for k, v in llm_zones.items():
-                    norm_k = key_map.get(k.strip().lower(), k.strip().upper())
-                    if isinstance(v, dict):
-                        upper = v.get("upper")
-                        lower = v.get("lower")
-                        if upper is not None or lower is not None:
-                            tf_zones_clean[norm_k] = v
-
-            parsed_result["tf_zones"] = tf_zones_clean
+        # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
+        # tf_zones, D1 cap, nesting, confluence — всё валидировано.
+        # НЕ перезаписываем tf_zones сырыми данными после валидации.
 
         if isinstance(parsed_result, dict) and parsed_result.get("error"):
             await message.answer(f"⚠️ Ошибка анализа: {parsed_result.get('message')}")
