@@ -1,0 +1,862 @@
+     1→"""
+     2→LOCAL_AI_ENGINE — Dashboard Bot + Web Dashboard
+     3→Бот: @my_hermes_lokal_ai_bot (cloud LLM — Alibaba GLM)
+     4→Основной бот: @KXROBObot (local LLM — LM Studio)
+     5→Запуск: python web_dashboard.py → http://localhost:5000
+     6→"""
+     7→from __future__ import annotations
+     8→
+     9→import os
+    10→import sys
+    11→import threading
+    12→import asyncio
+    13→import sqlite3
+    14→import subprocess
+    15→import logging
+    16→import time
+    17→
+    18→# Загрузка .env (DASHBOARD_LLM_* для облака)
+    19→from dotenv import load_dotenv
+    20→load_dotenv()
+    21→
+    22→# Фикс DNS для aiohttp на Windows
+    23→import aiohttp
+    24→from aiohttp.resolver import ThreadedResolver
+    25→_orig_init = aiohttp.TCPConnector.__init__
+    26→def _patched_init(self, *a, **kw):
+    27→    if 'resolver' not in kw or kw['resolver'] is None:
+    28→        kw['resolver'] = ThreadedResolver()
+    29→    return _orig_init(self, *a, **kw)
+    30→aiohttp.TCPConnector.__init__ = _patched_init
+    31→
+    32→from aiogram import Bot, Dispatcher, F
+    33→from aiogram.filters import Command
+    34→from aiogram.types import Message, BotCommand
+    35→from aiogram.client.session.aiohttp import AiohttpSession
+    36→from aiogram.fsm.storage.memory import MemoryStorage
+    37→
+    38→from flask import Flask, jsonify, render_template_string
+    39→
+    40→# ── Config ─────────────────────────────────────────────────────────────────
+    41→
+    42→DASH_TOKEN = os.getenv("DASH_TOKEN", "8823603938:AAEQ8IPYIRIXPIXlz0YlCL4nMv82ITTv24w")
+    43→ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "1943427656"))
+    44→WEB_PORT = int(os.getenv("WEB_PORT", "5000"))
+    45→PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+    46→DB_PATH = os.path.join(PROJECT_DIR, "forecasts.db")
+    47→PYTHON_EXE = os.path.join(PROJECT_DIR, ".venv", "Scripts", "python.exe")
+    48→
+    49→# ── Cloud LLM config — дашборд-бот использует облако (DASHBOARD_LLM_* из .env) ─
+    50→DASHBOARD_LLM_API_KEY = os.getenv("DASHBOARD_LLM_API_KEY", "")
+    51→DASHBOARD_LLM_BASE_URL = os.getenv("DASHBOARD_LLM_BASE_URL", "")
+    52→DASHBOARD_MODEL_NAME = os.getenv("DASHBOARD_MODEL_NAME", "glm-5.2-fast-preview")
+    53→
+    54→# ── Main bot process management ─────────────────────────────────────────────
+    55→
+    56→main_bot_process: subprocess.Popen | None = None
+    57→main_bot_started_at: float | None = None
+    58→
+    59→def start_main_bot() -> bool:
+    60→    global main_bot_process, main_bot_started_at
+    61→    if main_bot_process and main_bot_process.poll() is None:
+    62→        return False
+    63→    env = os.environ.copy()
+    64→    env["PYTHONPATH"] = ""
+    65→    main_bot_process = subprocess.Popen(
+    66→        [PYTHON_EXE, "main.py"],
+    67→        cwd=PROJECT_DIR, env=env,
+    68→        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    69→    )
+    70→    main_bot_started_at = time.time()
+    71→    return True
+    72→
+    73→def stop_main_bot() -> bool:
+    74→    global main_bot_process
+    75→    if not main_bot_process or main_bot_process.poll() is not None:
+    76→        return False
+    77→    main_bot_process.terminate()
+    78→    try:
+    79→        main_bot_process.wait(timeout=10)
+    80→    except subprocess.TimeoutExpired:
+    81→        main_bot_process.kill()
+    82→    return True
+    83→
+    84→def is_main_bot_running() -> bool:
+    85→    return main_bot_process is not None and main_bot_process.poll() is None
+    86→
+    87→# ── DB helpers ──────────────────────────────────────────────────────────────
+    88→
+    89→def _query_db(query, args=()):
+    90→    try:
+    91→        conn = sqlite3.connect(DB_PATH)
+    92→        conn.row_factory = sqlite3.Row
+    93→        c = conn.cursor()
+    94→        c.execute(query, args)
+    95→        rows = c.fetchall()
+    96→        conn.close()
+    97→        return [dict(r) for r in rows]
+    98→    except Exception:
+    99→        return []
+   100→
+   101→def get_setting(key, default=None):
+   102→    rows = _query_db("SELECT value FROM settings WHERE key=?", (key,))
+   103→    if rows:
+   104→        v = rows[0]["value"]
+   105→        if v in ("true", "false"): return v == "true"
+   106→        return v
+   107→    return default
+   108→
+   109→def set_setting(key, value):
+   110→    conn = sqlite3.connect(DB_PATH)
+   111→    c = conn.cursor()
+   112→    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+   113→    conn.commit(); conn.close()
+   114→
+   115→def get_stats():
+   116→    stats = {
+   117→        "bot_status": "🟢 Running" if is_main_bot_running() else "🔴 Stopped",
+   118→        "uptime": int(time.time() - main_bot_started_at) if main_bot_started_at else 0,
+   119→        "model": DASHBOARD_MODEL_NAME,
+   120→        "llm_mode": "cloud" if DASHBOARD_LLM_API_KEY else "local",
+   121→        "prompt_variant": os.getenv("PROMPT_VARIANT", "A"),
+   122→        "interval": get_setting("interval_minutes", 60),
+   123→        "auto_mode": get_setting("auto_mode", False),
+   124→    }
+   125→    rows = _query_db("""
+   126→        SELECT COUNT(*) as total,
+   127→            SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins,
+   128→            SUM(CASE WHEN outcome = 'sl_hit' THEN 1 ELSE 0 END) as sl_hits
+   129→        FROM signal_log WHERE checked_at IS NOT NULL
+   130→    """)
+   131→    if rows and rows[0]["total"] and rows[0]["total"] > 0:
+   132→        r = rows[0]; total = r["total"]
+   133→        stats.update(checked=total, wins=int(r["wins"] or 0),
+   134→                      accuracy=round((r["wins"] or 0) / total * 100, 1),
+   135→                      sl_rate=round((r["sl_hits"] or 0) / total * 100, 1))
+   136→    else:
+   137→        stats.update(checked=0, wins=0, accuracy=0, sl_rate=0)
+   138→    pending = _query_db("SELECT COUNT(*) as cnt FROM signal_log WHERE checked_at IS NULL")
+   139→    stats["pending"] = pending[0]["cnt"] if pending else 0
+   140→    last = _query_db("SELECT timestamp, symbol, signal_status, direction, entry_price, sl, tp1, outcome FROM signal_log ORDER BY timestamp DESC LIMIT 10")
+   141→    stats["last_signals"] = last
+   142→    ab = _query_db("SELECT prompt_variant, COUNT(*) as cnt, SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins FROM signal_log WHERE checked_at IS NOT NULL AND prompt_variant IS NOT NULL GROUP BY prompt_variant")
+   143→    stats["ab_variants"] = [{"variant": r["prompt_variant"] or "A", "total": r["cnt"], "wins": r["wins"] or 0} for r in ab]
+   144→    return stats
+   145→
+   146→# ── Bot handlers ────────────────────────────────────────────────────────────
+   147→
+   148→dp = Dispatcher(storage=MemoryStorage())
+   149→
+   150→# ── Inline Keyboard ──────────────────────────────────────────────────────────
+   151→
+   152→from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+   153→
+   154→ALL_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT"]
+   155→SYMBOL_LABELS = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "XAUTUSDT": "XAUT (золото)", "SOLUSDT": "SOL"}
+   156→
+   157→# Символы, выбранные для автоскана (по умолчанию BTC + XAUT)
+   158→DEFAULT_AUTOSCAN_SYMBOLS = ["BTCUSDT", "XAUTUSDT"]
+   159→
+   160→
+   161→def _get_autoscan_symbols() -> list[str]:
+   162→    """Получить список символов для автоскана из настроек."""
+   163→    raw = get_setting("autoscan_symbols", "")
+   164→    if raw and isinstance(raw, str) and raw.strip():
+   165→        syms = [s.strip().upper() for s in raw.split(",") if s.strip()]
+   166→        return [s for s in syms if s in ALL_SYMBOLS]
+   167→    return list(DEFAULT_AUTOSCAN_SYMBOLS)
+   168→
+   169→
+   170→def _set_autoscan_symbols(symbols: list[str]):
+   171→    set_setting("autoscan_symbols", ",".join(symbols))
+   172→
+   173→
+   174→def _main_keyboard() -> InlineKeyboardMarkup:
+   175→    """Главная клавиатура /start — сетка 2×N как в старом боте."""
+   176→    return InlineKeyboardMarkup(inline_keyboard=[
+   177→        [InlineKeyboardButton(text="📊 Анализ BTC", callback_data="scan_BTCUSDT"),
+   178→         InlineKeyboardButton(text="📊 Анализ ETH", callback_data="scan_ETHUSDT")],
+   179→        [InlineKeyboardButton(text="📊 Анализ XAUT", callback_data="scan_XAUTUSDT"),
+   180→         InlineKeyboardButton(text="📈 Статистика", callback_data="cmd_stats")],
+   181→        [InlineKeyboardButton(text="🔇 Авто-режим", callback_data="cmd_auto"),
+   182→         InlineKeyboardButton(text=_autoscan_button_label(), callback_data="toggle_autoscan")],
+   183→        [InlineKeyboardButton(text="📊 Мультивалютный", callback_data="multi_monitor"),
+   184→         InlineKeyboardButton(text="🔄 Статус ботов", callback_data="cmd_status")],
+   185→        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="cmd_settings"),
+   186→         InlineKeyboardButton(text="ℹ️ О боте", callback_data="cmd_about")],
+   187→    ])
+   188→
+   189→
+   190→def _multi_monitor_keyboard() -> InlineKeyboardMarkup:
+   191→    """Клавиатура выбора тикеров для автоскана."""
+   192→    selected = _get_autoscan_symbols()
+   193→    rows = []
+   194→    row = []
+   195→    for i, sym in enumerate(ALL_SYMBOLS):
+   196→        icon = "✅" if sym in selected else "⬜"
+   197→        label = SYMBOL_LABELS.get(sym, sym.replace("USDT", ""))
+   198→        row.append(InlineKeyboardButton(text=f"{icon} {label}", callback_data=f"sym_toggle_{sym}"))
+   199→        if len(row) == 2:
+   200→            rows.append(row)
+   201→            row = []
+   202→    if row:
+   203→        rows.append(row)
+   204→    # Строка с интервальным управлением
+   205→    interval = get_setting("autoscan_interval", 30)
+   206→    rows.append([
+   207→        InlineKeyboardButton(text=f"⏱ Интервал: {interval} мин", callback_data="autoscan_interval"),
+   208→    ])
+   209→    rows.append([
+   210→        InlineKeyboardButton(text="◀ Скорректировать интервал", callback_data="iv_minus"),
+   211→        InlineKeyboardButton(text="Увеличить интервал ▶", callback_data="iv_plus"),
+   212→    ])
+   213→    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")])
+   214→    return InlineKeyboardMarkup(inline_keyboard=rows)
+   215→
+   216→
+   217→def _autoscan_button_label() -> str:
+   218→    interval = get_setting("autoscan_interval", 30)
+   219→    active = get_setting("autoscan_active", False)
+   220→    if active:
+   221→        return f"⏹ Стоп автоскан ({interval} мин)"
+   222→    syms = _get_autoscan_symbols()
+   223→    sym_labels = "+".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   224→    return f"▶ Автоскан ({sym_labels}, {interval} мин)"
+   225→
+   226→
+   227→# ── /start с inline keyboard ────────────────────────────────────────────────
+   228→
+   229→@dp.message(Command("start"))
+   230→async def cmd_start(message: Message):
+   231→    if message.from_user.id != ADMIN_CHAT_ID: return
+   232→    await message.answer(
+   233→        "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
+   234→        "Нажми кнопку или введи команду:\n"
+   235→        "/scan BTC | ETH | XAUT — анализ через облако\n"
+   236→        "/autoscan 30 — автоскан (интервал)\n"
+   237→        "/autoscan off — стоп",
+   238→        reply_markup=_main_keyboard(),
+   239→        parse_mode="Markdown",
+   240→    )
+   241→
+   242→
+   243→# ── Callback handlers ────────────────────────────────────────────────────────
+   244→
+   245→@dp.callback_query(F.data.startswith("scan_"))
+   246→async def cb_scan(callback: CallbackQuery):
+   247→    if callback.from_user.id != ADMIN_CHAT_ID:
+   248→        await callback.answer("Нет доступа", show_alert=True)
+   249→        return
+   250→    symbol = callback.data.removeprefix("scan_")
+   251→    symbol_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "XAUT": "XAUTUSDT"}
+   252→    full = symbol_map.get(symbol, symbol)
+   253→    label = full.replace("USDT", "")
+   254→    if label == "XAUT":
+   255→        label = "XAUT (золото)"
+   256→
+   257→    await callback.message.edit_text(f"🔍 Анализ {label} через облако ({DASHBOARD_MODEL_NAME})...")
+   258→    await _do_scan(callback.bot, full, callback.message.chat.id)
+   259→    # Обновить клавиатуру после анализа
+   260→    await callback.message.answer("Выбери действие:", reply_markup=_main_keyboard())
+   261→
+   262→
+   263→@dp.callback_query(F.data == "cmd_stats")
+   264→async def cb_stats(callback: CallbackQuery):
+   265→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   266→    s = get_stats()
+   267→    text = (f"📈 *Статистика*\n\nПроверено: {s['checked']}\n"
+   268→            f"Accuracy: {s['accuracy']}%\nWins: {s['wins']}\n"
+   269→            f"SL: {s['sl_rate']}%\nPending: {s['pending']}\n\n")
+   270→    if s.get("ab_variants"):
+   271→        text += "🧪 *A/B:*\n"
+   272→        for v in s["ab_variants"]:
+   273→            text += f"  {v['variant']}: {v['wins']}/{v['total']}\n"
+   274→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+   275→
+   276→
+   277→@dp.callback_query(F.data == "cmd_settings")
+   278→async def cb_settings(callback: CallbackQuery):
+   279→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   280→    rows = _query_db("SELECT key, value FROM settings ORDER BY key")
+   281→    text = "⚙️ *Настройки:*\n"
+   282→    for r in rows:
+   283→        text += f"  {r['key']} = {r['value']}\n"
+   284→    if not rows:
+   285→        text += "  _(пусто)_\n"
+   286→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+   287→
+   288→
+   289→@dp.callback_query(F.data == "cmd_auto")
+   290→async def cb_auto(callback: CallbackQuery):
+   291→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   292→    state = not get_setting("auto_mode", False)
+   293→    set_setting("auto_mode", state)
+   294→    label = "🔇 ON (только сигналы)" if state else "📢 OFF (все анализы)"
+   295→    await callback.message.edit_text(f"Авто-режим: {label}", reply_markup=_main_keyboard())
+   296→
+   297→
+   298→@dp.callback_query(F.data == "cmd_status")
+   299→async def cb_status(callback: CallbackQuery):
+   300→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   301→    running = is_main_bot_running()
+   302→    uptime = int(time.time() - main_bot_started_at) if main_bot_started_at and running else 0
+   303→    pid = main_bot_process.pid if running else "—"
+   304→    status = "🟢 Running" if running else "🔴 Stopped"
+   305→    cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+   306→    autoscan = get_setting("autoscan_active", False)
+   307→    autoscan_iv = get_setting("autoscan_interval", 30)
+   308→    autoscan_syms = _get_autoscan_symbols()
+   309→    autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
+   310→    text = (
+   311→        f"📊 *Статус*\n\n"
+   312→        f"Основной бот: {status} (PID {pid}, {uptime//60} мин)\n"
+   313→        f"Дашборд: 🟢 Active\n"
+   314→        f"  LLM: {DASHBOARD_MODEL_NAME} ({cloud})\n"
+   315→        f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+   316→        f"    Тикеры: {autoscan_labels}\n"
+   317→        f"  Авто-режим: {'ON' if get_setting('auto_mode', False) else 'OFF'}"
+   318→    )
+   319→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+   320→
+   321→
+   322→@dp.callback_query(F.data == "cmd_about")
+   323→async def cb_about(callback: CallbackQuery):
+   324→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   325→    cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+   326→    text = (
+   327→        "ℹ️ *О боте*\n\n"
+   328→        "🤖 *Dashboard Bot* — @my_hermes_lokal_ai_bot\n"
+   329→        "  LLM: {model} ({cloud})\n"
+   330→        "  Функции: анализ через облако, автоскан, мультивалютный монитор\n\n"
+   331→        "🔧 *Основной бот* — @KXROBObot\n"
+   332→        "  LLM: LM Studio qwen2.5-vl-7b (локальная)\n"
+   333→        "  Функции: полный анализ с графиками, таймер, бэктест\n\n"
+   334→        "📁 *Репо:* github.com/VVASILEVSS/LOCAL_AI_ENGINE"
+   335→    ).format(model=DASHBOARD_MODEL_NAME, cloud=cloud)
+   336→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
+   337→
+   338→
+   339→# ── Мультивалютный монитор ──────────────────────────────────────────────────
+   340→
+   341→@dp.callback_query(F.data == "multi_monitor")
+   342→async def cb_multi_monitor(callback: CallbackQuery):
+   343→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   344→    selected = _get_autoscan_symbols()
+   345→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   346→    text = (
+   347→        f"📊 *Мультивалютный монитор*\n\n"
+   348→        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   349→        f"Нажми на тикер, чтобы добавить/убрать.\n"
+   350→        f"Минимум 1 тикер должен быть выбран."
+   351→    )
+   352→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   353→
+   354→
+   355→@dp.callback_query(F.data.startswith("sym_toggle_"))
+   356→async def cb_sym_toggle(callback: CallbackQuery):
+   357→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   358→    sym = callback.data.removeprefix("sym_toggle_")
+   359→    if sym not in ALL_SYMBOLS:
+   360→        await callback.answer("Неизвестный символ", show_alert=True)
+   361→        return
+   362→    selected = _get_autoscan_symbols()
+   363→    if sym in selected:
+   364→        if len(selected) <= 1:
+   365→            await callback.answer("❌ Минимум 1 тикер!", show_alert=True)
+   366→            return
+   367→        selected.remove(sym)
+   368→    else:
+   369→        selected.append(sym)
+   370→    _set_autoscan_symbols(selected)
+   371→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   372→    text = (
+   373→        f"📊 *Мультивалютный монитор*\n\n"
+   374→        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   375→        f"Нажми на тикер, чтобы добавить/убрать."
+   376→    )
+   377→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   378→    # Если автоскан активен — перезапустить с новыми символами
+   379→    if get_setting("autoscan_active", False):
+   380→        _stop_autoscan()
+   381→        _start_autoscan(callback.bot)
+   382→        await callback.answer(f"Автоскан перезапущен: {labels}", show_alert=False)
+   383→
+   384→
+   385→@dp.callback_query(F.data == "iv_minus")
+   386→async def cb_iv_minus(callback: CallbackQuery):
+   387→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   388→    iv = get_setting("autoscan_interval", 30)
+   389→    iv = max(5, iv - 5)
+   390→    set_setting("autoscan_interval", iv)
+   391→    selected = _get_autoscan_symbols()
+   392→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   393→    text = (
+   394→        f"📊 *Мультивалютный монитор*\n\n"
+   395→        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   396→        f"Нажми на тикер, чтобы добавить/убрать."
+   397→    )
+   398→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   399→    if get_setting("autoscan_active", False):
+   400→        _stop_autoscan()
+   401→        _start_autoscan(callback.bot)
+   402→
+   403→
+   404→@dp.callback_query(F.data == "iv_plus")
+   405→async def cb_iv_plus(callback: CallbackQuery):
+   406→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   407→    iv = get_setting("autoscan_interval", 30)
+   408→    iv = min(240, iv + 5)
+   409→    set_setting("autoscan_interval", iv)
+   410→    selected = _get_autoscan_symbols()
+   411→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   412→    text = (
+   413→        f"📊 *Мультивалютный монитор*\n\n"
+   414→        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   415→        f"Нажми на тикер, чтобы добавить/убрать."
+   416→    )
+   417→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   418→    if get_setting("autoscan_active", False):
+   419→        _stop_autoscan()
+   420→        _start_autoscan(callback.bot)
+   421→
+   422→
+   423→@dp.callback_query(F.data == "autoscan_interval")
+   424→async def cb_iv_show(callback: CallbackQuery):
+   425→    """Показать текущий интервал (обновляет клавиатуру, т.к. текст кнопки изменился)."""
+   426→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   427→    selected = _get_autoscan_symbols()
+   428→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   429→    text = (
+   430→        f"📊 *Мультивалютный монитор*\n\n"
+   431→        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   432→        f"Используй ◀ / ▶ для изменения интервала (5–240 мин)."
+   433→    )
+   434→    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   435→
+   436→
+   437→@dp.callback_query(F.data == "back_to_main")
+   438→async def cb_back_to_main(callback: CallbackQuery):
+   439→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   440→    await callback.message.edit_text(
+   441→        "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
+   442→        "Нажми кнопку или введи команду:\n"
+   443→        "/scan BTC | ETH | XAUT — анализ через облако",
+   444→        parse_mode="Markdown",
+   445→        reply_markup=_main_keyboard(),
+   446→    )
+   447→
+   448→
+   449→# ── Автоскан (последовательный цикл) ───────────────────────────────────────
+   450→
+   451→# Флаг для мягкой остановки цикла
+   452→_autoscan_running = False
+   453→
+   454→
+   455→async def _autoscan_sequential_cycle(bot: Bot):
+   456→    """Последовательный цикл: BTC → пауза 2 мин → XAUT → пауза (interval - 2 мин) → повтор.
+   457→    
+   458→    Логика из письма Гермеса: сканирует выбранные символы по очереди,
+   459→    между символами пауза 2 мин, после последнего — пауза до полного интервала.
+   460→    """
+   461→    global _autoscan_running
+   462→    if not DASHBOARD_LLM_API_KEY:
+   463→        logging.warning("autoscan: DASHBOARD_LLM_API_KEY not set, skipping")
+   464→        return
+   465→    if _autoscan_running:
+   466→        return
+   467→    _autoscan_running = True
+   468→
+   469→    symbols = _get_autoscan_symbols()
+   470→    interval = get_setting("autoscan_interval", 30)
+   471→    # Пауза между символами внутри цикла
+   472→    inter_symbol_pause = 120  # 2 минуты
+   473→    # Если интервал меньше суммы пауз — уменьшаем
+   474→    if len(symbols) > 1:
+   475→        total_internal_pause = inter_symbol_pause * (len(symbols) - 1)
+   476→    else:
+   477→        total_internal_pause = 0
+   478→
+   479→    import core.config as cfg
+   480→    import core.scheduler as sched_mod
+   481→
+   482→    try:
+   483→        while get_setting("autoscan_active", False) and _autoscan_running:
+   484→            cycle_start = time.time()
+   485→            for i, symbol in enumerate(symbols):
+   486→                if not get_setting("autoscan_active", False) or not _autoscan_running:
+   487→                    break
+   488→                label = SYMBOL_LABELS.get(symbol, symbol.replace("USDT", ""))
+   489→                logging.info(f"Autoscan: analyzing {label}...")
+   490→                old_auto = cfg.AUTO_SIGNAL_ONLY
+   491→                old_my_chat = cfg.MY_CHAT_ID
+   492→                try:
+   493→                    cfg.MY_CHAT_ID = ADMIN_CHAT_ID
+   494→                    sched_mod.AUTO_SIGNAL_ONLY = True
+   495→                    sched_mod.ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+   496→                    await run_hourly_analysis(
+   497→                        bot=bot,
+   498→                        symbol_filter=symbol,
+   499→                        llm_api_key=DASHBOARD_LLM_API_KEY,
+   500→                        llm_base_url=DASHBOARD_LLM_BASE_URL,
+   501→                        llm_model=DASHBOARD_MODEL_NAME,
+   502→                    )
+   503→                except Exception as e:
+   504→                    logging.error(f"autoscan {symbol} error: {e}")
+   505→                finally:
+   506→                    cfg.AUTO_SIGNAL_ONLY = old_auto
+   507→                    cfg.MY_CHAT_ID = old_my_chat
+   508→
+   509→                # Пауза между символами (кроме последнего)
+   510→                if i < len(symbols) - 1 and get_setting("autoscan_active", False):
+   511→                    logging.info(f"Autoscan: pause {inter_symbol_pause}s before next symbol")
+   512→                    await asyncio.sleep(inter_symbol_pause)
+   513→
+   514→            # Пауза после полного цикла до наступления следующего интервала
+   515→            if get_setting("autoscan_active", False) and _autoscan_running:
+   516→                elapsed = time.time() - cycle_start
+   517→                remaining = (interval * 60) - elapsed
+   518→                if remaining > 0:
+   519→                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s for next cycle")
+   520→                    # Спим короткими интервалами, чтобы можно было остановить
+   521→                    sleep_end = time.time() + remaining
+   522→                    while time.time() < sleep_end:
+   523→                        if not get_setting("autoscan_active", False) or not _autoscan_running:
+   524→                            break
+   525→                        await asyncio.sleep(min(10, sleep_end - time.time()))
+   526→    except asyncio.CancelledError:
+   527→        logging.info("Autoscan: cancelled")
+   528→    finally:
+   529→        _autoscan_running = False
+   530→
+   531→
+   532→def _start_autoscan(bot: Bot) -> bool:
+   533→    global _autoscan_running
+   534→    if _autoscan_running:
+   535→        return False
+   536→    set_setting("autoscan_active", True)
+   537→    symbols = _get_autoscan_symbols()
+   538→    interval = get_setting("autoscan_interval", 30)
+   539→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in symbols)
+   540→    logging.info(f"Autoscan started: interval={interval}min, symbols=[{labels}]")
+   541→    # Запускаем цикл как задачу (не через APScheduler interval — управляем паузами вручную)
+   542→    asyncio.create_task(_autoscan_sequential_cycle(bot))
+   543→    return True
+   544→
+   545→
+   546→def _stop_autoscan() -> bool:
+   547→    global _autoscan_running
+   548→    _autoscan_running = False
+   549→    set_setting("autoscan_active", False)
+   550→    logging.info("Autoscan stopped")
+   551→    return True
+   552→
+   553→
+   554→@dp.callback_query(F.data == "toggle_autoscan")
+   555→async def cb_toggle_autoscan(callback: CallbackQuery):
+   556→    if callback.from_user.id != ADMIN_CHAT_ID: return
+   557→    active = get_setting("autoscan_active", False)
+   558→    if active:
+   559→        _stop_autoscan()
+   560→        text = "⏹ Автоскан остановлен"
+   561→    else:
+   562→        if not DASHBOARD_LLM_API_KEY:
+   563→            await callback.answer("❌ DASHBOARD_LLM_API_KEY не задан", show_alert=True)
+   564→            return
+   565→        syms = _get_autoscan_symbols()
+   566→        if not syms:
+   567→            await callback.answer("❌ Нет выбранных тикеров", show_alert=True)
+   568→            return
+   569→        _start_autoscan(callback.bot)
+   570→        iv = get_setting("autoscan_interval", 30)
+   571→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   572→        text = (
+   573→            f"▶ Автоскан запущен\n\n"
+   574→            f"Тикеры: {labels}\n"
+   575→            f"Интервал: {iv} мин\n"
+   576→            f"Цикл: {' → '.join(SYMBOL_LABELS.get(s, s.replace('USDT', '')) for s in syms)} → пауза → повтор"
+   577→        )
+   578→    await callback.message.edit_text(text, reply_markup=_main_keyboard())
+   579→
+   580→
+   581→# ── Настройка интервала автоскана ────────────────────────────────────────────
+   582→
+   583→@dp.message(Command("autoscan"))
+   584→async def cmd_autoscan(message: Message):
+   585→    """Ручное управление: /autoscan, /autoscan 45, /autoscan off"""
+   586→    if message.from_user.id != ADMIN_CHAT_ID: return
+   587→    parts = message.text.strip().split()
+   588→    if len(parts) >= 2:
+   589→        arg = parts[1].lower()
+   590→        if arg in ("off", "stop", "0"):
+   591→            _stop_autoscan()
+   592→            await message.answer("⏹ Автоскан остановлен")
+   593→            return
+   594→        try:
+   595→            minutes = int(arg)
+   596→            if minutes < 5:
+   597→                await message.answer("❌ Минимум 5 минут")
+   598→                return
+   599→            set_setting("autoscan_interval", minutes)
+   600→            active = get_setting("autoscan_active", False)
+   601→            if active:
+   602→                _stop_autoscan()
+   603→                _start_autoscan(message.bot)
+   604→            await message.answer(f"✅ Интервал: {minutes} мин" + (" (автоскан перезапущен)" if active else ""))
+   605→            return
+   606→        except ValueError:
+   607→            pass
+   608→    # Без аргументов — текущий статус
+   609→    active = get_setting("autoscan_active", False)
+   610→    iv = get_setting("autoscan_interval", 30)
+   611→    text = f"Автоскан: {'🟢 ON' if active else '🔴 OFF'} ({iv} мин)\n"
+   612→    syms = _get_autoscan_symbols()
+   613→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   614→    text += f"Тикеры: {labels}\n\nУправление:\n/autoscan 30 — интервал\n/autoscan off — стоп"
+   615→    await message.answer(text)
+   616→
+   617→@dp.message(Command("status"))
+   618→async def cmd_status(message: Message):
+   619→    if message.from_user.id != ADMIN_CHAT_ID: return
+   620→    running = is_main_bot_running()
+   621→    uptime = int(time.time() - main_bot_started_at) if main_bot_started_at and running else 0
+   622→    pid = main_bot_process.pid if running else "—"
+   623→    status = "🟢 Running" if running else "🔴 Stopped"
+   624→    autoscan = get_setting("autoscan_active", False)
+   625→    autoscan_iv = get_setting("autoscan_interval", 30)
+   626→    autoscan_syms = _get_autoscan_symbols()
+   627→    autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
+   628→    text = (
+   629→        f"📊 *Статус*\n\n"
+   630→        f"Основной бот (@KXROBObot): {status}\n"
+   631→        f"  PID: {pid}\n"
+   632→        f"  Uptime: {uptime//60} мин {uptime%60} сек\n"
+   633→        f"  Модель: LM Studio qwen2.5-vl-7b-instruct (локальная)\n\n"
+   634→        f"Дашборд-бот (@my_hermes_lokal_ai_bot): 🟢 Active\n"
+   635→        f"  Модель: {DASHBOARD_MODEL_NAME} ({cloud_status})\n"
+   636→        f"  Prompt: variant {os.getenv('PROMPT_VARIANT', 'A')}\n"
+   637→        f"  Auto: {'🔇 ON' if get_setting('auto_mode', False) else '📢 OFF'}\n"
+   638→        f"  Интервал: {get_setting('interval_minutes', 60)} мин\n"
+   639→        f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+   640→        f"    Тикеры: {autoscan_labels}"
+   641→    )
+   642→    await message.answer(text)
+   643→
+   644→@dp.message(Command("stats"))
+   645→async def cmd_stats(message: Message):
+   646→    if message.from_user.id != ADMIN_CHAT_ID: return
+   647→    s = get_stats()
+   648→    text = f"📈 *Статистика*\n\nПроверено: {s['checked']}\nAccuracy: {s['accuracy']}%\nWins: {s['wins']}\nSL: {s['sl_rate']}%\nPending: {s['pending']}\n\n"
+   649→    if s.get("ab_variants"):
+   650→        text += "🧪 *A/B:*\n"
+   651→        for v in s["ab_variants"]:
+   652→            text += f"  {v['variant']}: {v['wins']}/{v['total']}\n"
+   653→    if s.get("last_signals"):
+   654→        text += "\n📋 *Сигналы:*\n"
+   655→        for sig in s["last_signals"][:5]:
+   656→            text += f"  {sig['timestamp'][:16]} | {sig['symbol']} | {sig['signal_status']} | {sig.get('outcome','pending')}\n"
+   657→    else:
+   658→        text += "\n_(нет данных)_"
+   659→    await message.answer(text)
+   660→
+   661→@dp.message(Command("startbot"))
+   662→async def cmd_startbot(message: Message):
+   663→    if message.from_user.id != ADMIN_CHAT_ID: return
+   664→    if is_main_bot_running():
+   665→        await message.answer("⚠️ Уже запущен")
+   666→        return
+   667→    ok = start_main_bot()
+   668→    await message.answer(f"✅ Запущен (PID {main_bot_process.pid})" if ok else "❌ Ошибка")
+   669→
+   670→@dp.message(Command("stopbot"))
+   671→async def cmd_stopbot(message: Message):
+   672→    if message.from_user.id != ADMIN_CHAT_ID: return
+   673→    if not is_main_bot_running():
+   674→        await message.answer("⚠️ Уже остановлен")
+   675→        return
+   676→    ok = stop_main_bot()
+   677→    await message.answer("🛑 Остановлен" if ok else "❌ Ошибка")
+   678→
+   679→@dp.message(Command("auto"))
+   680→async def cmd_auto(message: Message):
+   681→    if message.from_user.id != ADMIN_CHAT_ID: return
+   682→    state = not get_setting("auto_mode", False)
+   683→    set_setting("auto_mode", state)
+   684→    text = "🔇 ON (только сигналы)" if state else "📢 OFF (все анализы)"
+   685→    await message.answer(f"Авто-режим: {text}")
+   686→
+   687→@dp.message(Command("settings"))
+   688→async def cmd_settings(message: Message):
+   689→    if message.from_user.id != ADMIN_CHAT_ID: return
+   690→    rows = _query_db("SELECT key, value FROM settings ORDER BY key")
+   691→    text = "⚙️ *Настройки:*\n"
+   692→    for r in rows:
+   693→        text += f"  {r['key']} = {r['value']}\n"
+   694→    await message.answer(text)
+   695→
+   696→@dp.message(Command("version"))
+   697→async def cmd_version(message: Message):
+   698→    if message.from_user.id != ADMIN_CHAT_ID: return
+   699→    try:
+   700→        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=PROJECT_DIR)
+   701→        head = r.stdout.strip()
+   702→        r2 = subprocess.run(["git", "log", "-1", "--format=%s"], capture_output=True, text=True, cwd=PROJECT_DIR)
+   703→        await message.answer(f"📌 HEAD: `{head}`\n{r2.stdout.strip()}")
+   704→    except Exception as e:
+   705→        await message.answer(f"❌ {e}")
+   706→
+   707→@dp.message(Command("scan"))
+   708→@dp.message(F.text.lower().startswith("/scan"))
+   709→async def cmd_scan(message: Message):
+   710→    """Анализ через облако — полный контекст как в scheduler."""
+   711→    if message.from_user.id != ADMIN_CHAT_ID: return
+   712→    if not DASHBOARD_LLM_API_KEY:
+   713→        await message.answer("❌ DASHBOARD_LLM_API_KEY не задан в .env")
+   714→        return
+   715→    text = message.text.strip()
+   716→    for prefix in ("/scan", "/SCAN", "/Scan"):
+   717→        if text.startswith(prefix):
+   718→            text = text[len(prefix):].strip()
+   719→            break
+   720→    if not text:
+   721→        await message.answer("Использование: /scan BTC | ETH | XAUT", reply_markup=_main_keyboard())
+   722→        return
+   723→    symbol_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "XAUT": "XAUTUSDT"}
+   724→    symbol = text.upper().split()[0]
+   725→    full = symbol_map.get(symbol, symbol + "USDT" if not symbol.endswith("USDT") else symbol)
+   726→    await message.answer(f"🔍 Анализ {full} через облако ({DASHBOARD_MODEL_NAME})...")
+   727→    await _do_scan(message.bot, full, message.chat.id)
+   728→
+   729→
+   730→async def _do_scan(bot: Bot, symbol: str, chat_id: int):
+   731→    """Общий код сканирования через облако (для /scan и кнопок)."""
+   732→    try:
+   733→        from core.scheduler import run_hourly_analysis
+   734→        import core.config as cfg
+   735→        import core.scheduler as sched_mod
+   736→        # Сохраняем оригинальные значения
+   737→        old_chat = cfg.MY_CHAT_ID
+   738→        old_auto = cfg.AUTO_SIGNAL_ONLY
+   739→        try:
+   740→            cfg.MY_CHAT_ID = chat_id
+   741→            # Ручной /scan ВСЕГДА отправляет результат
+   742→            cfg.AUTO_SIGNAL_ONLY = False
+   743→            sched_mod.AUTO_SIGNAL_ONLY = False
+   744→            await run_hourly_analysis(
+   745→                bot=bot,
+   746→                symbol_filter=symbol,
+   747→                llm_api_key=DASHBOARD_LLM_API_KEY,
+   748→                llm_base_url=DASHBOARD_LLM_BASE_URL,
+   749→                llm_model=DASHBOARD_MODEL_NAME,
+   750→            )
+   751→        finally:
+   752→            cfg.MY_CHAT_ID = old_chat
+   753→            cfg.AUTO_SIGNAL_ONLY = old_auto
+   754→            sched_mod.AUTO_SIGNAL_ONLY = old_auto
+   755→    except Exception as e:
+   756→        await bot.send_message(chat_id, f"❌ {type(e).__name__}: {e}")
+   757→
+   758→# ── Flask web ──────────────────────────────────────────────────────────────
+   759→
+   760→app = Flask(__name__)
+   761→
+   762→HTML = """<!DOCTYPE html>
+   763→<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+   764→<title>LOCAL_AI_ENGINE Dashboard</title>
+   765→<style>
+   766→*{box-sizing:border-box;margin:0;padding:0}
+   767→body{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#e0e0e0;padding:20px}
+   768→h1{color:#e94560;margin-bottom:20px}
+   769→.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px;margin-bottom:20px}
+   770→.card{background:#16213e;border-radius:10px;padding:15px;border:1px solid #0f3460}
+   771→.card h2{color:#e94560;font-size:1.1em;margin-bottom:10px}
+   772→.stat{display:flex;justify-content:space-between;padding:4px 0;font-family:'Courier New',monospace}
+   773→.stat .val{color:#53d769;font-weight:bold}
+   774→.stat .val.red{color:#e94560}
+   775→table{width:100%;border-collapse:collapse;margin-top:10px}
+   776→th{text-align:left;color:#e94560;padding:6px;font-size:0.85em}
+   777→td{padding:6px;font-family:'Courier New',monospace;font-size:0.85em;border-top:1px solid #0f3460}
+   778→.controls{margin:15px 0}
+   779→.btn{padding:10px 20px;border:none;border-radius:5px;cursor:pointer;font-size:1em;margin-right:10px}
+   780→.btn-start{background:#53d769;color:#1a1a2e}.btn-stop{background:#e94560;color:#fff}
+   781→</style></head><body>
+   782→<h1>📊 LOCAL_AI_ENGINE Dashboard</h1>
+   783→<div class="controls">
+   784→<button class="btn btn-start" onclick="ctrl('start')">▶ Start</button>
+   785→<button class="btn btn-stop" onclick="ctrl('stop')">⏹ Stop</button>
+   786→</div>
+   787→<div class="grid" id="dashboard"></div>
+   788→<script>
+   789→async function fetchStats(){const r=await fetch('/api/stats');const d=await r.json();let h='';
+   790→h+='<div class="card"><h2>⚙️ Статус</h2>';
+   791→h+='<div class="stat"><span>Основной бот:</span><span class="val">'+d.bot_status+'</span></div>';
+   792→h+='<div class="stat"><span>Uptime:</span><span>'+Math.floor(d.uptime/60)+' мин</span></div>';
+   793→h+='<div class="stat"><span>Дашборд LLM:</span><span>'+d.model+' ('+d.llm_mode+')</span></div>';
+   794→h+='<div class="stat"><span>Variant:</span><span>'+d.prompt_variant+'</span></div>';
+   795→h+='<div class="stat"><span>Auto:</span><span>'+(d.auto_mode?'ON':'OFF')+'</span></div>';
+   796→h+='</div>';
+   797→h+='<div class="card"><h2>🎯 Точность</h2>';
+   798→h+='<div class="stat"><span>Проверено:</span><span class="val">'+d.checked+'</span></div>';
+   799→h+='<div class="stat"><span>Accuracy:</span><span class="val">'+d.accuracy+'%</span></div>';
+   800→h+='<div class="stat"><span>SL rate:</span><span class="val red">'+d.sl_rate+'%</span></div>';
+   801→h+='<div class="stat"><span>Pending:</span><span>'+d.pending+'</span></div>';
+   802→h+='</div>';
+   803→if(d.last_signals&&d.last_signals.length>0){h+='<div class="card" style="grid-column:1/-1"><h2>📈 Сигналы</h2><table><tr><th>Время</th><th>Символ</th><th>Signal</th><th>Dir</th><th>Outcome</th></tr>';
+   804→d.last_signals.forEach(s=>{h+='<tr><td>'+(s.timestamp||'').slice(11,19)+'</td><td>'+s.symbol+'</td><td>'+s.signal_status+'</td><td>'+(s.direction||'—')+'</td><td>'+(s.outcome||'pending')+'</td></tr>'});
+   805→h+='</table></div>';}
+   806→document.getElementById('dashboard').innerHTML=h;}
+   807→async function ctrl(a){await fetch('/api/'+a,{method:'POST'});setTimeout(fetchStats,500);}
+   808→fetchStats();setInterval(fetchStats,60000);
+   809→</script></body></html>"""
+   810→
+   811→@app.route("/")
+   812→def dashboard():
+   813→    return render_template_string(HTML)
+   814→
+   815→@app.route("/api/stats")
+   816→def api_stats():
+   817→    return jsonify(get_stats())
+   818→
+   819→@app.route("/api/start", methods=["POST"])
+   820→def api_start():
+   821→    return jsonify({"status": "started" if start_main_bot() else "already running"})
+   822→
+   823→@app.route("/api/stop", methods=["POST"])
+   824→def api_stop():
+   825→    return jsonify({"status": "stopped" if stop_main_bot() else "not running"})
+   826→
+   827→# ── Main ───────────────────────────────────────────────────────────────────
+   828→
+   829→async def main():
+   830→    if not is_main_bot_running():
+   831→        start_main_bot()
+   832→        logging.info(f"Main bot started (PID {main_bot_process.pid})")
+   833→
+   834→    def run_flask():
+   835→        app.run(host="0.0.0.0", port=WEB_PORT, debug=False, use_reloader=False)
+   836→    flask_thread = threading.Thread(target=run_flask, daemon=True)
+   837→    flask_thread.start()
+   838→    logging.info(f"Web dashboard: http://localhost:{WEB_PORT}")
+   839→
+   840→    session = AiohttpSession()
+   841→    bot = Bot(token=DASH_TOKEN, session=session)
+   842→    await bot.set_my_commands([
+   843→        BotCommand(command="start", description="Меню с кнопками"),
+   844→        BotCommand(command="scan", description="Анализ: /scan BTC"),
+   845→        BotCommand(command="autoscan", description="Автоскан: /autoscan 30"),
+   846→        BotCommand(command="status", description="Статус ботов"),
+   847→        BotCommand(command="stats", description="Статистика"),
+   848→        BotCommand(command="startbot", description="Запустить основной бот"),
+   849→        BotCommand(command="stopbot", description="Остановить основной бот"),
+   850→        BotCommand(command="auto", description="Тогл авто-режима"),
+   851→        BotCommand(command="settings", description="Настройки"),
+   852→        BotCommand(command="version", description="Git HEAD"),
+   853→    ])
+   854→    me = await bot.get_me()
+   855→    logging.info(f"Dashboard bot: @{me.username} (id={me.id})")
+   856→    await dp.start_polling(bot)
+   857→
+   858→if __name__ == "__main__":
+   859→    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+   860→    print(f"📊 Dashboard Bot + Web: http://localhost:{WEB_PORT}")
+   861→    asyncio.run(main())
+   862→
