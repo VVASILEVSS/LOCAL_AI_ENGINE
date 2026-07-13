@@ -901,6 +901,26 @@ def enforce_risk_rules(data: dict) -> dict:
             if d1_lower is not None and abs(price - d1_lower) / price > cap_pct:
                 d1["lower"] = round(price * (1 - cap_pct), 2)
 
+        # 2a-1b: валидация для ВСЕХ ТФ — lower не выше цены, upper не ниже цены.
+        # Если lower > price → вся зона выше цены (XAUT D1 lower=4367 > price=4058).
+        #   Сдвигаем lower к цене: если upper тоже > price → зона [price*0.97, upper],
+        #   если upper был сдвинут D1 cap и стал близко к price → [price*0.97, price*1.03].
+        # Если upper < price → аналогично для upper.
+        margin_pct = 0.03  # ±3% от цены для минимальной зоны
+        for tf_key, z in tf_zones.items():
+            if not isinstance(z, dict):
+                continue
+            z_lower = z.get("lower")
+            z_upper = z.get("upper")
+            if z_lower is not None and z_lower > price:
+                z["lower"] = round(price * (1 - margin_pct), 2)
+            if z_upper is not None and z_upper < price:
+                z["upper"] = round(price * (1 + margin_pct), 2)
+            # После сдвигов: lower >= upper → вырожденная зона
+            if z.get("lower") is not None and z.get("upper") is not None and z["lower"] >= z["upper"]:
+                z["upper"] = round(price * (1 + margin_pct), 2)
+                z["lower"] = round(price * (1 - margin_pct), 2)
+
         # 2a-2: валидация вложенности (от старшего к младшему)
         for i in range(len(nesting_order) - 1):
             parent_tf = nesting_order[i]
