@@ -440,9 +440,19 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             chart_bytes_list: list[bytes] = []
             all_metrics: dict[str, dict] = {}
 
+            # Динамический limit по ТФ: старшим нужно больше свечей,
+            # чтобы видеть предыдущую + текущую структуру.
+            # H4: 300 свечей = 50 дней — виден предыдущий HH/HL
+            # D1: 250 свечей = 250 дней — полный цикл
+            TF_LIMITS = {
+                "1d": 250, "4h": 300, "1h": 200,
+                "15m": 150, "5m": 120,
+            }
+
             # Графики ПОСЛЕДОВАТЕЛЬНО (один за другим)
             for tf in timeframes:
-                chart_bytes, metrics = fetch_and_plot(symbol=symbol, timeframe=tf, limit=120)
+                limit = TF_LIMITS.get(tf.lower(), 120)
+                chart_bytes, metrics = fetch_and_plot(symbol=symbol, timeframe=tf, limit=limit)
                 chart_bytes_list.append(chart_bytes)
                 all_metrics[tf] = metrics
 
