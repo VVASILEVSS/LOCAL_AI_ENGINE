@@ -151,33 +151,77 @@ dp = Dispatcher(storage=MemoryStorage())
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 
-SYMBOLS_SCAN = ["BTCUSDT", "XAUTUSDT"]  # из _get_symbols()
+ALL_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT"]
+SYMBOL_LABELS = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "XAUTUSDT": "XAUT (золото)", "SOLUSDT": "SOL"}
+
+# Символы, выбранные для автоскана (по умолчанию BTC + XAUT)
+DEFAULT_AUTOSCAN_SYMBOLS = ["BTCUSDT", "XAUTUSDT"]
+
+
+def _get_autoscan_symbols() -> list[str]:
+    """Получить список символов для автоскана из настроек."""
+    raw = get_setting("autoscan_symbols", "")
+    if raw and isinstance(raw, str) and raw.strip():
+        syms = [s.strip().upper() for s in raw.split(",") if s.strip()]
+        return [s for s in syms if s in ALL_SYMBOLS]
+    return list(DEFAULT_AUTOSCAN_SYMBOLS)
+
+
+def _set_autoscan_symbols(symbols: list[str]):
+    set_setting("autoscan_symbols", ",".join(symbols))
+
 
 def _main_keyboard() -> InlineKeyboardMarkup:
-    """Главная клавиатура /start."""
-    scan_btns = []
-    for sym in SYMBOLS_SCAN:
-        label = sym.replace("USDT", "")
-        if label == "XAUT":
-            label = "XAUT (золото)"
-        scan_btns.append([InlineKeyboardButton(text=f"📊 Анализ {label}", callback_data=f"scan_{sym}")])
-
+    """Главная клавиатура /start — сетка 2×N как в старом боте."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        *scan_btns,
-        [InlineKeyboardButton(text="📈 Статистика", callback_data="cmd_stats"),
-         InlineKeyboardButton(text="⚙️ Настройки", callback_data="cmd_settings")],
+        [InlineKeyboardButton(text="📊 Анализ BTC", callback_data="scan_BTCUSDT"),
+         InlineKeyboardButton(text="📊 Анализ ETH", callback_data="scan_ETHUSDT")],
+        [InlineKeyboardButton(text="📊 Анализ XAUT", callback_data="scan_XAUTUSDT"),
+         InlineKeyboardButton(text="📈 Статистика", callback_data="cmd_stats")],
         [InlineKeyboardButton(text="🔇 Авто-режим", callback_data="cmd_auto"),
+         InlineKeyboardButton(text=_autoscan_button_label(), callback_data="toggle_autoscan")],
+        [InlineKeyboardButton(text="📊 Мультивалютный", callback_data="multi_monitor"),
          InlineKeyboardButton(text="🔄 Статус ботов", callback_data="cmd_status")],
-        [InlineKeyboardButton(text=_autoscan_button_label(), callback_data="toggle_autoscan")],
+        [InlineKeyboardButton(text="⚙️ Настройки", callback_data="cmd_settings"),
+         InlineKeyboardButton(text="ℹ️ О боте", callback_data="cmd_about")],
     ])
+
+
+def _multi_monitor_keyboard() -> InlineKeyboardMarkup:
+    """Клавиатура выбора тикеров для автоскана."""
+    selected = _get_autoscan_symbols()
+    rows = []
+    row = []
+    for i, sym in enumerate(ALL_SYMBOLS):
+        icon = "✅" if sym in selected else "⬜"
+        label = SYMBOL_LABELS.get(sym, sym.replace("USDT", ""))
+        row.append(InlineKeyboardButton(text=f"{icon} {label}", callback_data=f"sym_toggle_{sym}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    # Строка с интервальным управлением
+    interval = get_setting("autoscan_interval", 30)
+    rows.append([
+        InlineKeyboardButton(text=f"⏱ Интервал: {interval} мин", callback_data="autoscan_interval"),
+    ])
+    rows.append([
+        InlineKeyboardButton(text="◀ Скорректировать интервал", callback_data="iv_minus"),
+        InlineKeyboardButton(text="Увеличить интервал ▶", callback_data="iv_plus"),
+    ])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _autoscan_button_label() -> str:
     interval = get_setting("autoscan_interval", 30)
     active = get_setting("autoscan_active", False)
     if active:
-        return f"⏹ Остановить автоскан ({interval} мин)"
-    return f"▶ Запустить автоскан ({interval} мин)"
+        return f"⏹ Стоп автоскан ({interval} мин)"
+    syms = _get_autoscan_symbols()
+    sym_labels = "+".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+    return f"▶ Автоскан ({sym_labels}, {interval} мин)"
 
 
 # ── /start с inline keyboard ────────────────────────────────────────────────
@@ -188,7 +232,9 @@ async def cmd_start(message: Message):
     await message.answer(
         "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
         "Нажми кнопку или введи команду:\n"
-        "/scan BTC | ETH | XAUT — анализ через облако",
+        "/scan BTC | ETH | XAUT — анализ через облако\n"
+        "/autoscan 30 — автоскан (интервал)\n"
+        "/autoscan off — стоп",
         reply_markup=_main_keyboard(),
         parse_mode="Markdown",
     )
@@ -259,69 +305,247 @@ async def cb_status(callback: CallbackQuery):
     cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
     autoscan = get_setting("autoscan_active", False)
     autoscan_iv = get_setting("autoscan_interval", 30)
+    autoscan_syms = _get_autoscan_symbols()
+    autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
     text = (
         f"📊 *Статус*\n\n"
         f"Основной бот: {status} (PID {pid}, {uptime//60} мин)\n"
         f"Дашборд: 🟢 Active\n"
         f"  LLM: {DASHBOARD_MODEL_NAME} ({cloud})\n"
         f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+        f"    Тикеры: {autoscan_labels}\n"
         f"  Авто-режим: {'ON' if get_setting('auto_mode', False) else 'OFF'}"
     )
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
 
 
-# ── Автоскан ─────────────────────────────────────────────────────────────────
+@dp.callback_query(F.data == "cmd_about")
+async def cb_about(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+    text = (
+        "ℹ️ *О боте*\n\n"
+        "🤖 *Dashboard Bot* — @my_hermes_lokal_ai_bot\n"
+        "  LLM: {model} ({cloud})\n"
+        "  Функции: анализ через облако, автоскан, мультивалютный монитор\n\n"
+        "🔧 *Основной бот* — @KXROBObot\n"
+        "  LLM: LM Studio qwen2.5-vl-7b (локальная)\n"
+        "  Функции: полный анализ с графиками, таймер, бэктест\n\n"
+        "📁 *Репо:* github.com/VVASILEVSS/LOCAL_AI_ENGINE"
+    ).format(model=DASHBOARD_MODEL_NAME, cloud=cloud)
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_main_keyboard())
 
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-autoscan_scheduler = AsyncIOScheduler()
+
+# ── Мультивалютный монитор ──────────────────────────────────────────────────
+
+@dp.callback_query(F.data == "multi_monitor")
+async def cb_multi_monitor(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    selected = _get_autoscan_symbols()
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+    text = (
+        f"📊 *Мультивалютный монитор*\n\n"
+        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+        f"Нажми на тикер, чтобы добавить/убрать.\n"
+        f"Минимум 1 тикер должен быть выбран."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
 
 
-async def _autoscan_cycle(bot: Bot):
-    """Циклический анализ всех символов через облако."""
+@dp.callback_query(F.data.startswith("sym_toggle_"))
+async def cb_sym_toggle(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    sym = callback.data.removeprefix("sym_toggle_")
+    if sym not in ALL_SYMBOLS:
+        await callback.answer("Неизвестный символ", show_alert=True)
+        return
+    selected = _get_autoscan_symbols()
+    if sym in selected:
+        if len(selected) <= 1:
+            await callback.answer("❌ Минимум 1 тикер!", show_alert=True)
+            return
+        selected.remove(sym)
+    else:
+        selected.append(sym)
+    _set_autoscan_symbols(selected)
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+    text = (
+        f"📊 *Мультивалютный монитор*\n\n"
+        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+        f"Нажми на тикер, чтобы добавить/убрать."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+    # Если автоскан активен — перезапустить с новыми символами
+    if get_setting("autoscan_active", False):
+        _stop_autoscan()
+        _start_autoscan(callback.bot)
+        await callback.answer(f"Автоскан перезапущен: {labels}", show_alert=False)
+
+
+@dp.callback_query(F.data == "iv_minus")
+async def cb_iv_minus(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    iv = get_setting("autoscan_interval", 30)
+    iv = max(5, iv - 5)
+    set_setting("autoscan_interval", iv)
+    selected = _get_autoscan_symbols()
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+    text = (
+        f"📊 *Мультивалютный монитор*\n\n"
+        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+        f"Нажми на тикер, чтобы добавить/убрать."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+    if get_setting("autoscan_active", False):
+        _stop_autoscan()
+        _start_autoscan(callback.bot)
+
+
+@dp.callback_query(F.data == "iv_plus")
+async def cb_iv_plus(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    iv = get_setting("autoscan_interval", 30)
+    iv = min(240, iv + 5)
+    set_setting("autoscan_interval", iv)
+    selected = _get_autoscan_symbols()
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+    text = (
+        f"📊 *Мультивалютный монитор*\n\n"
+        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+        f"Нажми на тикер, чтобы добавить/убрать."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+    if get_setting("autoscan_active", False):
+        _stop_autoscan()
+        _start_autoscan(callback.bot)
+
+
+@dp.callback_query(F.data == "autoscan_interval")
+async def cb_iv_show(callback: CallbackQuery):
+    """Показать текущий интервал (обновляет клавиатуру, т.к. текст кнопки изменился)."""
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    selected = _get_autoscan_symbols()
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+    text = (
+        f"📊 *Мультивалютный монитор*\n\n"
+        f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+        f"Используй ◀ / ▶ для изменения интервала (5–240 мин)."
+    )
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+
+
+@dp.callback_query(F.data == "back_to_main")
+async def cb_back_to_main(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_CHAT_ID: return
+    await callback.message.edit_text(
+        "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
+        "Нажми кнопку или введи команду:\n"
+        "/scan BTC | ETH | XAUT — анализ через облако",
+        parse_mode="Markdown",
+        reply_markup=_main_keyboard(),
+    )
+
+
+# ── Автоскан (последовательный цикл) ───────────────────────────────────────
+
+# Флаг для мягкой остановки цикла
+_autoscan_running = False
+
+
+async def _autoscan_sequential_cycle(bot: Bot):
+    """Последовательный цикл: BTC → пауза 2 мин → XAUT → пауза (interval - 2 мин) → повтор.
+    
+    Логика из письма Гермеса: сканирует выбранные символы по очереди,
+    между символами пауза 2 мин, после последнего — пауза до полного интервала.
+    """
+    global _autoscan_running
     if not DASHBOARD_LLM_API_KEY:
         logging.warning("autoscan: DASHBOARD_LLM_API_KEY not set, skipping")
         return
+    if _autoscan_running:
+        return
+    _autoscan_running = True
+
+    symbols = _get_autoscan_symbols()
+    interval = get_setting("autoscan_interval", 30)
+    # Пауза между символами внутри цикла
+    inter_symbol_pause = 120  # 2 минуты
+    # Если интервал меньше суммы пауз — уменьшаем
+    if len(symbols) > 1:
+        total_internal_pause = inter_symbol_pause * (len(symbols) - 1)
+    else:
+        total_internal_pause = 0
+
     import core.config as cfg
     import core.scheduler as sched_mod
-    old_auto = cfg.AUTO_SIGNAL_ONLY
-    old_my_chat = cfg.MY_CHAT_ID
+
     try:
-        # Автоскан: AUTO_SIGNAL_ONLY — только сигналы
-        cfg.MY_CHAT_ID = ADMIN_CHAT_ID
-        sched_mod.AUTO_SIGNAL_ONLY = True
-        sched_mod.ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
-        await run_hourly_analysis(
-            bot=bot,
-            llm_api_key=DASHBOARD_LLM_API_KEY,
-            llm_base_url=DASHBOARD_LLM_BASE_URL,
-            llm_model=DASHBOARD_MODEL_NAME,
-        )
-    except Exception as e:
-        logging.error(f"autoscan cycle error: {e}")
+        while get_setting("autoscan_active", False) and _autoscan_running:
+            cycle_start = time.time()
+            for i, symbol in enumerate(symbols):
+                if not get_setting("autoscan_active", False) or not _autoscan_running:
+                    break
+                label = SYMBOL_LABELS.get(symbol, symbol.replace("USDT", ""))
+                logging.info(f"Autoscan: analyzing {label}...")
+                old_auto = cfg.AUTO_SIGNAL_ONLY
+                old_my_chat = cfg.MY_CHAT_ID
+                try:
+                    cfg.MY_CHAT_ID = ADMIN_CHAT_ID
+                    sched_mod.AUTO_SIGNAL_ONLY = True
+                    sched_mod.ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+                    await run_hourly_analysis(
+                        bot=bot,
+                        symbol_filter=symbol,
+                        llm_api_key=DASHBOARD_LLM_API_KEY,
+                        llm_base_url=DASHBOARD_LLM_BASE_URL,
+                        llm_model=DASHBOARD_MODEL_NAME,
+                    )
+                except Exception as e:
+                    logging.error(f"autoscan {symbol} error: {e}")
+                finally:
+                    cfg.AUTO_SIGNAL_ONLY = old_auto
+                    cfg.MY_CHAT_ID = old_my_chat
+
+                # Пауза между символами (кроме последнего)
+                if i < len(symbols) - 1 and get_setting("autoscan_active", False):
+                    logging.info(f"Autoscan: pause {inter_symbol_pause}s before next symbol")
+                    await asyncio.sleep(inter_symbol_pause)
+
+            # Пауза после полного цикла до наступления следующего интервала
+            if get_setting("autoscan_active", False) and _autoscan_running:
+                elapsed = time.time() - cycle_start
+                remaining = (interval * 60) - elapsed
+                if remaining > 0:
+                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s for next cycle")
+                    # Спим короткими интервалами, чтобы можно было остановить
+                    sleep_end = time.time() + remaining
+                    while time.time() < sleep_end:
+                        if not get_setting("autoscan_active", False) or not _autoscan_running:
+                            break
+                        await asyncio.sleep(min(10, sleep_end - time.time()))
+    except asyncio.CancelledError:
+        logging.info("Autoscan: cancelled")
     finally:
-        cfg.AUTO_SIGNAL_ONLY = old_auto
-        cfg.MY_CHAT_ID = old_my_chat
+        _autoscan_running = False
 
 
 def _start_autoscan(bot: Bot) -> bool:
-    interval = get_setting("autoscan_interval", 30)
-    autoscan_scheduler.add_job(
-        _autoscan_cycle, "interval", minutes=interval,
-        args=[bot], id="autoscan_job", replace_existing=True,
-        max_instances=1, coalesce=True,
-    )
-    if not autoscan_scheduler.running:
-        autoscan_scheduler.start()
+    global _autoscan_running
+    if _autoscan_running:
+        return False
     set_setting("autoscan_active", True)
-    logging.info(f"Autoscan started: every {interval} min, symbols: {SYMBOLS_SCAN}")
+    symbols = _get_autoscan_symbols()
+    interval = get_setting("autoscan_interval", 30)
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in symbols)
+    logging.info(f"Autoscan started: interval={interval}min, symbols=[{labels}]")
+    # Запускаем цикл как задачу (не через APScheduler interval — управляем паузами вручную)
+    asyncio.create_task(_autoscan_sequential_cycle(bot))
     return True
 
 
 def _stop_autoscan() -> bool:
-    try:
-        autoscan_scheduler.remove_job("autoscan_job")
-    except Exception:
-        pass
+    global _autoscan_running
+    _autoscan_running = False
     set_setting("autoscan_active", False)
     logging.info("Autoscan stopped")
     return True
@@ -338,9 +562,19 @@ async def cb_toggle_autoscan(callback: CallbackQuery):
         if not DASHBOARD_LLM_API_KEY:
             await callback.answer("❌ DASHBOARD_LLM_API_KEY не задан", show_alert=True)
             return
+        syms = _get_autoscan_symbols()
+        if not syms:
+            await callback.answer("❌ Нет выбранных тикеров", show_alert=True)
+            return
         _start_autoscan(callback.bot)
         iv = get_setting("autoscan_interval", 30)
-        text = f"▶ Автоскан запущен (каждые {iv} мин)"
+        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+        text = (
+            f"▶ Автоскан запущен\n\n"
+            f"Тикеры: {labels}\n"
+            f"Интервал: {iv} мин\n"
+            f"Цикл: {' → '.join(SYMBOL_LABELS.get(s, s.replace('USDT', '')) for s in syms)} → пауза → повтор"
+        )
     await callback.message.edit_text(text, reply_markup=_main_keyboard())
 
 
@@ -374,7 +608,10 @@ async def cmd_autoscan(message: Message):
     # Без аргументов — текущий статус
     active = get_setting("autoscan_active", False)
     iv = get_setting("autoscan_interval", 30)
-    text = f"Автоскан: {'🟢 ON' if active else '🔴 OFF'} ({iv} мин)\n\nУправление:\n/autoscan 30 — интервал\n/autoscan off — стоп"
+    text = f"Автоскан: {'🟢 ON' if active else '🔴 OFF'} ({iv} мин)\n"
+    syms = _get_autoscan_symbols()
+    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+    text += f"Тикеры: {labels}\n\nУправление:\n/autoscan 30 — интервал\n/autoscan off — стоп"
     await message.answer(text)
 
 @dp.message(Command("status"))
@@ -384,7 +621,10 @@ async def cmd_status(message: Message):
     uptime = int(time.time() - main_bot_started_at) if main_bot_started_at and running else 0
     pid = main_bot_process.pid if running else "—"
     status = "🟢 Running" if running else "🔴 Stopped"
-    cloud_status = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+    autoscan = get_setting("autoscan_active", False)
+    autoscan_iv = get_setting("autoscan_interval", 30)
+    autoscan_syms = _get_autoscan_symbols()
+    autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
     text = (
         f"📊 *Статус*\n\n"
         f"Основной бот (@KXROBObot): {status}\n"
@@ -395,7 +635,9 @@ async def cmd_status(message: Message):
         f"  Модель: {DASHBOARD_MODEL_NAME} ({cloud_status})\n"
         f"  Prompt: variant {os.getenv('PROMPT_VARIANT', 'A')}\n"
         f"  Auto: {'🔇 ON' if get_setting('auto_mode', False) else '📢 OFF'}\n"
-        f"  Интервал: {get_setting('interval_minutes', 60)} мин"
+        f"  Интервал: {get_setting('interval_minutes', 60)} мин\n"
+        f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+        f"    Тикеры: {autoscan_labels}"
     )
     await message.answer(text)
 
