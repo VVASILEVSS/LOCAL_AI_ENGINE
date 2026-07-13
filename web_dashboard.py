@@ -312,6 +312,59 @@ async def show_main_menu(message: Message) -> None:
 
 # ── /scan (полная копия из handlers.py, но через cloud LLM) ────────────────
 
+def _fill_missing_tf_zones(
+    result: dict, all_metrics: dict[str, dict], timeframes: list[str]
+) -> None:
+    """
+    Если LLM не вернул зону для какого-то ТФ (часто 1D) — берём из данных графика.
+    Маппинг raw TF → нормализованный ключ: "1d"→"1D", "4h"→"4H", "1h"→"1H", "15m"→"15M".
+    Также пересчитывает tf_span_map после добавления.
+    """
+    tf_key_map = {
+        "1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M",
+        "1D": "1D", "4H": "4H", "1H": "1H", "15M": "15M", "5M": "5M",
+    }
+    if not isinstance(result, dict):
+        return
+    tf_zones = result.get("tf_zones")
+    if not isinstance(tf_zones, dict):
+        tf_zones = {}
+        result["tf_zones"] = tf_zones
+
+    filled = False
+    for tf in timeframes:
+        norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
+        if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
+            continue  # LLM вернул зону для этого ТФ
+        # Fallback из данных графика
+        chart_zone = all_metrics.get(tf, {}).get("zone")
+        if isinstance(chart_zone, dict) and (chart_zone.get("upper") is not None or chart_zone.get("lower") is not None):
+            tf_zones[norm_key] = {
+                "upper": chart_zone.get("upper"),
+                "lower": chart_zone.get("lower"),
+            }
+            filled = True
+            logging.info(
+                "DASHBOARD: filled missing %s zone from chart data for %s",
+                norm_key, result.get("symbol", "?"),
+            )
+
+    # Пересчитать tf_span_map если зоны были добавлены
+    if filled:
+        span_map = result.get("tf_span_map")
+        if not isinstance(span_map, dict):
+            span_map = {}
+            result["tf_span_map"] = span_map
+        for tf in timeframes:
+            norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
+            z = tf_zones.get(norm_key)
+            if isinstance(z, dict):
+                upper = z.get("upper")
+                lower = z.get("lower")
+                if upper is not None and lower is not None:
+                    span_map[norm_key] = abs(upper - lower)
+
+
 async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: Bot) -> None:
     """Полный анализ символ/ТФ через cloud LLM — графики последовательно."""
     async with SCAN_LOCK:
@@ -411,9 +464,12 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             if isinstance(parsed_result, dict):
                 parsed_result = update_and_save_state(symbol, timeframes[-1], parsed_result)
 
-            # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
+            # enforce_risk_rules уже вызван внутри analyze_multi_images —
             # tf_zones, D1 cap, nesting, confluence — всё валидировано.
-            # НЕ перезаписываем tf_zones сырыми данными после валидации.
+            # Но LLM может не вернуть зону для какого-то ТФ (часто D1) —
+            # заполняем отсутствующие из данных графика как fallback.
+            if isinstance(parsed_result, dict):
+                _fill_missing_tf_zones(parsed_result, all_metrics, timeframes)
 
             if isinstance(parsed_result, dict) and parsed_result.get("error"):
                 await bot.send_message(chat_id, f"⚠️ Ошибка анализа: {parsed_result.get('message')}")

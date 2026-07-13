@@ -1895,21 +1895,12 @@ def format_json_for_tg(data: dict) -> str:
                 ordered.append((_zone_label(tf), z))
     tf_block = []
     if ordered:
-        # Группировать ТФ с одинаковыми зонами в одну строку: "1D/4H: [...]"
-        groups: dict[tuple, list[str]] = {}
-        order: list[tuple] = []
+        # Каждый ТФ на отдельной строке — без группировки через "/".
+        # Группировка создавала путаницу: "D1/H4" выглядело как баг.
         for tf, z in ordered:
             upper = z.get("upper")
             lower = z.get("lower")
-            key = (round(float(lower), 4) if lower is not None else None, round(float(upper), 4) if upper is not None else None)
-            if key not in groups:
-                groups[key] = []
-                order.append(key)
-            groups[key].append(tf)
-        for key in order:
-            tfs = groups[key]
-            label = "/".join(tfs) if len(tfs) > 1 else tfs[0]
-            tf_block.append(f"• {label}: [{_format_num(key[0])} - {_format_num(key[1])}]")
+            tf_block.append(f"• {tf}: [{_format_num(lower)} - {_format_num(upper)}]")
     else:
         tf_block.append("• Нет")
 
