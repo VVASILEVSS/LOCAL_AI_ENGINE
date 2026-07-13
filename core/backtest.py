@@ -120,7 +120,10 @@ def save_signal_log(
         runs = consistency.get("runs", 1)
         agreed = 1 if consistency.get("agreed", True) else 0
 
-        entry = _safe_float(parsed.get("price") or parsed.get("current_price"))
+        # entry_price = live_price (current_price), а не last_closed_price.
+        # LLM часто возвращает price = last_closed_price, но для backtest
+        # нужна реальная цена на момент прогноза.
+        entry = _safe_float(parsed.get("current_price") or parsed.get("price"))
         sl = _safe_float(primary.get("sl"))
         tp1 = _safe_float(primary.get("tp1"))
         tp2 = _safe_float(primary.get("tp2"))

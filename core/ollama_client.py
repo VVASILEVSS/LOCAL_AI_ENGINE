@@ -312,8 +312,8 @@ State / history context:
    - balance = боковик / сжатие
    - correction = коррекция
 7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
-8. tf_zones и key_zones не пересчитывай — бери из контекста.
-8a. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма из запроса в tf_zones. Если зона 1D есть в контексте — верни её. Пропуск 1D не допускается.
+8. tf_zones и key_zones — АНАЛИЗИРУЙ ПО ГРАФИКАМ. ZigZag контекст — это справочный индикатор (направление, свинги, позиция цены), НЕ готовые зоны для копирования. Определи зоны консолидации визуально по каждому графику. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones.
+8a. Если на графике видна чёткая зона консолидации — используй её. Если зона неопределённа — возьми ближайшие структурные high/low. Пропуск ТФ в tf_zones НЕ допускается.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -2040,14 +2040,14 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
             f"dom={stack.get('dominant_tf','?')} | {' '.join(f'{k}:{v}' for k,v in (stack.get('directions') or {}).items())}"
         )
 
-    # Per-TF zones
+    # Per-TF: только качественные метрики (БЕЗ числовых lower/upper!)
+    # LLM должен анализировать зоны ПО ГРАФИКАМ, не копировать числа.
     tfs = ctx.get("timeframes") or {}
     for tf, data in tfs.items():
         if not isinstance(data, dict):
             continue
         lines.append(
-            f"{tf}: [{data.get('lower','?')}–{data.get('upper','?')}] "
-            f"mode={data.get('market_mode','?')} swing={data.get('swing_direction','?')} "
+            f"{tf}: mode={data.get('market_mode','?')} swing={data.get('swing_direction','?')} "
             f"pivots={data.get('pivot_count','?')} pos={data.get('price_position','?')}"
         )
 
