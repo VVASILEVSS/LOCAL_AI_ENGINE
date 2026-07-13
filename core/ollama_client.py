@@ -2085,9 +2085,13 @@ async def analyze_multi_images(
     )
 
     content_parts: List[Dict[str, Any]] = [{"type": "text", "text": user_text}]
-    content_parts.append(
-        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_images[0]}"}}
-    )
+    # Передать ВСЕ графики в LLM (не только b64_images[0]).
+    # Раньше LLM видел только 1 картинку (младший ТФ) → не мог вернуть
+    # tf_zones для остальных ТФ → fallback подставлял сырые экстремумы.
+    for img_b64 in b64_images:
+        content_parts.append(
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+        )
 
     # NOTE: payload больше не формируется здесь — ollama_service.generate()
     # собирает его сам из messages + model + temperature + max_tokens.

@@ -313,18 +313,18 @@ async def show_main_menu(message: Message) -> None:
 # ── /scan (полная копия из handlers.py, но через cloud LLM) ────────────────
 
 def _fill_missing_tf_zones(
-    result: dict, all_metrics: dict[str, dict], timeframes: list[str]
+    result: dict, prev_tf_zones: dict, timeframes: list[str]
 ) -> None:
     """
-    Если LLM не вернул зону для какого-то ТФ (часто 1D) — берёт из данных графика.
-    Маппинг raw TF → нормализованный ключ: "1d"→"1D", "4h"→"4H", "1h"→"1H", "15m"→"15M".
+    Если LLM не вернул зону для какого-то ТФ — берёт из prev_analysis.tf_zones
+    (зоны, которые были переданы LLM в контексте), НЕ из сырых структурных
+    экстремумов (max/min за 120 свечей — не зоны консолидации).
 
-    ВАЖНО: fallback вызывается ПОСЛЕ enforce_risk_rules() (который внутри
-    analyze_multi_images), поэтому D1 cap ±10% и матрёшка здесь НЕ применялись.
-    Этот фолбэк:
-      1) применяет D1 cap ±10% к fallback D1 зоне вручную,
-      2) пересобирает tf_zones в каноническом порядке (D1→H4→H1→M15→M5),
-      3) пересчитывает tf_span_map.
+    Если зоны нет ни в LLM-ответе, ни в prev_analysis — НЕ подставляем мусор.
+    Оставляем отсутствующей — format_json_for_tg покажет "N/A" для этого ТФ.
+
+    Матрёшка + D1 cap применяются ВНЕ функции — через re-run enforce_risk_rules()
+    в caller (_do_full_scan) после fallback.
     """
     tf_key_map = {
         "1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M",
@@ -332,8 +332,6 @@ def _fill_missing_tf_zones(
     }
     # Канонический порядок от старшего к младшему
     canonical_order = ["1D", "4H", "1H", "15M", "5M"]
-    # D1 cap ±10% и матрёшка применяются ВНЕ этой функции — через re-run
-    # enforce_risk_rules() в caller (_do_full_scan) после fallback.
 
     if not isinstance(result, dict):
         return
@@ -342,23 +340,22 @@ def _fill_missing_tf_zones(
         tf_zones = {}
         result["tf_zones"] = tf_zones
 
-    price = result.get("price")
     filled = False
     for tf in timeframes:
         norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
         if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
             continue  # LLM вернул зону для этого ТФ
-        # Fallback из данных графика
-        chart_zone = all_metrics.get(tf, {}).get("zone")
-        if isinstance(chart_zone, dict) and (chart_zone.get("upper") is not None or chart_zone.get("lower") is not None):
+        # Fallback из prev_analysis.tf_zones (НЕ из сырых экстремумов)
+        prev_zone = prev_tf_zones.get(tf) or prev_tf_zones.get(norm_key)
+        if isinstance(prev_zone, dict) and (prev_zone.get("upper") is not None or prev_zone.get("lower") is not None):
             zone = {
-                "upper": chart_zone.get("upper"),
-                "lower": chart_zone.get("lower"),
+                "upper": prev_zone.get("upper"),
+                "lower": prev_zone.get("lower"),
             }
             tf_zones[norm_key] = zone
             filled = True
             logging.info(
-                "DASHBOARD: filled missing %s zone from chart data for %s",
+                "DASHBOARD: filled missing %s zone from prev_analysis for %s",
                 norm_key, result.get("symbol", "?"),
             )
 
@@ -492,16 +489,16 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             # enforce_risk_rules уже вызван внутри analyze_multi_images —
             # tf_zones, D1 cap, nesting, confluence — всё валидировано.
             # Но LLM может не вернуть зону для какого-то ТФ (часто 1D) —
-            # заполняем отсутствующие из данных графика как fallback.
+            # заполняем отсутствующие из prev_analysis.tf_zones как fallback.
             # ВАЖНО: после fallback перезапускаем enforce_risk_rules,
             # чтобы матрёшка и D1 cap применились к обновлённым зонам.
             if isinstance(parsed_result, dict):
                 # Гарантировать symbol в result для логирования fallback
                 if not parsed_result.get("symbol"):
                     parsed_result["symbol"] = symbol
-                _fill_missing_tf_zones(parsed_result, all_metrics, timeframes)
+                _fill_missing_tf_zones(parsed_result, tf_zones, timeframes)
                 # Re-run enforce_risk_rules: применит матрёшку + D1 cap
-                # к fallback-зонам, добавленным из metrics.
+                # к fallback-зонам, добавленным из prev_analysis.
                 parsed_result = enforce_risk_rules(parsed_result)
 
             if isinstance(parsed_result, dict) and parsed_result.get("error"):
