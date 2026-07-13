@@ -499,9 +499,12 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
 
             # enforce_risk_rules уже вызван внутри analyze_multi_images —
             # tf_zones, D1 cap, nesting, confluence — всё валидировано.
-            # Но LLM может не вернуть зону для какого-то ТФ (часто D1) —
+            # Но LLM может не вернуть зону для какого-то ТФ (часто 1D) —
             # заполняем отсутствующие из данных графика как fallback.
             if isinstance(parsed_result, dict):
+                # Гарантировать symbol в result для логирования fallback
+                if not parsed_result.get("symbol"):
+                    parsed_result["symbol"] = symbol
                 _fill_missing_tf_zones(parsed_result, all_metrics, timeframes)
 
             if isinstance(parsed_result, dict) and parsed_result.get("error"):
