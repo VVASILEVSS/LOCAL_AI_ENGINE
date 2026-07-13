@@ -316,14 +316,24 @@ def _fill_missing_tf_zones(
     result: dict, all_metrics: dict[str, dict], timeframes: list[str]
 ) -> None:
     """
-    Если LLM не вернул зону для какого-то ТФ (часто 1D) — берём из данных графика.
+    Если LLM не вернул зону для какого-то ТФ (часто 1D) — берёт из данных графика.
     Маппинг raw TF → нормализованный ключ: "1d"→"1D", "4h"→"4H", "1h"→"1H", "15m"→"15M".
-    Также пересчитывает tf_span_map после добавления.
+
+    ВАЖНО: fallback вызывается ПОСЛЕ enforce_risk_rules() (который внутри
+    analyze_multi_images), поэтому D1 cap ±10% и матрёшка здесь НЕ применялись.
+    Этот фолбэк:
+      1) применяет D1 cap ±10% к fallback D1 зоне вручную,
+      2) пересобирает tf_zones в каноническом порядке (D1→H4→H1→M15→M5),
+      3) пересчитывает tf_span_map.
     """
     tf_key_map = {
         "1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M",
         "1D": "1D", "4H": "4H", "1H": "1H", "15M": "15M", "5M": "5M",
     }
+    # Канонический порядок от старшего к младшему
+    canonical_order = ["1D", "4H", "1H", "15M", "5M"]
+    cap_pct = 0.10  # ±10% от цены — синхронно с _validate_zone_nesting()
+
     if not isinstance(result, dict):
         return
     tf_zones = result.get("tf_zones")
@@ -331,6 +341,7 @@ def _fill_missing_tf_zones(
         tf_zones = {}
         result["tf_zones"] = tf_zones
 
+    price = result.get("price")
     filled = False
     for tf in timeframes:
         norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
@@ -339,30 +350,52 @@ def _fill_missing_tf_zones(
         # Fallback из данных графика
         chart_zone = all_metrics.get(tf, {}).get("zone")
         if isinstance(chart_zone, dict) and (chart_zone.get("upper") is not None or chart_zone.get("lower") is not None):
-            tf_zones[norm_key] = {
+            zone = {
                 "upper": chart_zone.get("upper"),
                 "lower": chart_zone.get("lower"),
             }
+            # D1 cap ±10% — fallback зона идёт ПОСЛЕ enforce_risk_rules,
+            # поэтому cap здесь не применялся. Применяем вручную.
+            if norm_key == "1D" and price is not None:
+                upper = zone.get("upper")
+                lower = zone.get("lower")
+                if upper is not None and abs(upper - price) / price > cap_pct:
+                    zone["upper"] = round(price * (1 + cap_pct), 2)
+                if lower is not None and abs(price - lower) / price > cap_pct:
+                    zone["lower"] = round(price * (1 - cap_pct), 2)
+            tf_zones[norm_key] = zone
             filled = True
             logging.info(
-                "DASHBOARD: filled missing %s zone from chart data for %s",
-                norm_key, result.get("symbol", "?"),
+                "DASHBOARD: filled missing %s zone from chart data for %s (D1 cap applied=%s)",
+                norm_key, result.get("symbol", "?"), norm_key == "1D",
             )
 
-    # Пересчитать tf_span_map если зоны были добавлены
+    # Пересобрать tf_zones в каноническом порядке (D1→H4→H1→M15→M5).
+    # Python 3.7+ dict сохраняет порядок вставки — без этого D1 будет в конце.
     if filled:
-        span_map = result.get("tf_span_map")
-        if not isinstance(span_map, dict):
-            span_map = {}
-            result["tf_span_map"] = span_map
+        ordered = {}
+        for canon_tf in canonical_order:
+            z = tf_zones.get(canon_tf)
+            if isinstance(z, dict):
+                ordered[canon_tf] = z
+        # Добавить любые другие ключи, которых нет в canonical_order
+        for k, v in tf_zones.items():
+            if k not in ordered:
+                ordered[k] = v
+        result["tf_zones"] = ordered
+
+    # Пересчитать tf_span_map
+    if filled:
+        span_map = {}
         for tf in timeframes:
             norm_key = tf_key_map.get(tf, tf.upper().replace("MIN", "M"))
-            z = tf_zones.get(norm_key)
+            z = ordered.get(norm_key) if filled else tf_zones.get(norm_key)
             if isinstance(z, dict):
                 upper = z.get("upper")
                 lower = z.get("lower")
                 if upper is not None and lower is not None:
                     span_map[norm_key] = abs(upper - lower)
+        result["tf_span_map"] = span_map
 
 
 async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: Bot) -> None:

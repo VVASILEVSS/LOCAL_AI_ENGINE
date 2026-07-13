@@ -313,6 +313,7 @@ State / history context:
    - correction = коррекция
 7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
 8. tf_zones и key_zones не пересчитывай — бери из контекста.
+8a. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма из запроса в tf_zones. Если зона 1D есть в контексте — верни её. Пропуск 1D не допускается.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
