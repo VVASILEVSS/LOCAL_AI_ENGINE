@@ -452,11 +452,19 @@ async def cmd_scan(message: Message) -> None:
         return
     if message.text is None:
         return
-    args = message.text.split()
-    raw_sym = args[1].upper().replace("/", "").replace("USDT", "") if len(args) > 1 else "BTC"
-    symbol = f"{raw_sym}USDT"
+    # Support multi-symbol: /scan BTC | ETH | XAUT  OR  /scan BTC ETH XAUT  OR  /scan BTC
+    raw_text = message.text.split(maxsplit=1)
+    raw_syms_str = raw_text[1] if len(raw_text) > 1 else "BTC"
+    raw_syms = [s.strip().upper().replace("/", "").replace("USDT", "") for s in raw_syms_str.split("|")]
+    raw_syms = [s for s in raw_syms if s]  # filter empty
+    if not raw_syms:
+        raw_syms = ["BTC"]
     timeframes = sort_timeframes(_get_timeframes())
-    await _do_full_scan(symbol, timeframes, message.chat.id, message.bot)
+    for i, raw_sym in enumerate(raw_syms):
+        symbol = f"{raw_sym}USDT"
+        if i > 0:
+            await asyncio.sleep(3)  # pause between tickers to avoid rate limit
+        await _do_full_scan(symbol, timeframes, message.chat.id, message.bot)
 
 
 # ── /add, /remove, /settings, /timer, /filter, /auto, /export ──────────────

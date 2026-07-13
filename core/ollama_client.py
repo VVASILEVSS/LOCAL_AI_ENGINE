@@ -1171,18 +1171,8 @@ def enforce_risk_rules(data: dict) -> dict:
                 lower, upper = upper, lower
             merged_tf_zones[tf_key] = {"upper": upper, "lower": lower}
 
-        # merge only exact-close ranges, keep tf names
-        zones_by_span = {}
-        for tf, z in merged_tf_zones.items():
-            key = (round(z["lower"] or 0, 2), round(z["upper"] or 0, 2))
-            zones_by_span.setdefault(key, []).append(tf)
-
-        compact_tf_zones = {}
-        for (lo, hi), tfs in zones_by_span.items():
-            label = "/".join(sorted({_zone_label(tf) for tf in tfs}))
-            compact_tf_zones[label] = {"upper": hi, "lower": lo}
-
-        data["tf_zones"] = compact_tf_zones
+        # keep individual tf zones — visual grouping is done in format_json_for_tg
+        data["tf_zones"] = merged_tf_zones
 
     # -----------------------------
     # 6) tf_span_map
@@ -1905,15 +1895,21 @@ def format_json_for_tg(data: dict) -> str:
                 ordered.append((_zone_label(tf), z))
     tf_block = []
     if ordered:
-        seen = set()
+        # Группировать ТФ с одинаковыми зонами в одну строку: "1D/4H: [...]"
+        groups: dict[tuple, list[str]] = {}
+        order: list[tuple] = []
         for tf, z in ordered:
             upper = z.get("upper")
             lower = z.get("lower")
             key = (round(float(lower), 4) if lower is not None else None, round(float(upper), 4) if upper is not None else None)
-            if key in seen:
-                continue
-            seen.add(key)
-            tf_block.append(f"• {tf}: [{_format_num(lower)} - {_format_num(upper)}]")
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(tf)
+        for key in order:
+            tfs = groups[key]
+            label = "/".join(tfs) if len(tfs) > 1 else tfs[0]
+            tf_block.append(f"• {label}: [{_format_num(key[0])} - {_format_num(key[1])}]")
     else:
         tf_block.append("• Нет")
 
