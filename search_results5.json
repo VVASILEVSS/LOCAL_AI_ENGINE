@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.tradingview.com/script/dtCtEIPC-Liquidity-Magnet-FEELS",
+    "name": "Liquidity Magnet [FEELS] — Indicator by FeelsStrategy - TradingView",
+    "snippet": "The script identifies confirmed swing highs and swing lows using a configurable pivot lookback. Pivots in the same direction that fall within a ...\nA scoring engine for liquidity zones. Every active pool (swing high, swing low, or equal-level cluster) gets ranked by probability of being\nA scoring engine for liquidity zones. Every active pool (swing high, swing low, or equal-level cluster) gets ranked by probability of being reached. The highest-probability zone is marked as the top magnet — the single most likely target right now.",
+    "host_name": "www.tradingview.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=io4FK09EpYw",
+    "name": "This New Indicator PREDICTS Swing Highs And Swing Lows - YouTube",
+    "snippet": "TradeIQ Master Kit - https://bit.ly/47fnNl9 Discover the Swing Structure Bands by ChartPrime - a revolutionary TradingView indicator that ...",
+    "host_name": "www.youtube.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://liquidityfinder.com/news/stop-hunting-101-how-swing-highs-and-lows-become-liquidity-traps-b599c",
+    "name": "Stop Hunting 101: How Swing Highs and Lows Become Liquidity Traps",
+    "snippet": "swing highs and swing lows act as liquidity magnets. Swing High: forms when price pushes upward, stalls, and then fails to continue higher.\nSwing highs and lows are liquidity markers, not trading signals on their own. Treat them as clues in the story - then let confirmation write ...",
+    "host_name": "liquidityfinder.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.colibritrader.com/swing-high-swing-low",
+    "name": "Swing High Swing Low: Your Guide to Market Structure - Colibri Trader",
+    "snippet": "At its core, a swing high is simply a peak in price. Think of a single candle that has a higher high than the candles on either side of it.",
+    "host_name": "www.colibritrader.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=2rIgBEBLecw",
+    "name": "LuxAlgo's Liquidity Swings Indicator on TradingView - YouTube",
+    "snippet": "LuxAlgo's Liquidity Swings Indicator on TradingView. Liquidity areas are easier to read when swing highs and swing lows are treated as zones ...",
+    "host_name": "www.youtube.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.altrady.com/crypto-trading/smart-money-concept/how-to-identify-swing-highs-and-lows",
+    "name": "Smart Money Trading: How to Identify Swing Highs and Lows - Altrady",
+    "snippet": "Swing High: this occurs when a price reaches a peak, flanked by lower highs on both sides. These swings are pivotal in identifying potential reversals, ...\nSwing Low: this forms when a price hits a trough, with higher. A liquidity sweep typically pierces a prior swing high or swing low and then closes back inside ...",
+    "host_name": "www.altrady.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/Daytrading/comments/wezjzz/whats_exactly_swing_high_and_swing_low",
+    "name": "What's exactly “Swing high and Swing low” ? : r/Daytrading - Reddit",
+    "snippet": "They basically are the low/high points of a trend. the swing highs are the tops of the bull movements. Use oscillators crossing zero or ...\nThey basically are the low/high points of a trend. As you probably know, a trend is composed by the movements and pullbacks.",
+    "host_name": "www.reddit.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://alchemymarkets.com/education/strategies/liquidity-sweep",
+    "name": "Liquidity Sweep Explained with Examples - Alchemy Markets",
+    "snippet": "Liquidity sweeps can be traded on lower timeframes for scalping or higher timeframes for swing trading. Supports volume analysis, Combining ...",
+    "host_name": "alchemymarkets.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.luxalgo.com/library/indicator/liquidity-swings",
+    "name": "Liquidity Swings | Trading Indicator - LuxAlgo",
+    "snippet": "The Liquidity Swings Indicator is a powerful tool that helps traders identify swing areas rich in trading activity.",
+    "host_name": "www.luxalgo.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.zeiierman.com/blog/liquidity-sweeps-in-trading",
+    "name": "How to identify and trade Liquidity Sweeps like a pro?",
+    "snippet": "Swing highs and swing lows are basic liquidity magnets. Retail traders love to hide their stops just above the most recent swing high or ...",
+    "host_name": "www.zeiierman.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://github.com/topics/pine-script",
+    "name": "pine-script · GitHub Topics",
+    "snippet": "PineTS is an open-source transpiler and runtime that brings Pine Script® logic to Node.js and the browser with 1:1 syntax compatibility.",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/topics/pinescript-strategies",
+    "name": "pinescript-strategies · GitHub Topics",
+    "snippet": "A collection of custom Pinescript files for TradingView. Includes indicators, multi-alert scripts, and over 50 custom trading strategies to enhance your trading ...",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/topics/pinescript-indicators?o=asc&s=stars",
+    "name": "pinescript-indicators · GitHub Topics",
+    "snippet": "This Github repository is for storing the source code of the indicators that I have designed in TradingView and written in the PineScript language. indicator ...",
+    "host_name": "github.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/dtCtEIPC-Liquidity-Magnet-FEELS",
+    "name": "Liquidity Magnet [FEELS] — Indicator by FeelsStrategy - TradingView",
+    "snippet": "A scoring engine for liquidity zones. Liquidity Magnet is a composite WHAT. This script does three things differently: 1. Probability ranking, ...",
+    "host_name": "www.tradingview.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/topics/pinescript",
+    "name": "pinescript · GitHub Topics",
+    "snippet": "A collection of custom Pinescript files for TradingView. Includes indicators, multi-alert scripts, and over 50 custom trading strategies to enhance your trading ...",
+    "host_name": "github.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/RuneDD/Institutional-Insight-Indicator",
+    "name": "GitHub - RuneDD/Institutional-Insight-Indicator",
+    "snippet": "This Pine Script indicator combines volume, price action swings, RSI, and supply/demand zones to help traders identify potential market turning points.",
+    "host_name": "github.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/ArunKBhaskar/PineScript",
+    "name": "ArunKBhaskar/PineScript: A collection of TradingView Pine Script codes.",
+    "snippet": "Open TradingView chart. Click \"Pine Editor\" at the bottom. Copy indicator code and Paste it in Pine Editor. Click \"Save\" in Pine Editor.",
+    "host_name": "github.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.scribd.com/document/888177959/LiquidityPine-Script",
+    "name": "Liquidity Levels Detector Script | PDF | Computer Programming - Scribd",
+    "snippet": "The document is a TradingView Pine Script that implements a Liquidity Levels Detector indicator. It calculates and displays buy-side and sell-side liquidity ...",
+    "host_name": "www.scribd.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/pAulseperformance/awesome-pinescript",
+    "name": "GitHub - pAulseperformance/awesome",
+    "snippet": "A Comprehensive Collection of Everything Related to Tradingview Pine Script. Table of Contents. awesome-pinescript. Table of Contents; Official Resources ...",
+    "host_name": "github.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/shitcoding/tradingview_scripts",
+    "name": "Various useful pinescript scripts for Tradingview · GitHub",
+    "snippet": "A collection of Pine Script indicators and strategies for cryptocurrency trading, focused on short setup detection and trade analysis.",
+    "host_name": "github.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

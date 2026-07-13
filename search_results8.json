@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://pl.tradingview.com/scripts/eqh",
+    "name": "EQH — Wskaźniki i Strategie - TradingView",
+    "snippet": "Instead of just drawing equal highs, equal lows and swing liquidity, it scores ... SETTINGS Liquidity Engine • Swing length — pivot lookback; higher = only major ...\nDetects liquidity pools automatically — swing highs / lows and equal highs / equal lows (EQH / EQL) where stop-losses cluster. pivot lookback; higher = only ...",
+    "host_name": "pl.tradingview.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://fr.tradingview.com/scripts/liquidity/page-4",
+    "name": "Liquidity — Indicateurs et Stratégies - TradingView",
+    "snippet": "⚙️ KEY SETTINGS ⚙️ Main: — Swing Length (default 21): pivot lookback for the liquidity pools to sweep. ... pools created around equal highs and equal lows. The tool ...",
+    "host_name": "fr.tradingview.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://ar.tradingview.com/scripts/liquidity/page-3",
+    "name": "Liquidity — المؤشرات والاستراتيجيات — TradingView",
+    "snippet": "Equal highs and lows are grouped into bands whose ... ⚙️ KEY SETTINGS ⚙️ Main: — Swing Length (default 21): pivot lookback for the liquidity pools to sweep.\nIt automatically detects clusters of equal swing highs (EQH) and equal swing lows ... Liquidity Magnet System — the core of this tool. This is not a \"point an ...",
+    "host_name": "ar.tradingview.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://in.tradingview.com/scripts/supportandresistance/page-13",
+    "name": "Support and Resistance — Indicators and Strategies — TradingView",
+    "snippet": "Liquidity Magnet [FEELS]A scoring engine for liquidity zones. Every active ... swing highs and swing lows using a configurable pivot lookback. Pivots ...",
+    "host_name": "in.tradingview.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/scripts/page-326/?sort=recent_extended",
+    "name": "Trading Strategies & Indicators Built by TradingView Community",
+    "snippet": "... pivot lookback elapses - on a 4H chart with lookback 14, that is 56 ... Equal highs and equal lows 3.1 How they form Equal highs and equal lows (EQH ...\n9.3 In practice The Friday close acts as a liquidity magnet for early week price action. Markets frequently return to fill the weekend gap before continuing ...",
+    "host_name": "www.tradingview.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://in.tradingview.com/scripts/volumestudies/page-34",
+    "name": "Volume — Indicators and Strategies — TradingView — India India",
+    "snippet": "Equal highs and equal lows 3.1 How they form Equal highs and equal lows (EQH ... 9.3 In practice The Friday close acts as a liquidity magnet for early week price ...",
+    "host_name": "in.tradingview.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://in.tradingview.com/scripts/volumestudies/page-39",
+    "name": "Volume — Indicators and Strategies — TradingView — India India",
+    "snippet": "Pivot Lookback: The number of bars used to identify significant highs ... Equal highs and equal lows 3.1 How they form Equal highs and equal lows (EQH ...",
+    "host_name": "in.tradingview.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://in.tradingview.com/scripts/statistics/page-20",
+    "name": "Statistics — Indicators and Strategies — TradingView — India",
+    "snippet": "Liquidity Magnet [FEELS]A scoring engine for liquidity zones. ... ✓ Liquidity Sweep Detection Identifies stop hunts above equal highs and below equal lows to ...",
+    "host_name": "in.tradingview.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/dtCtEIPC-Liquidity-Magnet-FEELS",
+    "name": "Liquidity Magnet [FEELS] — Indicator by FeelsStrategy - TradingView",
+    "snippet": "... Liquidity Magnet is a composite probability scoring system for liquidity zones — the price levels where resting orders cluster around swing ...\nA scoring engine for liquidity zones. Every active pool (swing high, swing low, or equal-level cluster) gets ranked by probability of being",
+    "host_name": "www.tradingview.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://br.tradingview.com/scripts/liquidity/page-4",
+    "name": "Liquidity — Indicadores e Estratégias - TradingView",
+    "snippet": "Liquidity Magnet tells you WHERE liquidity sits and which pool is the draw — you choose the entry. THE DASHBOARD • NEXT TARGET — price of the strongest ...",
+    "host_name": "br.tradingview.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

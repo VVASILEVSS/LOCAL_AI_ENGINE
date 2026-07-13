@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.tradingview.com/script/dtCtEIPC-Liquidity-Magnet-FEELS",
+    "name": "Liquidity Magnet [FEELS] — Indicator by FeelsStrategy - TradingView",
+    "snippet": "OPEN-SOURCE SCRIPT May 14 Liquidity Magnet [FEELS] binary detection. creator of this script has made it open-source, can use it for free,",
+    "host_name": "www.tradingview.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/w8DHUZp8-Liquidity-Magnet-ICT-Liquidity-Sweeps-LunqFX",
+    "name": "Liquidity Magnet ICT Liquidity & Sweeps [LunqFX] - TradingView",
+    "snippet": "Liquidity Magnet is an ICT / Smart Money Concepts (SMC) liquidity indicator that maps buy-side and sell-side liquidity. OPEN-SOURCE SCRIPT ・ ...",
+    "host_name": "www.tradingview.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/zDKFdtlN-Dual-Magnet-Liquidity-Field-DML",
+    "name": "Dual-Magnet Liquidity Field [DML] — Indicator by PhenLabs - TradingView",
+    "snippet": "The Dual-Magnet Liquidity Field tracks the strongest upside liquidity target … touch count, and range position. made it open-source,",
+    "host_name": "www.tradingview.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/topics/pinescript-strategies",
+    "name": "pinescript-strategies · GitHub Topics",
+    "snippet": "A collection of indicators written in Pine script for TradingView platform. Includes indicators, multi-alert scripts, and over 50 custom trading strategies",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/MAzyue8N-Liquidity-Magnet-Clusters",
+    "name": "Liquidity Magnet Clusters — Indicator by ADXAE - TradingView",
+    "snippet": "The script detects potential liquidity sweeps using recent swing highs and swing lows. A bearish sweep is detected when price moves above a ...",
+    "host_name": "www.tradingview.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=LtjIwjdMbNQ",
+    "name": "How to use External Indicator Sources in Pine Script - YouTube",
+    "snippet": "... script-mastery My Indicators & Strategies Course (Steal My Code ... Source Strategies 13:38 - Outro & Summary #PineScript #TradingView #Trading.",
+    "host_name": "www.youtube.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/pinescript/comments/1rdbmh1/trading_view_free_indicator_help",
+    "name": "Trading view Free Indicator help : r/pinescript - Reddit",
+    "snippet": "Hi Everyone, I need some help creating an indicator. I've recently been using ChatGPT to help me create one but I struggle on creating the ...",
+    "host_name": "www.reddit.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/BjtTAo5b-Strong-SD-Magnet-ProjectSyndicate",
+    "name": "Strong SD Magnet | ProjectSyndicate - TradingView",
+    "snippet": "The Liquidity Magnet System in this script is based on the original Magnet System concept by FeelsStrategy — full credit to the original ...",
+    "host_name": "www.tradingview.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.linkedin.com/posts/yash-anand-6123721bb_tradingview-pinescript-smartmoney-activity-7430583934532530176--sE-",
+    "name": "Smart Money Trading Indicator: Free Pine Script for Liquidity Sweep",
+    "snippet": "... liquidity. So I built an open-source Pine Script indicator: Market Trend Detector → 4-signal scoring system (0–4 bull or bear) → Live ...",
+    "host_name": "www.linkedin.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/7wUzaia6-Liquidity-Magnet-Compass-forexobroker",
+    "name": "Liquidity Magnet Compass [forexobroker] - TradingView",
+    "snippet": "Liquidity Magnet Compass maps every swing high and swing low on the chart as a liquidity zone where stop orders tend to cluster -- Buy-Side ...",
+    "host_name": "www.tradingview.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

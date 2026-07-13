@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://github.com/ArunKBhaskar/PineScript",
+    "name": "ArunKBhaskar/PineScript: A collection of TradingView Pine Script codes.",
+    "snippet": "Open TradingView chart. Click \"Pine Editor\" at the bottom. Copy indicator code and Paste it in Pine Editor. Click \"Save\" in Pine Editor.",
+    "host_name": "github.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/coding-kitties/PyIndicators",
+    "name": "coding-kitties/PyIndicators - GitHub",
+    "snippet": "Liquidity voids act as magnets — price is drawn to fill low-volume areas; When price is below a void, expect it to be pulled up (bullish bias); When price is ...",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/TraderOracle/TradingView/blob/main/EzAlgo_V9.pine.txt",
+    "name": "TradingView/EzAlgo_V9.pine.txt at main - GitHub",
+    "snippet": "determine the level at which the highest Volume has been traded. This level is called the Point of Control which acts as a magnet attracting the price. , \"High ...",
+    "host_name": "github.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/anthropics/claude-code/issues/49046",
+    "name": "Claude failed to account for trading fees in breakeven stop-loss",
+    "snippet": "Liquidity Battery Pine v1 prototype compiles but doesn't render. Boxes either too thin or off-screen. Red runtime dot (undiagnosed). Prototype stage, not ...",
+    "host_name": "github.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/merovinh/best-of-algorithmic-trading",
+    "name": "merovinh/best-of-algorithmic-trading - GitHub",
+    "snippet": "A ranked list of algorithmic trading open-source. Pine Script coding and of course my personal favorite. Practical tutorials about algo-trading with Python.",
+    "host_name": "github.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/NemeZZiZZ/react-klinecharts-ui",
+    "name": "react-klinecharts-ui — Library Reference - GitHub",
+    "snippet": "react-klinecharts-ui is a headless React library for building financial trading terminals on top of klinecharts. Pine Script-style custom indicator editor.",
+    "host_name": "github.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/punkpeye/awesome-mcp-servers/blob/main/README.md",
+    "name": "awesome-mcp-servers/README.md at main - GitHub",
+    "snippet": "Manage Uniswap and Aerodrome liquidity positions with leverage, automated rebalancing, and yield optimization on Base, Unichain, and Optimism.",
+    "host_name": "github.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/bradjasper/Markov-Chains/blob/master/crunchbase.txt",
+    "name": "Markov-Chains/crunchbase.txt at master - GitHub",
+    "snippet": "Experiments with Markov Chains. Contribute to bradjasper/Markov-Chains development by creating an account on GitHub.",
+    "host_name": "github.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/chapmanjacobd/proliferation/blob/main/nouns.html",
+    "name": "nouns.html - chapmanjacobd/proliferation - GitHub",
+    "snippet": "chapmanjacobd/proliferation.",
+    "host_name": "github.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/aliclark/scrambl.is/blob/master/scramblis.html",
+    "name": "scrambl.is/scramblis.html at master · aliclark/scrambl.is · GitHub",
+    "snippet": "Easy-to-use crytpo. Contribute to aliclark/scrambl.is development by creating an account on GitHub.",
+    "host_name": "github.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

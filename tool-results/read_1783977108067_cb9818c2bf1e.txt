@@ -1,0 +1,636 @@
+     1→//@version=6
+     2→// Liquidity Magnet — composite scoring for liquidity zones
+     3→// Ranks resting orders at swing highs/lows by probability of being reached
+     4→
+     5→indicator("Liquidity Magnet [FEELS]", "Liquidity Magnet [FEELS]", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+     6→
+     7→//--- detection
+     8→gDet = "Liquidity Detection"
+     9→pivotLen     = input.int(10, "Pivot Lookback", minval=2, group=gDet, tooltip="Bars on each side required to confirm a swing point. Higher values produce fewer but more significant zones. Default 10 works well from 1H upward; try 5-7 for intraday scalping.")
+    10→maxPools     = input.int(25, "Max Active Pools", minval=5, maxval=50, group=gDet, tooltip="Maximum number of liquidity zones tracked at once. When exceeded, oldest pools are dropped. Higher values mean more cluttered charts but better historical coverage.")
+    11→minAge       = input.int(3, "Min Pool Age (bars)", minval=1, group=gDet, tooltip="Fresh pools below this age are scored lower. Reduces noise from just-formed pivots that haven't been tested yet.")
+    12→maxAge       = input.int(500, "Max Pool Age (bars)", minval=50, group=gDet, tooltip="Pools older than this are removed from the active set. Prevents ancient zones from cluttering the chart.")
+    13→
+    14→gEq = "Equal H/L Clustering"
+    15→autoEqTol    = input.bool(true, "Auto-Scale Tolerance by Timeframe", group=gEq, tooltip="When on, clustering tolerance auto-picks based on chart TF: 10% on 1W, 8% on 1D, 5% on 4H, 0.8% on 1H, 0.5% on 15m, 0.15% below. Turn off to use the manual value below.")
+    16→manualEqTol  = input.float(0.15, "Manual Tolerance %", minval=0.0, step=0.05, group=gEq, tooltip="Used when Auto-Scale is off. Pivots in the same direction within this percentage merge into a single equal-liquidity zone.")
+    17→eqBonus      = input.float(1.7, "Equal H/L Bonus Mult", minval=1.0, step=0.1, group=gEq, tooltip="Score multiplier applied to merged (equal-liquidity) zones. Higher values prioritize zones formed by multiple touches.")
+    18→
+    19→gDist = "Distance Filter (Log-Scale)"
+    20→autoScale    = input.bool(true, "Auto-Scale by Timeframe", group=gDist, tooltip="When on, log-distance cap auto-picks based on chart TF: 0.95 on 1W, 0.65 on 1D, 0.45 on 4H, 0.30 on 1H, 0.18 on 15m, 0.10 below. Turn off to use the manual value below.")
+    21→manualLogD   = input.float(0.45, "Manual Log-Distance", minval=0.05, maxval=2.0, step=0.05, group=gDist, tooltip="Used when Auto-Scale is off. Maximum allowed distance in log space. Symmetric: 0.45 covers about plus/minus 57% from price, 0.95 covers plus/minus 160%.")
+    22→
+    23→gScore = "Probability Scoring (Weights)"
+    24→wStrength    = input.float(1.0, "Strength Weight", minval=0.0, step=0.1, group=gScore, tooltip="Influence of volume at pivot formation on the score. Higher = pools formed on high-volume bars dominate the ranking.")
+    25→wProximity   = input.float(1.2, "Proximity Weight", minval=0.0, step=0.1, group=gScore, tooltip="Influence of distance from price. Higher = pools closer to current price get stronger preference.")
+    26→wAge         = input.float(0.6, "Age Decay Weight", minval=0.0, step=0.1, group=gScore, tooltip="Influence of pool age. Higher = the maturity curve has more impact (fresh pools weaker, mature pools stronger, ancient pools decay).")
+    27→wMomentum    = input.float(0.9, "Momentum Bias Weight", minval=0.0, step=0.1, group=gScore, tooltip="Influence of momentum alignment with direction toward each pool. Higher = current momentum direction biases the ranking more strongly.")
+    28→
+    29→gVis = "Visualization"
+    30→showZones    = input.bool(true, "Show Liquidity Zones", group=gVis, tooltip="Master toggle for all zone boxes and lines on the chart.")
+    31→showTop      = input.bool(true, "Highlight TOP MAGNET", group=gVis, tooltip="Draws the single highest-probability zone in the TOP color with a thicker line.")
+    32→showLabels   = input.bool(true, "Show Probability Labels", group=gVis, tooltip="Shows percentage labels next to each zone on the right side of the chart.")
+    33→showDash     = input.bool(true, "Show Dashboard", group=gVis, tooltip="Master toggle for the info panel.")
+    34→showStats    = input.bool(true, "Show Touch Stats in Dashboard", group=gVis, tooltip="Shows Historical Touch percentage and pending count in the dashboard. Requires history tracking to be enabled.")
+    35→showLegend   = input.bool(true, "Show Marker Legend in Dashboard", group=gVis, tooltip="Adds a small legend row at the bottom of the dashboard explaining the marker symbols.")
+    36→showStatus   = input.bool(true, "Show Status Dot in Dashboard", group=gVis, tooltip="Adds a colored dot in the dashboard header. Green when momentum aligns with the top magnet direction, orange when divergent, gray when neutral.")
+    37→showProgress = input.bool(true, "Show Distance Progress Bar", group=gVis, tooltip="Shows a visual proximity bar in the dashboard. 0% = far from top magnet, 100% = price has reached it.")
+    38→showTop3     = input.bool(true, "Show Top 3 Targets in Dashboard", group=gVis, tooltip="Adds the three highest-probability zones below the main metrics. Useful for seeing alternatives to the single top target.")
+    39→zoneExt      = input.int(20, "Zone Extension (bars right)", minval=0, group=gVis, tooltip="How far right of the current bar the zone boxes extend. Larger values give more room for labels but visually cover more chart.")
+    40→
+    41→gHist = "Historical Track (Bar Replay)"
+    42→showHistory      = input.bool(false, "Show Historical Top Magnets", group=gHist, tooltip="Off by default. When on, places small markers on the chart at the locations of previous top magnets, with their outcome: touched or expired. Works in Bar Replay.")
+    43→trackingWindow   = input.int(100, "Tracking Window (bars)", minval=20, maxval=500, group=gHist, tooltip="How many bars to wait for price to reach a former top magnet before marking it as expired. Larger window = more lenient, smaller = stricter.")
+    44→maxHistory       = input.int(100, "Max Historical Markers", minval=10, maxval=300, group=gHist, tooltip="Maximum number of historical markers kept on the chart. Oldest are pruned first.")
+    45→histMarkerSize   = input.string("Normal", "Historical Marker Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=gHist, tooltip="Size of the checkmark and cross markers on the chart.")
+    46→
+    47→gMag = "Magnet Marker and Field Line"
+    48→showMagnet   = input.bool(true, "Show Magnet Marker on TOP zone", group=gMag, tooltip="Shows a magnet symbol on top of the highest-probability zone.")
+    49→magnetSize   = input.string("Large", "Magnet Marker Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=gMag, tooltip="Size of the magnet symbol on the top zone.")
+    50→showField    = input.bool(true, "Show Magnet Field Line", group=gMag, tooltip="Dashed line from the current price to the top magnet. Visualizes the directional pull.")
+    51→fieldStyle   = input.string("Diagonal", "Field Line Style", options=["Diagonal", "Vertical"], group=gMag, tooltip="Diagonal extends to the right at an angle, Vertical drops straight from price to the zone.")
+    52→fieldOffset  = input.int(20, "Diagonal Offset (bars right)", minval=10, maxval=100, group=gMag, tooltip="Used only for Diagonal style. How far right the line endpoint is. Larger = shallower angle.")
+    53→
+    54→gSize = "UI Sizing"
+    55→dashPosStr    = input.string("Top Right", "Dashboard Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left", "Middle Right", "Middle Left"], group=gSize, tooltip="Corner of the chart where the dashboard is anchored.")
+    56→dashSizeStr   = input.string("Small",     "Dashboard Text Size", options=["Tiny", "Small", "Normal", "Large", "Huge"], group=gSize, tooltip="Font size of dashboard text. Use Normal or Large for screenshots and presentations.")
+    57→lblSizeStr    = input.string("Small",     "Zone Label Text Size", options=["Tiny", "Small", "Normal", "Large"], group=gSize, tooltip="Font size of the percentage labels next to non-top zones.")
+    58→topLblSizeStr = input.string("Normal",    "TOP Label Text Size", options=["Small", "Normal", "Large", "Huge"], group=gSize, tooltip="Font size of the label on the top magnet zone. Slightly larger draws attention to the main target.")
+    59→
+    60→gCol = "Colors"
+    61→colHigh     = input.color(#ef4444, "Upside Liquidity", group=gCol, tooltip="Color of resistance zones above current price.")
+    62→colLow      = input.color(#22c55e, "Downside Liquidity", group=gCol, tooltip="Color of support zones below current price.")
+    63→colTop      = input.color(#f59e0b, "TOP MAGNET", group=gCol, tooltip="Color of the highest-probability zone, the magnet marker, and the field line.")
+    64→colField    = input.color(#f59e0b, "Magnet Field Line", group=gCol, tooltip="Color of the dashed line connecting current price to the top magnet.")
+    65→colHistOK   = input.color(#22c55e, "Historical: Touched", group=gCol, tooltip="Color of the checkmark on former top magnets that were reached by price.")
+    66→colHistFail = input.color(#94a3b8, "Historical: Expired", group=gCol, tooltip="Color of the cross on former top magnets that were not reached within the tracking window.")
+    67→colDashBg   = input.color(#0F172A, "Dashboard BG", group=gCol, tooltip="Background color of the dashboard panel.")
+    68→colDashBdr  = input.color(#1e293b, "Dashboard Border", group=gCol, tooltip="Border and frame color of the dashboard.")
+    69→
+    70→//--- types
+    71→type Pool
+    72→    float price
+    73→    int   barIdx
+    74→    bool  isHigh
+    75→    bool  isEqual
+    76→    float volAt
+    77→    float score
+    78→    float probPct
+    79→    box   bx
+    80→    line  ln
+    81→    label lbl
+    82→
+    83→type HistMagnet
+    84→    float price
+    85→    int   recordedBar
+    86→    bool  isHigh
+    87→    int   status
+    88→    int   resolvedBar
+    89→
+    90→//--- state
+    91→var array<Pool>       pools         = array.new<Pool>()
+    92→var array<HistMagnet> history       = array.new<HistMagnet>()
+    93→var array<label>      histLabels    = array.new<label>()
+    94→var line              fieldLn       = na
+    95→var label             fieldArrow    = na
+    96→var label             magnetMarker  = na
+    97→var int               touchCount    = 0
+    98→var int               expiredCount  = 0
+    99→
+   100→var float prevTopPrice   = na
+   101→var bool  prevTopIsHigh  = false
+   102→
+   103→atrV   = ta.atr(14)
+   104→momRaw = ta.ema(close, 8) - ta.ema(close, 21)
+   105→volMa  = ta.sma(volume, 50)
+   106→
+   107→//--- auto-scale by tf
+   108→tfSec = timeframe.in_seconds(timeframe.period)
+   109→
+   110→autoLogD = 0.30
+   111→if tfSec >= 604800
+   112→    autoLogD := 0.95
+   113→else if tfSec >= 86400
+   114→    autoLogD := 0.65
+   115→else if tfSec >= 14400
+   116→    autoLogD := 0.45
+   117→else if tfSec >= 3600
+   118→    autoLogD := 0.30
+   119→else if tfSec >= 900
+   120→    autoLogD := 0.18
+   121→else
+   122→    autoLogD := 0.10
+   123→
+   124→logDistMax = autoScale ? autoLogD : manualLogD
+   125→
+   126→autoEqPct = 0.15
+   127→if tfSec >= 604800
+   128→    autoEqPct := 10
+   129→else if tfSec >= 86400
+   130→    autoEqPct := 8
+   131→else if tfSec >= 14400
+   132→    autoEqPct := 5
+   133→else if tfSec >= 3600
+   134→    autoEqPct := 0.8
+   135→else if tfSec >= 900
+   136→    autoEqPct := 0.5
+   137→else
+   138→    autoEqPct := 0.15
+   139→
+   140→eqTolPct = (autoEqTol ? autoEqPct : manualEqTol) / 100.0
+   141→
+   142→//--- helpers
+   143→logDist(float a, float b) =>
+   144→    (a > 0 and b > 0) ? math.abs(math.log(a / b)) : 1e10
+   145→
+   146→findClosestPool(float newPrice, bool isHigh) =>
+   147→    idx     = -1
+   148→    minDist = 1e10
+   149→    sz      = array.size(pools)
+   150→    if sz > 0
+   151→        for i = 0 to sz - 1
+   152→            p = array.get(pools, i)
+   153→            if p.isHigh == isHigh
+   154→                diff = math.abs(p.price - newPrice) / newPrice
+   155→                if diff <= eqTolPct and diff < minDist
+   156→                    minDist := diff
+   157→                    idx     := i
+   158→    idx
+   159→
+   160→clearPoolDraws(Pool p) =>
+   161→    if not na(p.bx)
+   162→        box.delete(p.bx)
+   163→    if not na(p.ln)
+   164→        line.delete(p.ln)
+   165→    if not na(p.lbl)
+   166→        label.delete(p.lbl)
+   167→
+   168→strToSize(string s) =>
+   169→    result = size.small
+   170→    if s == "Tiny"
+   171→        result := size.tiny
+   172→    else if s == "Small"
+   173→        result := size.small
+   174→    else if s == "Normal"
+   175→        result := size.normal
+   176→    else if s == "Large"
+   177→        result := size.large
+   178→    else if s == "Huge"
+   179→        result := size.huge
+   180→    result
+   181→
+   182→strToPos(string s) =>
+   183→    result = position.top_right
+   184→    if s == "Top Right"
+   185→        result := position.top_right
+   186→    else if s == "Top Left"
+   187→        result := position.top_left
+   188→    else if s == "Bottom Right"
+   189→        result := position.bottom_right
+   190→    else if s == "Bottom Left"
+   191→        result := position.bottom_left
+   192→    else if s == "Middle Right"
+   193→        result := position.middle_right
+   194→    else if s == "Middle Left"
+   195→        result := position.middle_left
+   196→    result
+   197→
+   198→dashSize   = strToSize(dashSizeStr)
+   199→lblSize    = strToSize(lblSizeStr)
+   200→topLblSize = strToSize(topLblSizeStr)
+   201→magSize    = strToSize(magnetSize)
+   202→histSize   = strToSize(histMarkerSize)
+   203→dashPos    = strToPos(dashPosStr)
+   204→
+   205→//--- pivot detect + merge
+   206→ph = ta.pivothigh(high, pivotLen, pivotLen)
+   207→pl = ta.pivotlow(low,  pivotLen, pivotLen)
+   208→
+   209→if not na(ph)
+   210→    mIdx = findClosestPool(ph, true)
+   211→    if mIdx >= 0
+   212→        existing = array.get(pools, mIdx)
+   213→        existing.isEqual := true
+   214→        existing.price   := math.max(existing.price, ph)
+   215→        existing.volAt   := existing.volAt + volume[pivotLen]
+   216→        array.set(pools, mIdx, existing)
+   217→    else
+   218→        array.push(pools, Pool.new(ph, bar_index - pivotLen, true, false, volume[pivotLen], 0.0, 0.0, na, na, na))
+   219→
+   220→if not na(pl)
+   221→    mIdx = findClosestPool(pl, false)
+   222→    if mIdx >= 0
+   223→        existing = array.get(pools, mIdx)
+   224→        existing.isEqual := true
+   225→        existing.price   := math.min(existing.price, pl)
+   226→        existing.volAt   := existing.volAt + volume[pivotLen]
+   227→        array.set(pools, mIdx, existing)
+   228→    else
+   229→        array.push(pools, Pool.new(pl, bar_index - pivotLen, false, false, volume[pivotLen], 0.0, 0.0, na, na, na))
+   230→
+   231→//--- prune
+   232→prevTopWasSweptThisBar = false
+   233→
+   234→ii = array.size(pools) - 1
+   235→while ii >= 0
+   236→    p      = array.get(pools, ii)
+   237→    age    = bar_index - p.barIdx
+   238→    swept  = (p.isHigh and high > p.price) or (not p.isHigh and low < p.price)
+   239→    tooOld = age > maxAge
+   240→    lDist  = logDist(p.price, close)
+   241→    tooFar = lDist > logDistMax
+   242→
+   243→    isPrevTop = not na(prevTopPrice) and math.abs(p.price - prevTopPrice) < syminfo.mintick * 5 and p.isHigh == prevTopIsHigh
+   244→
+   245→    if swept
+   246→        if isPrevTop
+   247→            prevTopWasSweptThisBar := true
+   248→        clearPoolDraws(p)
+   249→        array.remove(pools, ii)
+   250→    else if tooOld
+   251→        clearPoolDraws(p)
+   252→        array.remove(pools, ii)
+   253→    else if tooFar
+   254→        clearPoolDraws(p)
+   255→        array.remove(pools, ii)
+   256→    ii -= 1
+   257→
+   258→while array.size(pools) > maxPools
+   259→    pShift = array.shift(pools)
+   260→    clearPoolDraws(pShift)
+   261→
+   262→//--- scoring
+   263→calcScore(Pool p) =>
+   264→    age   = bar_index - p.barIdx
+   265→    lDist = logDist(p.price, close)
+   266→
+   267→    volFactor = (na(p.volAt) or volMa <= 0) ? 1.0 : math.min(p.volAt / volMa, 3.0)
+   268→    eqMult    = p.isEqual ? eqBonus : 1.0
+   269→    strength  = volFactor * eqMult
+   270→
+   271→    prox = 0.0
+   272→    if lDist < 0.002
+   273→        prox := 0.3
+   274→    else if lDist < 0.05
+   275→        prox := math.max(0.5, 1.0 - math.abs(lDist - 0.02) * 10.0)
+   276→    else
+   277→        prox := math.max(0.05, 1.0 - (lDist - 0.05) * 3.0)
+   278→
+   279→    ageScore = 0.0
+   280→    if age < minAge
+   281→        ageScore := 0.5
+   282→    else if age < 50
+   283→        ageScore := 1.0
+   284→    else
+   285→        ageScore := math.max(0.1, 1.0 - (age - 50) / 450.0)
+   286→
+   287→    dirToPool = p.price > close ? 1.0 : -1.0
+   288→    momNorm   = close > 0 ? momRaw / close : 0.0
+   289→    momAlign  = dirToPool * momNorm * 100.0
+   290→    momScore  = 1.0 + math.max(-0.5, math.min(0.5, momAlign))
+   291→
+   292→    rawScore = strength * wStrength + prox * wProximity + ageScore * wAge + momScore * wMomentum
+   293→    math.max(rawScore, 0.01)
+   294→
+   295→totalScore = 0.0
+   296→scoreUp    = 0.0
+   297→scoreDn    = 0.0
+   298→topIdx     = -1
+   299→topScore   = -1.0
+   300→
+   301→if array.size(pools) > 0
+   302→    for i = 0 to array.size(pools) - 1
+   303→        p = array.get(pools, i)
+   304→        p.score := calcScore(p)
+   305→        array.set(pools, i, p)
+   306→        totalScore += p.score
+   307→        if p.score > topScore
+   308→            topScore := p.score
+   309→            topIdx   := i
+   310→
+   311→    if totalScore > 0
+   312→        for i = 0 to array.size(pools) - 1
+   313→            p = array.get(pools, i)
+   314→            p.probPct := (p.score / totalScore) * 100.0
+   315→            array.set(pools, i, p)
+   316→            if p.isHigh
+   317→                scoreUp += p.score
+   318→            else
+   319→                scoreDn += p.score
+   320→
+   321→topPrice   = (topIdx >= 0 and array.size(pools) > 0) ? array.get(pools, topIdx).price   : na
+   322→topProb    = (topIdx >= 0 and array.size(pools) > 0) ? array.get(pools, topIdx).probPct : na
+   323→topIsHigh  = (topIdx >= 0 and array.size(pools) > 0) ? array.get(pools, topIdx).isHigh  : false
+   324→
+   325→//--- magnet pull
+   326→biasMag = 0.0
+   327→if not na(topPrice) and totalScore > 0
+   328→    sameSidePct = topIsHigh ? scoreUp / totalScore * 100.0 : scoreDn / totalScore * 100.0
+   329→    biasMag := sameSidePct
+   330→biasDir = topIsHigh ? 1 : -1
+   331→bias = biasMag * biasDir
+   332→
+   333→distToTopPct = na(topPrice) ? na : (topPrice - close) / close * 100.0
+   334→
+   335→//--- top 3 calculation
+   336→type RankedPool
+   337→    float price
+   338→    float prob
+   339→    bool  isHigh
+   340→    bool  isEqual
+   341→
+   342→var array<RankedPool> top3 = array.new<RankedPool>()
+   343→array.clear(top3)
+   344→
+   345→if array.size(pools) > 0
+   346→    tmpPrices = array.new<float>()
+   347→    tmpProbs  = array.new<float>()
+   348→    tmpHighs  = array.new<bool>()
+   349→    tmpEquals = array.new<bool>()
+   350→    for i = 0 to array.size(pools) - 1
+   351→        p = array.get(pools, i)
+   352→        array.push(tmpPrices, p.price)
+   353→        array.push(tmpProbs,  p.probPct)
+   354→        array.push(tmpHighs,  p.isHigh)
+   355→        array.push(tmpEquals, p.isEqual)
+   356→
+   357→    sz = array.size(tmpProbs)
+   358→    n = math.min(3, sz)
+   359→    if n > 0
+   360→        for k = 0 to n - 1
+   361→            bestIdx = k
+   362→            if k + 1 <= sz - 1
+   363→                for j = k + 1 to sz - 1
+   364→                    if array.get(tmpProbs, j) > array.get(tmpProbs, bestIdx)
+   365→                        bestIdx := j
+   366→            if bestIdx != k
+   367→                tp = array.get(tmpPrices, k)
+   368→                array.set(tmpPrices, k, array.get(tmpPrices, bestIdx))
+   369→                array.set(tmpPrices, bestIdx, tp)
+   370→                tpr = array.get(tmpProbs, k)
+   371→                array.set(tmpProbs, k, array.get(tmpProbs, bestIdx))
+   372→                array.set(tmpProbs, bestIdx, tpr)
+   373→                th = array.get(tmpHighs, k)
+   374→                array.set(tmpHighs, k, array.get(tmpHighs, bestIdx))
+   375→                array.set(tmpHighs, bestIdx, th)
+   376→                te = array.get(tmpEquals, k)
+   377→                array.set(tmpEquals, k, array.get(tmpEquals, bestIdx))
+   378→                array.set(tmpEquals, bestIdx, te)
+   379→            array.push(top3, RankedPool.new(array.get(tmpPrices, k), array.get(tmpProbs, k), array.get(tmpHighs, k), array.get(tmpEquals, k)))
+   380→
+   381→//--- historical track
+   382→topActuallyChanged = not na(prevTopPrice) and not na(topPrice) and (math.abs(prevTopPrice - topPrice) > syminfo.mintick * 5 or prevTopIsHigh != topIsHigh)
+   383→topDisappeared     = not na(prevTopPrice) and na(topPrice)
+   384→
+   385→if topActuallyChanged or topDisappeared
+   386→    initialStatus = prevTopWasSweptThisBar ? 1 : 0
+   387→    resBar        = prevTopWasSweptThisBar ? bar_index : na
+   388→    array.push(history, HistMagnet.new(prevTopPrice, bar_index, prevTopIsHigh, initialStatus, resBar))
+   389→    if prevTopWasSweptThisBar
+   390→        touchCount += 1
+   391→
+   392→if array.size(history) > 0
+   393→    for i = 0 to array.size(history) - 1
+   394→        h = array.get(history, i)
+   395→        if h.status == 0
+   396→            barsElapsed = bar_index - h.recordedBar
+   397→            touched = (h.isHigh and high >= h.price) or (not h.isHigh and low <= h.price)
+   398→            if touched
+   399→                h.status      := 1
+   400→                h.resolvedBar := bar_index
+   401→                touchCount    += 1
+   402→                array.set(history, i, h)
+   403→            else if barsElapsed >= trackingWindow
+   404→                h.status      := 2
+   405→                h.resolvedBar := bar_index
+   406→                expiredCount  += 1
+   407→                array.set(history, i, h)
+   408→
+   409→while array.size(history) > maxHistory
+   410→    array.shift(history)
+   411→
+   412→prevTopPrice  := topPrice
+   413→prevTopIsHigh := topIsHigh
+   414→
+   415→//--- visualization
+   416→intensityTransp(float pct) =>
+   417→    int(math.max(10, 85 - pct * 3.5))
+   418→
+   419→if barstate.islast and showZones and array.size(pools) > 0
+   420→    atrH = atrV * 0.04
+   421→    for i = 0 to array.size(pools) - 1
+   422→        p = array.get(pools, i)
+   423→        clearPoolDraws(p)
+   424→        isTop = (i == topIdx) and showTop
+   425→        baseC = p.isHigh ? colHigh : colLow
+   426→        zoneC = isTop ? colTop : color.new(baseC, intensityTransp(p.probPct))
+   427→        lineC = isTop ? colTop : color.new(baseC, math.max(0, intensityTransp(p.probPct) - 30))
+   428→        lineW = isTop ? 3 : 1
+   429→        lineStyle = isTop ? line.style_solid : line.style_dotted
+   430→
+   431→        p.bx := box.new(p.barIdx, p.price + atrH, bar_index + zoneExt, p.price - atrH, border_color=color.new(zoneC, 80), bgcolor=color.new(zoneC, 70))
+   432→        p.ln := line.new(p.barIdx, p.price, bar_index + zoneExt, p.price, color=lineC, width=lineW, style=lineStyle)
+   433→
+   434→        if showLabels
+   435→            eqMark  = p.isEqual ? " ⊜" : ""
+   436→            topMark = isTop ? " ◆" : ""
+   437→            lblTxt  = str.tostring(p.probPct, "#.0") + "%" + eqMark + topMark
+   438→            lblTxtCol = isTop ? color.white : color.new(color.white, 10)
+   439→            curLblSize = isTop ? topLblSize : lblSize
+   440→            p.lbl := label.new(bar_index + zoneExt, p.price, lblTxt, style=label.style_label_left, color=color.new(zoneC, 40), textcolor=lblTxtCol, size=curLblSize)
+   441→        array.set(pools, i, p)
+   442→
+   443→//--- magnet marker + field line
+   444→if not na(magnetMarker)
+   445→    label.delete(magnetMarker)
+   446→    magnetMarker := na
+   447→if not na(fieldLn)
+   448→    line.delete(fieldLn)
+   449→    fieldLn := na
+   450→if not na(fieldArrow)
+   451→    label.delete(fieldArrow)
+   452→    fieldArrow := na
+   453→
+   454→if barstate.islast and not na(topPrice)
+   455→    if showMagnet
+   456→        magnetMarker := label.new(bar_index + zoneExt - 2, topPrice, "🧲", style=label.style_none, textcolor=colTop, size=magSize)
+   457→
+   458→    if showField
+   459→        if fieldStyle == "Diagonal"
+   460→            endX = bar_index + fieldOffset
+   461→            fieldLn := line.new(bar_index, close, endX, topPrice, color=color.new(colField, 20), width=2, style=line.style_dashed)
+   462→        else
+   463→            fieldLn := line.new(bar_index, close, bar_index, topPrice, color=color.new(colField, 20), width=2, style=line.style_dashed)
+   464→
+   465→//--- historical markers
+   466→if barstate.isconfirmed or barstate.islast
+   467→    if array.size(histLabels) > 0
+   468→        for i = 0 to array.size(histLabels) - 1
+   469→            label.delete(array.get(histLabels, i))
+   470→        array.clear(histLabels)
+   471→
+   472→    if showHistory and array.size(history) > 0
+   473→        for i = 0 to array.size(history) - 1
+   474→            h = array.get(history, i)
+   475→            if h.status > 0
+   476→                mark = h.status == 1 ? "✓" : "✗"
+   477→                col  = h.status == 1 ? colHistOK : colHistFail
+   478→                lbl  = label.new(h.recordedBar, h.price, mark, style=label.style_none, textcolor=col, size=histSize)
+   479→                array.push(histLabels, lbl)
+   480→
+   481→//--- dashboard
+   482→var table dash = table.new(dashPos, 3, 20, bgcolor=colDashBg, border_color=colDashBdr, border_width=1, frame_color=colDashBdr, frame_width=1)
+   483→
+   484→table.clear(dash, 0, 0, 2, 19)
+   485→
+   486→if (barstate.isconfirmed or barstate.islast) and showDash
+   487→    biasAbs = math.abs(bias)
+   488→
+   489→    biasLabel = "NEUTRAL"
+   490→    if biasAbs > 60
+   491→        biasLabel := bias > 0 ? "STRONG BULL PULL" : "STRONG BEAR PULL"
+   492→    else if biasAbs > 40
+   493→        biasLabel := bias > 0 ? "BULL PULL" : "BEAR PULL"
+   494→
+   495→    biasCol = color.rgb(148, 163, 184)
+   496→    if bias > 40
+   497→        biasCol := colHigh
+   498→    else if bias < -40
+   499→        biasCol := colLow
+   500→
+   501→    statusDot = "●"
+   502→    statusCol = color.rgb(148, 163, 184)
+   503→    if not na(topPrice) and biasAbs > 40
+   504→        momPositive = momRaw > 0
+   505→        topUp = topIsHigh
+   506→        aligned = (topUp and momPositive) or (not topUp and not momPositive)
+   507→        if aligned and biasAbs > 60
+   508→            statusCol := #22c55e
+   509→        else if aligned
+   510→            statusCol := #84cc16
+   511→        else
+   512→            statusCol := #f97316
+   513→
+   514→    progressPct = 0.0
+   515→    if not na(topPrice)
+   516→        progressPct := math.max(0, math.min(100, 100 * (1 - logDist(close, topPrice) / logDistMax)))
+   517→
+   518→    progressBar = ""
+   519→    barLen = 10
+   520→    filled = int(math.round(progressPct / 100 * barLen))
+   521→    for i = 0 to barLen - 1
+   522→        progressBar += i < filled ? "█" : "░"
+   523→
+   524→    totalRes  = touchCount + expiredCount
+   525→    touchRate = totalRes > 0 ? float(touchCount) / float(totalRes) * 100.0 : na
+   526→
+   527→    pendingCount = 0
+   528→    if array.size(history) > 0
+   529→        for i = 0 to array.size(history) - 1
+   530→            h = array.get(history, i)
+   531→            if h.status == 0
+   532→                pendingCount += 1
+   533→
+   534→    topPriceStr   = na(topPrice) ? "—" : str.tostring(topPrice, format.mintick)
+   535→    topProbStr    = na(topProb)  ? "—" : str.tostring(topProb, "#.0") + "%"
+   536→    distStr       = na(distToTopPct) ? "—" : str.tostring(distToTopPct, "+#.00") + "%"
+   537→    intensityStr  = str.tostring(biasAbs, "#.0") + "%"
+   538→    poolsStr      = str.tostring(array.size(pools))
+   539→    touchRateStr  = na(touchRate) ? "—" : str.tostring(touchRate, "#.0") + "% (" + str.tostring(touchCount) + "/" + str.tostring(totalRes) + ")"
+   540→    logDistStr    = str.tostring(logDistMax, "#.00") + (autoScale ? " (auto)" : " (manual)")
+   541→    eqTolStr      = str.tostring(eqTolPct * 100.0, "#.00") + "%" + (autoEqTol ? " (auto)" : " (manual)")
+   542→
+   543→    labelCol = color.rgb(148, 163, 184)
+   544→    grayCol  = color.rgb(100, 116, 139)
+   545→
+   546→    row = 0
+   547→    table.cell(dash, 0, row, "LIQUIDITY MAGNET", text_color=colTop, bgcolor=colDashBg, text_size=dashSize)
+   548→    if showStatus
+   549→        table.cell(dash, 1, row, statusDot, text_color=statusCol, bgcolor=colDashBg, text_size=dashSize)
+   550→    table.cell(dash, 2, row, "v1.0", text_color=grayCol, bgcolor=colDashBg, text_size=size.tiny)
+   551→    row += 1
+   552→    table.cell(dash, 0, row, "Magnet Pull", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   553→    table.merge_cells(dash, 1, row, 2, row)
+   554→    table.cell(dash, 1, row, biasLabel, text_color=biasCol, bgcolor=colDashBg, text_size=dashSize)
+   555→    row += 1
+   556→    table.cell(dash, 0, row, "Pull Intensity", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   557→    table.merge_cells(dash, 1, row, 2, row)
+   558→    table.cell(dash, 1, row, intensityStr, text_color=biasCol, bgcolor=colDashBg, text_size=dashSize)
+   559→    row += 1
+   560→    table.cell(dash, 0, row, "Top Target", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   561→    table.merge_cells(dash, 1, row, 2, row)
+   562→    table.cell(dash, 1, row, topPriceStr, text_color=colTop, bgcolor=colDashBg, text_size=dashSize)
+   563→    row += 1
+   564→    table.cell(dash, 0, row, "Probability", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   565→    table.merge_cells(dash, 1, row, 2, row)
+   566→    table.cell(dash, 1, row, topProbStr, text_color=colTop, bgcolor=colDashBg, text_size=dashSize)
+   567→    row += 1
+   568→    table.cell(dash, 0, row, "Distance", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   569→    table.merge_cells(dash, 1, row, 2, row)
+   570→    table.cell(dash, 1, row, distStr, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   571→    row += 1
+   572→
+   573→    if showProgress and not na(topPrice)
+   574→        table.cell(dash, 0, row, "Proximity", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   575→        table.merge_cells(dash, 1, row, 2, row)
+   576→        proxColor = progressPct > 70 ? colTop : progressPct > 40 ? color.rgb(132, 204, 22) : labelCol
+   577→        table.cell(dash, 1, row, progressBar + " " + str.tostring(progressPct, "#.0") + "%", text_color=proxColor, bgcolor=colDashBg, text_size=dashSize)
+   578→        row += 1
+   579→
+   580→    table.cell(dash, 0, row, "Active Pools", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   581→    table.merge_cells(dash, 1, row, 2, row)
+   582→    table.cell(dash, 1, row, poolsStr, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   583→    row += 1
+   584→    table.cell(dash, 0, row, "Log-Dist Cap", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   585→    table.merge_cells(dash, 1, row, 2, row)
+   586→    table.cell(dash, 1, row, logDistStr, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   587→    row += 1
+   588→    table.cell(dash, 0, row, "Equal Tol", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   589→    table.merge_cells(dash, 1, row, 2, row)
+   590→    table.cell(dash, 1, row, eqTolStr, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   591→    row += 1
+   592→
+   593→    if showTop3 and array.size(top3) > 0
+   594→        table.cell(dash, 0, row, "Top 3 Targets", text_color=grayCol, bgcolor=colDashBg, text_size=size.tiny)
+   595→        table.merge_cells(dash, 1, row, 2, row)
+   596→        table.cell(dash, 1, row, "price · prob", text_color=grayCol, bgcolor=colDashBg, text_size=size.tiny)
+   597→        row += 1
+   598→        for k = 0 to array.size(top3) - 1
+   599→            rp = array.get(top3, k)
+   600→            arrow = rp.isHigh ? "▲" : "▼"
+   601→            arrowCol = rp.isHigh ? colHigh : colLow
+   602→            table.cell(dash, 0, row, arrow + " " + str.tostring(k + 1), text_color=arrowCol, bgcolor=colDashBg, text_size=dashSize)
+   603→            table.merge_cells(dash, 1, row, 2, row)
+   604→            eqM = rp.isEqual ? " ⊜" : ""
+   605→            table.cell(dash, 1, row, str.tostring(rp.price, format.mintick) + "  " + str.tostring(rp.prob, "#.0") + "%" + eqM, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   606→            row += 1
+   607→
+   608→    if showStats
+   609→        table.cell(dash, 0, row, "Historical Touch %", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   610→        table.merge_cells(dash, 1, row, 2, row)
+   611→        table.cell(dash, 1, row, touchRateStr, text_color=color.white, bgcolor=colDashBg, text_size=dashSize)
+   612→        row += 1
+   613→        if pendingCount > 0
+   614→            table.cell(dash, 0, row, "Pending", text_color=labelCol, bgcolor=colDashBg, text_size=dashSize)
+   615→            table.merge_cells(dash, 1, row, 2, row)
+   616→            table.cell(dash, 1, row, str.tostring(pendingCount), text_color=grayCol, bgcolor=colDashBg, text_size=dashSize)
+   617→            row += 1
+   618→
+   619→    if showLegend
+   620→        table.cell(dash, 0, row, "Legend", text_color=grayCol, bgcolor=colDashBg, text_size=size.tiny)
+   621→        table.merge_cells(dash, 1, row, 2, row)
+   622→        table.cell(dash, 1, row, "◆ Top  ⊜ Equal  ✓ Touched  ✗ Expired", text_color=grayCol, bgcolor=colDashBg, text_size=size.tiny)
+   623→
+   624→//--- alerts
+   625→newTopMagnet = ta.change(topPrice) != 0
+   626→nearTop      = not na(topPrice) and math.abs(close - topPrice) / close < 0.005
+   627→sweptTop     = not na(topPrice[1]) and ((topIsHigh[1] and high > topPrice[1]) or (not topIsHigh[1] and low < topPrice[1]))
+   628→biasFlipBull = bias > 50 and bias[1] <= 50
+   629→biasFlipBear = bias < -50 and bias[1] >= -50
+   630→
+   631→alertcondition(newTopMagnet, "New Top Magnet",        "Liquidity Magnet: new top target identified")
+   632→alertcondition(nearTop,      "Price Approaching Top", "Liquidity Magnet: price near top target")
+   633→alertcondition(sweptTop,     "Top Magnet Touched",    "Liquidity Magnet: top target touched")
+   634→alertcondition(biasFlipBull, "Bull Bias Shift",       "Liquidity Magnet: bias shifted to bullish")
+   635→alertcondition(biasFlipBear, "Bear Bias Shift",       "Liquidity Magnet: bias shifted to bearish")
+   636→
