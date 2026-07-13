@@ -314,6 +314,7 @@ State / history context:
 7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
 8. tf_zones и key_zones — АНАЛИЗИРУЙ ПО ГРАФИКАМ. ZigZag контекст — это справочный индикатор (направление, свинги, позиция цены), НЕ готовые зоны для копирования. Определи зоны консолидации визуально по каждому графику. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones.
 8a. Если на графике видна чёткая зона консолидации — используй её. Если зона неопределённа — возьми ближайшие структурные high/low. Пропуск ТФ в tf_zones НЕ допускается.
+8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫММ lower/upper. Старший ТФ шире, младший уже. D1 ≠ H4 ≠ H1 ≠ M15.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -944,6 +945,52 @@ def enforce_risk_rules(data: dict) -> dict:
         return tf_zones
 
     data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
+
+    # -----------------------------
+    # 2b) Раздувание прилипших зон (D1=H4=H1 → расширить parent)
+    # -----------------------------
+    def _enforce_zone_uniqueness(tf_zones: dict, price: float | None) -> dict:
+        """
+        Если соседние ТФ имеют идентичные зоны (lower и upper совпадают
+        в пределах tolerance) — LLM скопировал одну зону на несколько ТФ.
+        Расширяем parent outward для создания иерархии:
+        D1 ±2.5%, H4 ±1.5%, H1 ±0.75%.
+        Child остаётся как есть (уже сужен в _validate_zone_nesting).
+        """
+        if not tf_zones or price is None:
+            return tf_zones
+
+        # Порядок от старшего к младшему + фактор расширения
+        tf_expand = [("1D", 0.025), ("4H", 0.015), ("1H", 0.0075), ("15M", 0.0), ("5M", 0.0)]
+        tolerance_pct = 0.005  # 0.5% — зона считается "прилипшей"
+        price_safe = price if price > 0 else 1.0
+
+        for i in range(len(tf_expand) - 1):
+            parent_tf, expand_pct = tf_expand[i]
+            child_tf, _ = tf_expand[i + 1]
+            parent = tf_zones.get(parent_tf)
+            child = tf_zones.get(child_tf)
+            if not isinstance(parent, dict) or not isinstance(child, dict):
+                continue
+            p_lower = parent.get("lower")
+            p_upper = parent.get("upper")
+            c_lower = child.get("lower")
+            c_upper = child.get("upper")
+            if p_lower is None or p_upper is None or c_lower is None or c_upper is None:
+                continue
+
+            # Проверка идентичности: |parent - child| / price < tolerance
+            lower_diff = abs(p_lower - c_lower) / price_safe
+            upper_diff = abs(p_upper - c_upper) / price_safe
+            if lower_diff < tolerance_pct and upper_diff < tolerance_pct:
+                # Прилипли — расширяем parent outward
+                if expand_pct > 0:
+                    parent["lower"] = round(p_lower * (1 - expand_pct), 2)
+                    parent["upper"] = round(p_upper * (1 + expand_pct), 2)
+
+        return tf_zones
+
+    data["tf_zones"] = _enforce_zone_uniqueness(data["tf_zones"], data.get("price"))
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
 
