@@ -1,4 +1,5 @@
 import ccxt
+import logging
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
@@ -9,6 +10,13 @@ _PIVOT_DEPTH: Dict[str, int] = {
 }
 # Minimum inter-pivot distance as ATR multiplier
 _PIVOT_ATR_K: float = 0.5
+
+# Structural window per TF for pivot detection (T2: top-down).
+# Younger TFs use a window to focus on ~2 structural movements.
+_STRUCT_WINDOW: Dict[str, Optional[int]] = {"5m": 50, "15m": 50, "1h": 80, "4h": None, "1d": None}
+
+# Top-down TF order (oldest to youngest)
+_TOPDOWN_TF_ORDER: List[str] = ["1d", "4h", "1h", "15m", "5m"]
 
 from core.utils import is_futures
 
@@ -313,11 +321,14 @@ def run_benchmark(
         f"confirmation_mode={confirmation_mode}, limit={limit}, debug={debug}"
     )
 
+    # ── Phase 1: Fetch data + detect pivots for all TFs ──
+    # Собираем сырые данные: пивоты, цены, closes, ATR.
+    # Структура анализа (BOS, zone, accumulation) — в Phase 2 через analyze_topdown().
+    tf_raw: Dict[str, Dict[str, Any]] = {}  # tf → {swing_points, current_price, closes, atr, ...}
+
     for tf in timeframes:
         try:
-            # Binance принимает lowercase timeframe ('1d', '4h', '1h', '15m').
-            # forecasts.db хранит '1D' (uppercase) — нормализуем.
-            tf_norm = tf.lower()
+            tf_norm = tf.lower().strip()
             bars = exchange.fetch_ohlcv(symbol, tf_norm, limit=limit)
         except Exception as e:
             print(f"  {tf}: fetch failed ({type(e).__name__}), skipping")
@@ -331,116 +342,94 @@ def run_benchmark(
         highs = df["high"].astype(float).to_numpy()
         lows = df["low"].astype(float).to_numpy()
         closes = df["close"].astype(float).to_numpy()
-
         current_price = float(closes[-1])
-
         atr = pd.Series(highs - lows).rolling(14, min_periods=1).mean().iloc[-1]
         regime = _regime_from_atr(current_price, float(atr))
         instr_mult = _instrument_multiplier(symbol)
         tf_mult = _tf_multiplier(tf)
 
-        # Initial upper/lower = raw extremes (fallback if no pivots found)
-        upper = float(np.max(highs))
-        lower = float(np.min(lows))
-        width = max(upper - lower, 1e-9)
-        price_position = round((current_price - lower) / width, 4)
-
-        # ── Real pivot detection (заменяет фейк alternating high/low) ──
-        tf_lower = tf.lower().strip()
-        depth = _PIVOT_DEPTH.get(tf_lower, 3)
+        depth = _PIVOT_DEPTH.get(tf_norm, 3)
         min_atr_dist = float(atr) * _PIVOT_ATR_K if atr > 0 else 0.0
 
-        # Структурное окно: для младших ТФ ограничиваем данные до последних 50 свечей.
-        # Это даёт ~2 структурных движения (prev + curr) вместо огромного range.
-        # Старшие ТФ используют все данные (200-300 свечей) — у них и так мало пивотов.
-        _STRUCT_WINDOW: Dict[str, int] = {"5m": 50, "15m": 50, "1h": 80, "4h": None, "1d": None}
-        window = _STRUCT_WINDOW.get(tf_lower)
+        # Структурное окно: для младших ТФ — последние N свечей
+        window = _STRUCT_WINDOW.get(tf_norm)
         if window and len(df) > window:
             pivot_highs_arr = highs[-window:]
             pivot_lows_arr = lows[-window:]
             pivot_closes = list(closes[-window:])
-            pivot_offset = len(df) - window
         else:
             pivot_highs_arr = highs
             pivot_lows_arr = lows
             pivot_closes = list(closes)
-            pivot_offset = 0
 
         swing_points = _find_real_pivots(pivot_highs_arr, pivot_lows_arr, depth=depth, min_atr_distance=min_atr_dist)
-        # Пивоты в локальных координатах (0..window-1) — не сдвигаем.
-        # BOS/search по closes тоже в локальных координатах — совпадает.
 
-        # swing_direction — из реальных пивотов, не из hardcoded bias
-        if len(swing_points) >= 2:
-            swing_direction = _derive_swing_direction(swing_points, current_price)
+        tf_raw[tf] = {
+            "swing_points": swing_points,
+            "current_price": current_price,
+            "closes": pivot_closes,
+            "total_candles": window if window else len(df),
+            "atr": float(atr),
+            "regime": regime,
+            "instr_mult": instr_mult,
+            "tf_mult": tf_mult,
+            "highs": highs,
+            "lows": lows,
+            "df_len": len(df),
+        }
+
+    # ── Phase 2: Top-down structural analysis (T2) ──
+    # analyze_topdown() вызывается ОДИН раз, передаёт parent_zone по цепочке D1→H4→H1→M15→5M.
+    from core.structure import analyze_topdown, format_structure_narrative
+
+    # Подготавливаем данные в формате для analyze_topdown
+    topdown_input = {}
+    for tf, raw in tf_raw.items():
+        topdown_input[tf.lower()] = {
+            "swing_points": raw["swing_points"],
+            "current_price": raw["current_price"],
+            "closes": raw["closes"],
+            "total_candles": raw["total_candles"],
+        }
+
+    # Определяем порядок: только те ТФ что есть в данных, в topdown порядке
+    available_tfs = [t for t in _TOPDOWN_TF_ORDER if t in topdown_input]
+    # Добавляем ТФ которых нет в стандартном порядке (если пользователь передал кастомные)
+    for tf in timeframes:
+        if tf.lower() not in available_tfs and tf.lower() in topdown_input:
+            available_tfs.append(tf.lower())
+
+    struct_results = analyze_topdown(topdown_input, tf_order=available_tfs)
+
+    # ── Phase 3: Build tf_results from top-down analysis ──
+    tf_results: Dict[str, Dict[str, Any]] = {}
+
+    for tf in timeframes:
+        raw = tf_raw.get(tf)
+        if not raw:
+            continue
+
+        tf_lower = tf.lower().strip()
+        struct = struct_results.get(tf_lower)
+        current_price = raw["current_price"]
+        atr = raw["atr"]
+        instr_mult = raw["instr_mult"]
+        tf_mult = raw["tf_mult"]
+        regime = raw["regime"]
+
+        # Zone из top-down structure (или fallback)
+        if struct and struct.zone_high and struct.zone_low:
+            upper = struct.zone_high
+            lower = struct.zone_low
+            swing_direction = struct.swing_direction
         else:
-            # Fallback: слишком мало пивотов — определяем по позиции в канале
-            swing_direction = ("bullish" if price_position >= 0.55
-                               else "bearish" if price_position <= 0.45
-                               else "sideways")
+            # Fallback: raw extremes
+            upper = float(np.max(raw["highs"]))
+            lower = float(np.min(raw["lows"]))
+            swing_points_fb = raw["swing_points"]
+            swing_direction = _derive_swing_direction(swing_points_fb, current_price) if len(swing_points_fb) >= 2 else "sideways"
 
-        market_bias = swing_direction  # bias = реальный direction, не hardcoded
-        pivot_count = len(swing_points)
-
-        # upper/lower — из реальных пивотов (последние значимые), не raw max/min
-        pivot_highs = [p["price"] for p in swing_points if p["type"] == "high"]
-        pivot_lows = [p["price"] for p in swing_points if p["type"] == "low"]
-        if pivot_highs and pivot_lows:
-            # Берём недавние пивоты (последние 40% выборки)
-            cutoff_idx = int(len(df) * 0.6)
-            recent_h = [p["price"] for p in swing_points
-                        if p["type"] == "high" and p["index"] >= cutoff_idx]
-            recent_l = [p["price"] for p in swing_points
-                        if p["type"] == "low" and p["index"] >= cutoff_idx]
-            upper = max(recent_h) if recent_h else max(pivot_highs)
-            lower = min(recent_l) if recent_l else min(pivot_lows)
-        # else: оставляем raw upper/lower (нет пивотов = нет данных)
-
-        # ── BOS detection + structure split ──
-        structure_info = None
-        structure_narrative = ""
-        try:
-            from core.structure import analyze_tf_structure, format_structure_narrative
-            struct_analysis = analyze_tf_structure(
-                swing_points=swing_points,
-                tf=tf,
-                current_price=current_price,
-                total_candles=window if window else len(df),
-                closes=pivot_closes,
-            )
-            structure_narrative = format_structure_narrative(struct_analysis, current_price)
-            # Если структура дала зону — используем её вместо recent pivots
-            if struct_analysis.zone_high and struct_analysis.zone_low:
-                upper = struct_analysis.zone_high
-                lower = struct_analysis.zone_low
-            if struct_analysis.swing_direction != "sideways":
-                swing_direction = struct_analysis.swing_direction
-            structure_info = {
-                "bos": {
-                    "direction": struct_analysis.bos.direction,
-                    "price": round(struct_analysis.bos.broken_level, 1),
-                } if struct_analysis.bos else None,
-                "prev_structure": {
-                    "direction": struct_analysis.prev_structure.direction,
-                    "high": round(struct_analysis.prev_structure.high, 1),
-                    "low": round(struct_analysis.prev_structure.low, 1),
-                    "pivot_count": struct_analysis.prev_structure.pivot_count,
-                    "candle_count": struct_analysis.prev_structure.candle_count,
-                } if struct_analysis.prev_structure else None,
-                "curr_structure": {
-                    "direction": struct_analysis.curr_structure.direction,
-                    "high": round(struct_analysis.curr_structure.high, 1),
-                    "low": round(struct_analysis.curr_structure.low, 1),
-                    "pivot_count": struct_analysis.curr_structure.pivot_count,
-                    "candle_count": struct_analysis.curr_structure.candle_count,
-                } if struct_analysis.curr_structure else None,
-                "narrative": structure_narrative,
-            }
-        except Exception as e:
-            import logging
-            logging.warning("structure analysis failed for %s %s: %s", symbol, tf, e)
-
-        # Recalculate price_position после обновления upper/lower
+        pivot_count = len(raw["swing_points"])
         width = max(upper - lower, 1e-9)
         price_position = round((current_price - lower) / width, 4)
 
@@ -457,6 +446,7 @@ def run_benchmark(
         elif price_position <= 0.18:
             breakout_state = "inside_lower_zone"
 
+        market_bias = swing_direction
         market_mode = _classify_structure(swing_direction, price_position, tf, market_bias)
         tags = _pattern_tags(swing_direction, price_position, breakout_state, channel_state, market_bias)
 
@@ -475,6 +465,38 @@ def run_benchmark(
                 round(lower_sup * 1.015, 1),
             })),
         }
+
+        # Build structure_info from StructureAnalysis dataclass
+        structure_info = None
+        structure_narrative = ""
+        if struct:
+            structure_narrative = format_structure_narrative(struct, current_price)
+            structure_info = {
+                "bos": {
+                    "direction": struct.bos.direction,
+                    "price": round(struct.bos.broken_level, 1),
+                } if struct.bos else None,
+                "prev_structure": {
+                    "direction": struct.prev_structure.direction,
+                    "high": round(struct.prev_structure.high, 1),
+                    "low": round(struct.prev_structure.low, 1),
+                    "pivot_count": struct.prev_structure.pivot_count,
+                    "candle_count": struct.prev_structure.candle_count,
+                } if struct.prev_structure else None,
+                "curr_structure": {
+                    "direction": struct.curr_structure.direction,
+                    "high": round(struct.curr_structure.high, 1),
+                    "low": round(struct.curr_structure.low, 1),
+                    "pivot_count": struct.curr_structure.pivot_count,
+                    "candle_count": struct.curr_structure.candle_count,
+                } if struct.curr_structure else None,
+                "narrative": structure_narrative,
+                "is_accumulation": struct.is_accumulation,
+                "accumulation_pivot_count": struct.accumulation_pivot_count,
+                "targets": struct.targets,
+                "parent_tf": struct.parent_tf,
+                "chain_broken": struct.chain_broken,
+            }
 
         compact_result = {
             "tf": tf,
@@ -510,7 +532,7 @@ def run_benchmark(
                 f"price={current_price}; atr={atr}; width={round(width, 1)}; patterns={','.join(tags)}; "
                 f"regime={regime}; instrument_multiplier={instr_mult}; tf_multiplier={tf_mult}"
             ),
-            "swing_points": swing_points,
+            "swing_points": raw["swing_points"],
             "zones": zones,
             "structure": structure_info,
             "structure_narrative": structure_narrative,
@@ -520,24 +542,6 @@ def run_benchmark(
                 "tf_multiplier": tf_mult,
             },
         }
-
-        # NOTE: Old verbose fields preserved here for reference during migration.
-        # tf_results[tf] = {
-        #     "swing_direction": swing_direction,
-        #     "upper": round(upper, 1),
-        #     "lower": round(lower, 1),
-        #     "channel_state": channel_state,
-        #     "breakout_state": breakout_state,
-        #     "market_mode": market_mode,
-        #     "price_position": price_position,
-        #     "pattern_tags": tags,
-        #     "pivot_count": pivot_count,
-        #     "current_price": round(current_price, 1),
-        #     "atr_last": round(float(atr), 6),
-        #     "summary": summary,
-        #     "swing_points": swing_points,
-        #     "zones": zones,
-        # }
 
         tf_results[tf] = compact_result if output_mode == "compact" and not debug else full_result
 
