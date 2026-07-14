@@ -496,6 +496,8 @@ def run_benchmark(
                 "targets": struct.targets,
                 "parent_tf": struct.parent_tf,
                 "chain_broken": struct.chain_broken,
+                "zone_high": round(struct.zone_high, 1) if struct.zone_high else None,
+                "zone_low": round(struct.zone_low, 1) if struct.zone_low else None,
             }
 
         compact_result = {

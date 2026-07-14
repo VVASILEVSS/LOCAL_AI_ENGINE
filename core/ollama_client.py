@@ -1088,18 +1088,10 @@ def enforce_risk_rules(data: dict) -> dict:
                         break
                 if not isinstance(zz_tf_data, dict):
                     continue
-                # Приоритет: structure zone > raw upper/lower
-                struct = zz_tf_data.get("structure")
-                fb_upper = fb_lower = None
-                if isinstance(struct, dict):
-                    # curr_structure zone (после BOS — структурный range)
-                    curr = struct.get("curr_structure")
-                    if isinstance(curr, dict):
-                        fb_upper = _safe_float(curr.get("high"))
-                        fb_lower = _safe_float(curr.get("low"))
-                if fb_upper is None or fb_lower is None:
-                    fb_upper = _safe_float(zz_tf_data.get("upper"))
-                    fb_lower = _safe_float(zz_tf_data.get("lower"))
+                # Приоритет: TF-level upper/lower (полная зона с parent constraint)
+                # > structure zone > raw upper/lower
+                fb_upper = _safe_float(zz_tf_data.get("upper"))
+                fb_lower = _safe_float(zz_tf_data.get("lower"))
                 if fb_upper is not None and fb_lower is not None and fb_upper > fb_lower:
                     logging.info(
                         "FALLBACK: %s zone from ZigZag structure: [%.2f - %.2f]",

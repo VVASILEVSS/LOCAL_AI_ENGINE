@@ -1,6 +1,31 @@
 # LOCAL_AI_ENGINE — Work Log
 
 ---
+Task ID: 7
+Agent: Super Z
+Task: Fix zone calculation — match user's manual markup (structure-based, senior TF priority)
+
+Work Log:
+- Analyzed root cause: `split_structure()` used `_ZONE_LOOKBACK=10` for prev_high (only last 10 pivots) instead of absolute max/min
+- Found that Hermes had already fixed 3/4 parts: hard parent constraint (no 10% soft clamp), chain_broken removal, narrative text update
+- Changed `split_structure()` prev_structure to use ABSOLUTE max/min of ALL pivots before BOS (removed _ZONE_LOOKBACK)
+- Updated `analyze_topdown()` docstring to reflect new behavior
+- Verified with unit test: prev.high=97932 (absolute max), prev.low=56804 (absolute min)
+- Verified full top-down chain: all TFs share D1 low=56704, cascading high narrowing
+- Confirmed scheduler already disabled in main.py (line 44 commented out)
+- Confirmed fallback in ollama_client.py already uses full zone (upper/lower from zone_high/zone_low)
+
+Stage Summary:
+- Zone calculation now matches user's manual markup approach:
+  - D1 zone = full structural range (absolute extremes of all pivots)
+  - All child TFs inherit D1's low as hard floor (shared lows)
+  - Senior TF high = ceiling for all child TFs (cascading narrowing)
+  - No chain-breaking — structure is treated as unified entity
+- File changed: core/structure.py (lines 259-268, 493-498)
+- Scheduler: already disabled in main.py (no change needed)
+- Ready for commit + Hermes review
+
+---
 Task ID: 1
 Agent: Super Z
 Task: AUTO_SIGNAL_ONLY — selective auto-notification mode
