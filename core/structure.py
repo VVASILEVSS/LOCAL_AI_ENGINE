@@ -67,96 +67,116 @@ def detect_bos(
     closes: Optional[List[float]] = None,
     current_price: Optional[float] = None,
 ) -> Optional[BOSPoint]:
-    """Найти последний BOS в последовательности пивотов.
+    """Найти последний BOS (Break of Structure) в последовательности пивотов.
 
-    BOS bullish: цена (close) пробивает последний значимый swing high.
-    BOS bearish: цена пробивает последний значимый swing low.
+    Классический SMC BOS: close пробивает **предыдущий** (не последний!)
+    значимый swing level, подтверждая смену структурного направления.
 
-    Ищем ПОСЛЕДНИЙ BOS — он определяет текущую структуру.
+    - Bullish BOS: после формирования lower high, close пробивает
+      один из предыдущих swing highs → структура сменилась на бычью.
+    - Bearish BOS: после формирования higher low, close пробивает
+      один из предыдущих swing lows → структура сменилась на медвежью.
+
+    Ищем ПОСЛЕДНИЙ BOS (самый свежий).
 
     Args:
         swing_points: отсортированные по index пивоты от _find_real_pivots()
-        closes: массив цен закрытия (для точного определения момента пробоя)
-        current_price: текущая цена (если closes нет)
+        closes: массив цен закрытия (для определения момента пробоя по close)
+        current_price: текущая цена (fallback если closes нет)
 
     Returns:
-        BOSPoint или None (если BOS не обнаружен — структура не сломана)
+        BOSPoint или None
     """
     if not swing_points or len(swing_points) < 3:
         return None
 
-    # Нужно минимум 2 пивота одного типа, чтобы был level для пробоя
-    # Ищем последний BOS с конца
-    last_bos: Optional[BOSPoint] = None
-
-    # Строим последовательность swing highs и swing lows
     swing_highs = [(p["index"], p["price"]) for p in swing_points if p["type"] == "high"]
     swing_lows = [(p["index"], p["price"]) for p in swing_points if p["type"] == "low"]
 
-    if not swing_highs or not swing_lows:
+    if len(swing_highs) < 2 or len(swing_lows) < 2:
         return None
-
-    # Для каждого потенциального BOS проверяем: пробит ли уровень
-    # BOS bullish: close > предыдущий swing high после того как был swing low
-    # BOS bearish: close < предыдущий swing low после того как был swing high
-
-    # Сливаем все пивоты в хронологический порядок (уже отсортированы)
-    # Ищем паттерн: swing_low → swing_high(пробитый) = bullish BOS
-    #               swing_high → swing_low(пробитый) = bearish BOS
-
-    for i in range(2, len(swing_points)):
-        prev = swing_points[i - 1]
-        curr = swing_points[i]
-
-        if prev["type"] == curr["type"]:
-            continue  # два пивота одного типа подряд — не BOS паттерн
-
-        # Определяем направление пробоя
-        if prev["type"] == "low" and curr["type"] == "high":
-            # ...low → high... — если после этого high цена ушла выше — bullish BOS?
-            # Нет, нужно: price > prev significant high (не текущий)
-            # Классический BOS: low → higher high → price breaks above previous high
-            # Упрощённый: если curr high > prev-prev high (если есть) и цена > curr high
-            pass
-
-    # Более простой и надёжный подход:
-    # Идём с конца, ищем последний момент где price пробила swing level
-
-    # Находим последний swing high и последний swing low перед текущей ценой
-    last_sh_idx, last_sh_price = swing_highs[-1]
-    last_sl_idx, last_sl_price = swing_lows[-1]
-
-    # Предпоследние уровни
-    prev_sh_price = swing_highs[-2][1] if len(swing_highs) >= 2 else None
-    prev_sl_price = swing_lows[-2][1] if len(swing_lows) >= 2 else None
 
     price = current_price if current_price else (closes[-1] if closes else None)
     if not price or price <= 0:
         return None
 
-    # BOS bullish: последний пивот = high, и цена выше предпоследнего swing high
-    # (т.е. структура сменилась с нисходящей на восходящую)
-    # Или: последний пивот = low, и цена выше последнего swing high
-    if last_sl_idx > last_sh_idx:
-        # Последний пивот = low. Если цена > последний swing high → bullish BOS
-        if price > last_sh_price:
+    last_bos: Optional[BOSPoint] = None
+
+    # ── Bullish BOS: close пробил предыдущий swing high ──
+    # Идём с конца по swing_highs (кроме последнего — он текущий уровень).
+    # Если после какого-то swing_high[i] был close > этого high
+    # и между ними был хотя бы один swing_low → это BOS bullish.
+    for i in range(len(swing_highs) - 2, -1, -1):
+        sh_idx, sh_price = swing_highs[i]
+        if closes:
+            # Ищем первый close после sh_idx который пробивает уровень
+            broken = False
+            for j in range(sh_idx + 1, len(closes)):
+                if closes[j] > sh_price:
+                    broken = True
+                    break
+            if not broken:
+                continue
+        else:
+            # Нет closes — проверяем только текущую цену
+            # (цена между sh и следующего high была ниже, а теперь выше → пробой)
+            if price <= sh_price:
+                continue
+
+        # Убеждаемся что после этого high был хотя бы один swing_low
+        # (иначе это не слом структуры, а продолжение бычьего тренда)
+        has_low_after = any(sl[0] > sh_idx for sl in swing_lows)
+        if has_low_after:
+            # Нашли BOS — записываем и прерываем (ищем последний = самый свежий)
+            bos_idx = sh_idx
+            if closes:
+                # Точный момент пробоя
+                for j in range(sh_idx + 1, len(closes)):
+                    if closes[j] > sh_price:
+                        bos_idx = j
+                        break
             last_bos = BOSPoint(
-                index=max(last_sl_idx, last_sh_idx),
-                price=last_sh_price,
+                index=bos_idx,
+                price=sh_price,
                 direction="bullish",
-                broken_level=last_sh_price,
+                broken_level=sh_price,
                 broken_type="swing_high",
             )
-    elif last_sh_idx > last_sl_idx:
-        # Последний пивот = high. Если цена < последний swing low → bearish BOS
-        if price < last_sl_price:
-            last_bos = BOSPoint(
-                index=max(last_sl_idx, last_sh_idx),
-                price=last_sl_price,
-                direction="bearish",
-                broken_level=last_sl_price,
-                broken_type="swing_low",
-            )
+            break  # Последний bullish BOS найден
+
+    # ── Bearish BOS: close пробил предыдущий swing low ──
+    for i in range(len(swing_lows) - 2, -1, -1):
+        sl_idx, sl_price = swing_lows[i]
+        if closes:
+            broken = False
+            for j in range(sl_idx + 1, len(closes)):
+                if closes[j] < sl_price:
+                    broken = True
+                    break
+            if not broken:
+                continue
+        else:
+            if price >= sl_price:
+                continue
+
+        has_high_after = any(sh[0] > sl_idx for sh in swing_highs)
+        if has_high_after:
+            bos_idx = sl_idx
+            if closes:
+                for j in range(sl_idx + 1, len(closes)):
+                    if closes[j] < sl_price:
+                        bos_idx = j
+                        break
+            # Берём более свежий BOS из bullish и bearish
+            if last_bos is None or bos_idx > last_bos.index:
+                last_bos = BOSPoint(
+                    index=bos_idx,
+                    price=sl_price,
+                    direction="bearish",
+                    broken_level=sl_price,
+                    broken_type="swing_low",
+                )
+            break  # Последний bearish BOS найден
 
     return last_bos
 
@@ -245,14 +265,32 @@ def split_structure(
         )
 
     # Curr structure
-    curr_h = [p["price"] for p in curr_pivots if p["type"] == "high"]
-    curr_l = [p["price"] for p in curr_pivots if p["type"] == "low"]
-    h = max(curr_h) if curr_h else current_price
-    l = min(curr_l) if curr_l else current_price
+    curr_pivots = [p for p in swing_points if p["index"] >= bos_idx]
+
+    # Если после BOS слишком мало пивотов (< 1 каждого типа) —
+    # расширяем до включения 1-2 пивотов ДО BOS для осмысленной зоны
+    curr_h_list = [p["price"] for p in curr_pivots if p["type"] == "high"]
+    curr_l_list = [p["price"] for p in curr_pivots if p["type"] == "low"]
+    if (not curr_h_list or not curr_l_list) and swing_points:
+        # Добавляем пивоты перед BOS пока не получим оба типа
+        expanded = list(curr_pivots)
+        for p in reversed(swing_points):
+            if p["index"] < bos_idx:
+                expanded.insert(0, p)
+                if p["type"] == "high":
+                    curr_h_list.append(p["price"])
+                elif p["type"] == "low":
+                    curr_l_list.append(p["price"])
+                if curr_h_list and curr_l_list:
+                    break
+        curr_pivots = expanded
+
+    curr_h = max(curr_h_list) if curr_h_list else current_price
+    curr_l = min(curr_l_list) if curr_l_list else current_price
 
     # Включаем current_price в range текущей структуры
-    h = max(h, current_price)
-    l = min(l, current_price)
+    h = max(curr_h, current_price)
+    l = min(curr_l, current_price)
 
     if len(curr_pivots) >= 2:
         d = _structure_direction(curr_pivots[0], curr_pivots[-1], current_price)
