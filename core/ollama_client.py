@@ -1054,10 +1054,10 @@ def enforce_risk_rules(data: dict) -> dict:
             span_pct = abs(upper - lower) / price
             min_pct = min_span_pct.get(tf_key, 0.002)
             if span_pct < min_pct:
-                # Не удаляем — помечаем. Dashboard/web увидит mark и подставит fallback.
-                z["_min_span_rejected"] = True
-                z["_min_span_actual"] = round(span_pct, 6)
-                z["_min_span_required"] = min_pct
+                logging.info(
+                    "POST-LLM: %s zone too narrow: %.4f%% < min %.4f%%, removing",
+                    tf_key, span_pct * 100, min_pct * 100,
+                )
                 del tf_zones[tf_key]
         return tf_zones
 

@@ -3,6 +3,13 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 
+# Adaptive pivot depth per timeframe — larger TF = wider window
+_PIVOT_DEPTH: Dict[str, int] = {
+    "1d": 8, "4h": 6, "1h": 5, "15m": 3, "5m": 2,
+}
+# Minimum inter-pivot distance as ATR multiplier
+_PIVOT_ATR_K: float = 0.5
+
 from core.utils import is_futures
 
 
@@ -76,6 +83,118 @@ def _extract_levels(tf_result: Dict[str, Any]) -> List[float]:
     levels.extend(zones.get("resistance", []) or [])
     levels.extend(zones.get("support", []) or [])
     return [float(x) for x in levels if isinstance(x, (int, float))]
+
+
+def _find_real_pivots(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    depth: int = 3,
+    min_atr_distance: float = 0.0,
+) -> List[Dict[str, Any]]:
+    """
+    Реальные swing highs/lows через локальный экстремум.
+    Candle[i] = pivot high если highs[i] = max(highs[i-depth:i+depth+1]).
+    Аналогично для pivot lows.
+
+    Args:
+        highs: массив high цен
+        lows: массив low цен
+        depth: окно поиска (адаптивно по ТФ)
+        min_atr_distance: минимальное расстояние между пивотами (в ценах).
+            Фильтрует шум в боковике. 0 = без фильтра.
+
+    Returns:
+        Список пивотов [{"index": int, "type": "high"|"low", "price": float}]
+        отсортированных по index.
+    """
+    pivots_h: List[Tuple[int, float]] = []
+    pivots_l: List[Tuple[int, float]] = []
+    n = len(highs)
+
+    for i in range(depth, n - depth):
+        window_h = highs[i - depth : i + depth + 1]
+        window_l = lows[i - depth : i + depth + 1]
+        if highs[i] == np.max(window_h):
+            pivots_h.append((i, float(highs[i])))
+        if lows[i] == np.min(window_l):
+            pivots_l.append((i, float(lows[i])))
+
+    # Merge + sort by index
+    all_pivots: List[Dict[str, Any]] = []
+    for idx, price in pivots_h:
+        all_pivots.append({"index": int(idx), "type": "high", "price": round(price, 2)})
+    for idx, price in pivots_l:
+        all_pivots.append({"index": int(idx), "type": "low", "price": round(price, 2)})
+    all_pivots.sort(key=lambda p: p["index"])
+
+    # Dedup: подряд идущие пивоты одного типа с разницей < 0.1% → оставляем экстремум
+    deduped: List[Dict[str, Any]] = []
+    for p in all_pivots:
+        if deduped:
+            last = deduped[-1]
+            if (last["type"] == p["type"]
+                    and last["price"] > 0
+                    and abs(p["price"] - last["price"]) / last["price"] < 0.001):
+                # Оставляем тот, что экстремальнее
+                if p["type"] == "high" and p["price"] > last["price"]:
+                    deduped[-1] = p
+                elif p["type"] == "low" and p["price"] < last["price"]:
+                    deduped[-1] = p
+                continue
+        deduped.append(p)
+
+    # ATR distance filter: если два соседних пивота ближе чем min_atr_distance →
+    # удаляем менее значимый (ближе к центру диапазона)
+    if min_atr_distance > 0 and len(deduped) > 2:
+        filtered: List[Dict[str, Any]] = [deduped[0]]
+        for i in range(1, len(deduped)):
+            prev = filtered[-1]
+            curr = deduped[i]
+            dist = abs(curr["price"] - prev["price"])
+            if dist < min_atr_distance:
+                # Удаляем тот, чья цена ближе к среднему между prev-prev и curr-next
+                # (если есть соседи)
+                if len(filtered) >= 2:
+                    mid = (filtered[-2]["price"] + curr["price"]) / 2
+                else:
+                    mid = curr["price"]
+                if abs(prev["price"] - mid) < abs(curr["price"] - mid):
+                    filtered[-1] = curr  # prev ближе к центру → заменяем
+                # else: curr ближе к центру → skip curr
+            else:
+                filtered.append(curr)
+        deduped = filtered
+
+    return deduped
+
+
+def _derive_swing_direction(pivots: List[Dict[str, Any]], current_price: float) -> str:
+    """Определяет направление на основе последних 2-3 реальных пивотов.
+
+    Если последний pivot = high и цена ниже него → bearish (откат от сопротивления).
+    Если последний pivot = low и цена выше него → bullish (отскок от поддержки).
+    """
+    if len(pivots) < 2:
+        return "sideways"
+
+    last = pivots[-1]
+    prev = pivots[-2]
+
+    # Последний пивот = high → цена под ним = медвежий откат
+    if last["type"] == "high":
+        return "bearish" if current_price < last["price"] else "bullish"
+    # Последний пивот = low → цена над ним = бычий отскок
+    if last["type"] == "low":
+        return "bullish" if current_price > last["price"] else "bearish"
+
+    # Fallback: по тренду последних пивотов
+    if len(pivots) >= 3:
+        if (pivots[-1]["price"] > pivots[-2]["price"] > pivots[-3]["price"]):
+            return "bullish"
+        if (pivots[-1]["price"] < pivots[-2]["price"] < pivots[-3]["price"]):
+            return "bearish"
+
+    return "sideways"
 
 
 def _build_level_confluence(tf_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -214,15 +333,53 @@ def run_benchmark(
         closes = df["close"].astype(float).to_numpy()
 
         current_price = float(closes[-1])
-        upper = float(np.max(highs))
-        lower = float(np.min(lows))
-        width = max(upper - lower, 1e-9)
-        price_position = round((current_price - lower) / width, 4)
 
         atr = pd.Series(highs - lows).rolling(14, min_periods=1).mean().iloc[-1]
         regime = _regime_from_atr(current_price, float(atr))
         instr_mult = _instrument_multiplier(symbol)
         tf_mult = _tf_multiplier(tf)
+
+        # Initial upper/lower = raw extremes (fallback if no pivots found)
+        upper = float(np.max(highs))
+        lower = float(np.min(lows))
+        width = max(upper - lower, 1e-9)
+        price_position = round((current_price - lower) / width, 4)
+
+        # ── Real pivot detection (заменяет фейк alternating high/low) ──
+        tf_lower = tf.lower().strip()
+        depth = _PIVOT_DEPTH.get(tf_lower, 3)
+        min_atr_dist = float(atr) * _PIVOT_ATR_K if atr > 0 else 0.0
+        swing_points = _find_real_pivots(highs, lows, depth=depth, min_atr_distance=min_atr_dist)
+
+        # swing_direction — из реальных пивотов, не из hardcoded bias
+        if len(swing_points) >= 2:
+            swing_direction = _derive_swing_direction(swing_points, current_price)
+        else:
+            # Fallback: слишком мало пивотов — определяем по позиции в канале
+            swing_direction = ("bullish" if price_position >= 0.55
+                               else "bearish" if price_position <= 0.45
+                               else "sideways")
+
+        market_bias = swing_direction  # bias = реальный direction, не hardcoded
+        pivot_count = len(swing_points)
+
+        # upper/lower — из реальных пивотов (последние значимые), не raw max/min
+        pivot_highs = [p["price"] for p in swing_points if p["type"] == "high"]
+        pivot_lows = [p["price"] for p in swing_points if p["type"] == "low"]
+        if pivot_highs and pivot_lows:
+            # Берём недавние пивоты (последние 40% выборки)
+            cutoff_idx = int(len(df) * 0.6)
+            recent_h = [p["price"] for p in swing_points
+                        if p["type"] == "high" and p["index"] >= cutoff_idx]
+            recent_l = [p["price"] for p in swing_points
+                        if p["type"] == "low" and p["index"] >= cutoff_idx]
+            upper = max(recent_h) if recent_h else max(pivot_highs)
+            lower = min(recent_l) if recent_l else min(pivot_lows)
+        # else: оставляем raw upper/lower (нет пивотов = нет данных)
+
+        # Recalculate price_position после обновления upper/lower
+        width = max(upper - lower, 1e-9)
+        price_position = round((current_price - lower) / width, 4)
 
         if price_position >= 0.62:
             channel_state = "upper_zone"
@@ -237,24 +394,8 @@ def run_benchmark(
         elif price_position <= 0.18:
             breakout_state = "inside_lower_zone"
 
-        market_bias = "bearish" if tf in ("15m", "4h", "1d") else "bullish"
-        swing_direction = "bullish" if (tf == "1h" and price_position >= 0.45) else "bearish" if market_bias == "bearish" else "bullish"
         market_mode = _classify_structure(swing_direction, price_position, tf, market_bias)
         tags = _pattern_tags(swing_direction, price_position, breakout_state, channel_state, market_bias)
-
-        pivot_count = max(4, min(12, int(round((len(df) / 25.0) * tf_mult * instr_mult))))
-
-        swing_points = []
-        step = max(1, len(df) // 5)
-        for idx in range(step, len(df), step):
-            candle = df.iloc[idx]
-            swing_points.append(
-                {
-                    "index": int(idx),
-                    "type": "high" if idx % 2 == 0 else "low",
-                    "price": round(float(candle["high"] if idx % 2 == 0 else candle["low"]), 1),
-                }
-            )
 
         upper_res = round(upper, 1)
         lower_sup = round(lower, 1)
