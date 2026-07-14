@@ -383,7 +383,27 @@ def _fill_missing_tf_zones(
                             del tf_zones[norm_key]
             # После проверки — если зона всё ещё на месте, пропускаем
             if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
-                continue
+                # Доп. проверка: min-span — если зона слишком узкая (микроканал), тоже удаляем
+                if price_safe:
+                    z = tf_zones[norm_key]
+                    z_upper = z.get("upper")
+                    z_lower = z.get("lower")
+                    if z_upper is not None and z_lower is not None:
+                        span_pct = abs(z_upper - z_lower) / price_safe
+                        # Минимальный span по ТФ: ниже = микроканал, не структурная зона
+                        # Пороги основаны на реальных структурных ranges (20 свечей Binance)
+                        # LLM часто ставит зону = последние 5 свечей в сжатии (0.3-0.8%)
+                        # Реальный 15m structural range ≈ 1-3% (D1≈5-10%, H4≈3-5%, H1≈1.5-3%)
+                        min_span = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
+                        min_pct = min_span.get(norm_key, 0.002)
+                        if span_pct < min_pct:
+                            logging.info(
+                                "DASHBOARD: %s zone too narrow: %.4f%% < min %.4f%%, replacing with fallback for %s",
+                                norm_key, span_pct * 100, min_pct * 100, result.get("symbol", "?"),
+                            )
+                            del tf_zones[norm_key]
+                if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
+                    continue
 
         zone = None
         source = None

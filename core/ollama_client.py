@@ -982,14 +982,20 @@ def enforce_risk_rules(data: dict) -> dict:
         в пределах tolerance) — LLM скопировал одну зону на несколько ТФ.
         Расширяем parent outward для создания иерархии:
         D1 ±2.5%, H4 ±1.5%, H1 ±0.75%.
-        Child остаётся как есть (уже сужен в _validate_zone_nesting).
+        Если child прилип к parent и child слишком узкий (микроканал) —
+        удаляем child зону, чтобы fallback (VP/ZigZag) подставил реальную.
         """
         if not tf_zones or price is None:
             return tf_zones
 
-        tf_expand = [("1D", 0.025), ("4H", 0.015), ("1H", 0.0075), ("15M", 0.0), ("5M", 0.0)]
+        tf_expand = [("1D", 0.025), ("4H", 0.015), ("1H", 0.0075), ("15M", 0.004), ("5M", 0.002)]
         tolerance_pct = 0.005  # 0.5% — зона считается "прилипшей"
+        # Минимальный span по ТФ как % от цены (ниже = микроканал, не структурная зона)
+        # Пороги на реальных структурных ranges (20 свечей Binance)
+        min_span_pct = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
         price_safe = price if price > 0 else 1.0
+
+        to_delete: list[str] = []
 
         for i in range(len(tf_expand) - 1):
             parent_tf, expand_pct = tf_expand[i]
@@ -1008,13 +1014,54 @@ def enforce_risk_rules(data: dict) -> dict:
             lower_diff = abs(p_lower - c_lower) / price_safe
             upper_diff = abs(p_upper - c_upper) / price_safe
             if lower_diff < tolerance_pct and upper_diff < tolerance_pct:
-                if expand_pct > 0:
+                # Прилипли. Два варианта:
+                # 1) expand_pct > 0 — расширяем parent outward (старое поведение)
+                # 2) child слишком узкий — удаляем child, fallback подставит реальную зону
+                child_span = abs(c_upper - c_lower) / price_safe
+                child_min = min_span_pct.get(child_tf, 0.002)
+                if child_span < child_min:
+                    # Child зона = микроканал, не структурный range → удалить
+                    to_delete.append(child_tf)
+                elif expand_pct > 0:
                     parent["lower"] = round(p_lower * (1 - expand_pct), 2)
                     parent["upper"] = round(p_upper * (1 + expand_pct), 2)
+
+        for tf_del in to_delete:
+            del tf_zones[tf_del]
 
         return tf_zones
 
     data["tf_zones"] = _enforce_zone_uniqueness(data["tf_zones"], data.get("price"))
+
+    # -----------------------------
+    # 2c) Min-span validation (после uniqueness)
+    # Если LLM зона У́ЖЕ минимального структурного span для данного ТФ —
+    # это микроканал последних свечей, не реальная зона. Удаляем → fallback.
+    # -----------------------------
+    def _validate_min_span(tf_zones: dict, price: float | None) -> dict:
+        if not tf_zones or price is None or price <= 0:
+            return tf_zones
+        # Минимальный span: если зона уже этого → скорее всего микроканал
+        # Пороги на реальных структурных ranges (20 свечей Binance)
+        min_span_pct = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
+        for tf_key, z in list(tf_zones.items()):
+            if not isinstance(z, dict):
+                continue
+            upper = z.get("upper")
+            lower = z.get("lower")
+            if upper is None or lower is None:
+                continue
+            span_pct = abs(upper - lower) / price
+            min_pct = min_span_pct.get(tf_key, 0.002)
+            if span_pct < min_pct:
+                # Не удаляем — помечаем. Dashboard/web увидит mark и подставит fallback.
+                z["_min_span_rejected"] = True
+                z["_min_span_actual"] = round(span_pct, 6)
+                z["_min_span_required"] = min_pct
+                del tf_zones[tf_key]
+        return tf_zones
+
+    data["tf_zones"] = _validate_min_span(data["tf_zones"], data.get("price"))
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
 
