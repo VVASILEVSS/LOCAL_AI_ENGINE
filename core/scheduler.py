@@ -83,6 +83,11 @@ def _build_zigzag_context(symbol: str, timeframes: list[str]) -> dict:
                 "pivot_count": data.get("pivot_count"),
                 "price_position": data.get("price_position"),
                 "zones": data.get("levels", {}),
+                # BUG 1 / Liquidity Magnet: prev_structure + curr_structure видны LLM.
+                # prev_structure.high = BSL (Buy-Side Liquidity, цель для sweep вверх).
+                # prev_structure.low = SSL (Sell-Side Liquidity, цель для sweep вниз).
+                # curr_structure = активная зона после BOS (где цена сейчас).
+                "structure": data.get("structure"),
             }
 
         return {
