@@ -315,6 +315,7 @@ State / history context:
 8. tf_zones и key_zones — АНАЛИЗИРУЙ ПО ГРАФИКАМ. ZigZag контекст — это справочный индикатор (направление, свинги, позиция цены), НЕ готовые зоны для копирования. Определи зоны консолидации визуально по каждому графику. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones.
 8a. Если на графике видна чёткая зона консолидации — используй её. Если зона неопределённа — возьми ближайшие структурные high/low. Пропуск ТФ в tf_zones НЕ допускается.
 8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫМИ lower/upper. Старший ТФ шире, младший уже. D1 ≠ H4 ≠ H1 ≠ M15.
+8c. Зона для каждого ТФ = range от последнего слома структуры (BOS) до текущего момента. НЕ ставь зону = микроканал последних 5-10 свечей. Если видишь сжатие — расширь зону до ближайших структурных high/low.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -1062,6 +1063,53 @@ def enforce_risk_rules(data: dict) -> dict:
         return tf_zones
 
     data["tf_zones"] = _validate_min_span(data["tf_zones"], data.get("price"))
+
+    # -----------------------------
+    # 2d) Fallback: если зона удалена (min-span/uniqueness) — подставить
+    # ZigZag structure zone (реальные пивоты + BOS, не микроканал).
+    # Это фиксит проблему когда LLM видит сжатие последних 5 свечей и ставит
+    # зону = микроканал. ZigZag даёт структурный range после BOS.
+    # -----------------------------
+    zz_ctx = data.get("zigzag_context") or {}
+    if isinstance(zz_ctx, dict):
+        zz_tfs = zz_ctx.get("timeframes") or {}
+        if isinstance(zz_tfs, dict):
+            for tf_key in ("5M", "15M", "1H", "4H", "1D"):
+                if tf_key in data.get("tf_zones", {}):
+                    continue  # зона есть — не подставляем
+                # Ищем зону в zigzag по разным вариантам ключа ТФ
+                zz_tf_data = None
+                for zz_key in (tf_key, tf_key.lower(), tf_key.replace("M", "m").replace("H", "h").replace("D", "d")):
+                    if zz_key in zz_tfs:
+                        zz_tf_data = zz_tfs[zz_key]
+                        break
+                if not isinstance(zz_tf_data, dict):
+                    continue
+                # Приоритет: structure zone > raw upper/lower
+                struct = zz_tf_data.get("structure")
+                fb_upper = fb_lower = None
+                if isinstance(struct, dict):
+                    # curr_structure zone (после BOS — структурный range)
+                    curr = struct.get("curr_structure")
+                    if isinstance(curr, dict):
+                        fb_upper = _safe_float(curr.get("high"))
+                        fb_lower = _safe_float(curr.get("low"))
+                if fb_upper is None or fb_lower is None:
+                    fb_upper = _safe_float(zz_tf_data.get("upper"))
+                    fb_lower = _safe_float(zz_tf_data.get("lower"))
+                if fb_upper is not None and fb_lower is not None and fb_upper > fb_lower:
+                    logging.info(
+                        "FALLBACK: %s zone from ZigZag structure: [%.2f - %.2f]",
+                        tf_key, fb_lower, fb_upper,
+                    )
+                    if "tf_zones" not in data or not isinstance(data["tf_zones"], dict):
+                        data["tf_zones"] = {}
+                    data["tf_zones"][tf_key] = {
+                        "upper": fb_upper,
+                        "lower": fb_lower,
+                        "source": "zigzag_structure_fallback",
+                    }
+
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
 

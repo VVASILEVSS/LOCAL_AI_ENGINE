@@ -1,0 +1,102 @@
+# LOCAL_AI_ENGINE — Work Log
+
+---
+Task ID: 1
+Agent: Super Z
+Task: AUTO_SIGNAL_ONLY — selective auto-notification mode
+
+Work Log:
+- Added AUTO_SIGNAL_ONLY config flag (default true) to core/config.py
+- Added ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+- Modified scheduler.py: send_to_tg conditional on signal status in auto cycle
+- Manual /analyse in handlers.py NOT affected (always sends)
+- save_signal_log() called BEFORE filter (all signals logged to backtest)
+- Resolved rebase conflict with Hermes f29d74f (his get_setting("auto_mode") replaced)
+
+Stage Summary:
+- Commit c0f8228 pushed. AUTO_SIGNAL_ONLY works: auto-cycle silent on no_signal/accumulation/false_breakout, sends on actionable signals.
+
+---
+Task ID: 2
+Agent: Super Z
+Task: Split LLM config — main bot local, dashboard cloud
+
+Work Log:
+- Added DASHBOARD_LLM_API_KEY, DASHBOARD_LLM_BASE_URL, DASHBOARD_MODEL_NAME to config.py
+- Refactored ollama_service.py: generate() accepts optional api_key/base_url override
+- _resolve_base_url(), _build_headers(), _endpoint_url() accept override params
+- Added dashboard_info() for diagnostics
+- .env.example updated with DASHBOARD_LLM_* section
+- Backward compatible — existing calls without override params work unchanged
+
+Stage Summary:
+- Commit 530e207 pushed. Main bot stays local (LLM_API_KEY empty), dashboard passes override to generate() for cloud Alibaba GLM.
+
+---
+Task ID: 3
+Agent: Hermes (commit 2590f2e)
+Task: Dashboard /scan with cloud LLM + full context
+
+Work Log:
+- run_hourly_analysis accepts llm_api_key, llm_base_url, llm_model, symbol_filter overrides
+- AUTO_SIGNAL_ONLY disabled via sched_mod for manual /scan
+- load_dotenv() for DASHBOARD_LLM_* env vars
+- /scanBTC (without space) works
+- Fixed: TIMEFRAMES import, await fetch_and_plot, analyze_multi_images signature, getUpdates conflict
+
+Stage Summary:
+- Dashboard bot @my_hermes_lokal_ai_bot works on Alibaba GLM cloud.
+- Main bot @KXROBObot stays on local LM Studio.
+- Cloud quality >> local (all fields populated vs Unknown).
+
+---
+Task ID: PENDING-1 (Bug)
+Agent: Super Z (assigned)
+Task: Баг 1 — Матрешка зон нарушена
+
+Problems:
+1. H1 lower (61297) < H4 lower (61306) — nested zones violated
+2. D1 upper = 82850 — LLM takes 100-candle historical high, not current zone
+3. "1D/4H" hybrid key from tf_context string leaked into tf_zones
+
+Solution:
+1. Validate nesting in enforce_risk_rules: if H1 lower < H4 lower, expand H4 lower
+2. Cap D1 zone to realistic range (±10% from current price)
+3. Filter hybrid keys (containing "/") in format_json_for_tg
+
+---
+Task ID: PENDING-2 (Bug)
+Agent: Super Z (assigned)
+Task: Баг 2 — "1D/4H" в tf_zones
+
+tf_context string from metrics leaks into tf_zones as "1D/4H" key.
+Solution: filter keys containing "/" in format_json_for_tg.
+
+---
+Task ID: PENDING-3 (Feature)
+Agent: Hermes (assigned, tomorrow)
+Task: Дашборд-бот: кнопки при /start + автоскан
+
+Requirements:
+- /start → inline keyboard with: Анализ BTC, ETH, XAUT, Настройки, Статистика, Авто-режим
+- "▶ Автоскан" button — cycle analysis all symbols via cloud every 30 min
+- Architecture: @my_hermes_lokal_ai_bot (cloud) + @KXROBObot (local) running together---
+Task ID: 1
+Agent: Super Z (main)
+Task: FEELS-inspired improvements + merge zones-sticking + read Hermes letters
+
+Work Log:
+- Read Hermes letters: 2026-07-13 (9-point priority list) and 2026-07-14 (zones sticking after D1 cap removed)
+- Checked branches: main=38923ad, fix/zones-sticking=b26c43d (1 commit ahead)
+- Merged _enforce_zone_uniqueness from fix/zones-sticking into main (kept LM prompt context, fixed РАЗНЫММ typo)
+- Implemented log-distance for confluence_levels: |ln(level/price)| + proximity_score (inverted-U curve)
+- Added source tracking in tf_zones (llm/vp/zigzag/liquidity_magnet)
+- Updated TG format to show log_distance and proximity_score per confluence level
+- Pushed as 8436c83 after rebase over d80dc50 (Hermes archive cleanup commit)
+
+Stage Summary:
+- Commit: 8436c83 "[LOCAL_AI_ENGINE] feat: FEELS-inspired improvements"
+- _enforce_zone_uniqueness: D1±2.5%, H4±1.5%, H1±0.75% expansion when zones stick
+- Log-distance: symmetric proximity scoring, -30% and +30% get same penalty
+- Source tracking: tf_zones now carry "source" field for dashboard debugging
+- Branch fix/zones-sticking can be deleted (merged manually)

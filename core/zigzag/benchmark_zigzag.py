@@ -349,7 +349,26 @@ def run_benchmark(
         tf_lower = tf.lower().strip()
         depth = _PIVOT_DEPTH.get(tf_lower, 3)
         min_atr_dist = float(atr) * _PIVOT_ATR_K if atr > 0 else 0.0
-        swing_points = _find_real_pivots(highs, lows, depth=depth, min_atr_distance=min_atr_dist)
+
+        # Структурное окно: для младших ТФ ограничиваем данные до последних 50 свечей.
+        # Это даёт ~2 структурных движения (prev + curr) вместо огромного range.
+        # Старшие ТФ используют все данные (200-300 свечей) — у них и так мало пивотов.
+        _STRUCT_WINDOW: Dict[str, int] = {"5m": 50, "15m": 50, "1h": 80, "4h": None, "1d": None}
+        window = _STRUCT_WINDOW.get(tf_lower)
+        if window and len(df) > window:
+            pivot_highs_arr = highs[-window:]
+            pivot_lows_arr = lows[-window:]
+            pivot_closes = list(closes[-window:])
+            pivot_offset = len(df) - window
+        else:
+            pivot_highs_arr = highs
+            pivot_lows_arr = lows
+            pivot_closes = list(closes)
+            pivot_offset = 0
+
+        swing_points = _find_real_pivots(pivot_highs_arr, pivot_lows_arr, depth=depth, min_atr_distance=min_atr_dist)
+        # Пивоты в локальных координатах (0..window-1) — не сдвигаем.
+        # BOS/search по closes тоже в локальных координатах — совпадает.
 
         # swing_direction — из реальных пивотов, не из hardcoded bias
         if len(swing_points) >= 2:
@@ -386,8 +405,8 @@ def run_benchmark(
                 swing_points=swing_points,
                 tf=tf,
                 current_price=current_price,
-                total_candles=len(df),
-                closes=list(closes),
+                total_candles=window if window else len(df),
+                closes=pivot_closes,
             )
             structure_narrative = format_structure_narrative(struct_analysis, current_price)
             # Если структура дала зону — используем её вместо recent pivots
