@@ -672,6 +672,7 @@ def enforce_risk_rules(data: dict) -> dict:
             normalized[tf_key] = {
                 "upper": upper,
                 "lower": lower,
+                "source": str(z.get("source", "llm")).lower() if z.get("source") else "llm",
             }
 
         return dict(sorted(normalized.items(), key=lambda item: order.get(item[0], 99)))
@@ -687,14 +688,39 @@ def enforce_risk_rules(data: dict) -> dict:
             timeframes = item.get("timeframes", [])
             if not isinstance(timeframes, list):
                 timeframes = []
+            lvl = _safe_float(item.get("level"))
             out.append({
-                "level": _safe_float(item.get("level")),
+                "level": lvl,
                 "timeframes": [str(tf).upper() for tf in timeframes if str(tf).strip()],
                 "priority": str(item.get("priority", "low")).lower(),
                 "count": int(item.get("count") or 0),
                 "spread": _safe_float(item.get("spread")),
                 "kind": str(item.get("kind", "mixed")).lower(),
             })
+
+        # FEELS-inspired: пересчитываем spread через log-distance
+        # |ln(level/price)| — симметричен: +50% и -50% дают ~0.405
+        # Это решает проблему D1 support на -30% получая штраф в $
+        # а ближний resistance на +2% в $ почти не штрафуется.
+        price_for_ld = _safe_float(data.get("price") or data.get("current_price"))
+        if price_for_ld and price_for_ld > 0:
+            import math
+            for item in out:
+                lvl = item.get("level")
+                if lvl and lvl > 0:
+                    item["log_distance"] = round(abs(math.log(lvl / price_for_ld)), 6)
+                    # proximity_score: инвертированный-U, пик ~2% (log_dist≈0.02)
+                    ld = item["log_distance"]
+                    if ld < 0.002:
+                        item["proximity_score"] = 0.3
+                    elif ld < 0.05:
+                        item["proximity_score"] = round(max(0.5, 1.0 - abs(ld - 0.02) * 10.0), 4)
+                    else:
+                        item["proximity_score"] = round(max(0.05, 1.0 - (ld - 0.05) * 3.0), 4)
+                else:
+                    item["log_distance"] = None
+                    item["proximity_score"] = None
+
         return out
 
     def _extract_zigzag_levels_from_context(src: dict) -> list[float]:
@@ -945,6 +971,50 @@ def enforce_risk_rules(data: dict) -> dict:
         return tf_zones
 
     data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
+
+    # -----------------------------
+    # 2b) Раздувание прилипших зон (D1=H4=H1 → расширить parent)
+    # Из fix/zones-sticking (Hermes), адаптировано: сохранён LM контекст.
+    # -----------------------------
+    def _enforce_zone_uniqueness(tf_zones: dict, price: float | None) -> dict:
+        """
+        Если соседние ТФ имеют идентичные зоны (lower и upper совпадают
+        в пределах tolerance) — LLM скопировал одну зону на несколько ТФ.
+        Расширяем parent outward для создания иерархии:
+        D1 ±2.5%, H4 ±1.5%, H1 ±0.75%.
+        Child остаётся как есть (уже сужен в _validate_zone_nesting).
+        """
+        if not tf_zones or price is None:
+            return tf_zones
+
+        tf_expand = [("1D", 0.025), ("4H", 0.015), ("1H", 0.0075), ("15M", 0.0), ("5M", 0.0)]
+        tolerance_pct = 0.005  # 0.5% — зона считается "прилипшей"
+        price_safe = price if price > 0 else 1.0
+
+        for i in range(len(tf_expand) - 1):
+            parent_tf, expand_pct = tf_expand[i]
+            child_tf, _ = tf_expand[i + 1]
+            parent = tf_zones.get(parent_tf)
+            child = tf_zones.get(child_tf)
+            if not isinstance(parent, dict) or not isinstance(child, dict):
+                continue
+            p_lower = parent.get("lower")
+            p_upper = parent.get("upper")
+            c_lower = child.get("lower")
+            c_upper = child.get("upper")
+            if p_lower is None or p_upper is None or c_lower is None or c_upper is None:
+                continue
+
+            lower_diff = abs(p_lower - c_lower) / price_safe
+            upper_diff = abs(p_upper - c_upper) / price_safe
+            if lower_diff < tolerance_pct and upper_diff < tolerance_pct:
+                if expand_pct > 0:
+                    parent["lower"] = round(p_lower * (1 - expand_pct), 2)
+                    parent["upper"] = round(p_upper * (1 + expand_pct), 2)
+
+        return tf_zones
+
+    data["tf_zones"] = _enforce_zone_uniqueness(data["tf_zones"], data.get("price"))
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
 
@@ -1935,8 +2005,13 @@ def format_json_for_tg(data: dict) -> str:
                 sp = item.get("spread")
                 kind = item.get("kind", "mixed")
                 spread_str = f"spread={_format_num(sp)}" if sp and float(sp) != 0 else f"count={item.get('count', '?')}"
+                # FEELS: показать log_distance и proximity если есть
+                ld = item.get("log_distance")
+                prox = item.get("proximity_score")
+                ld_str = f" ld={ld:.3f}" if ld is not None else ""
+                prox_str = f" prox={prox:.2f}" if prox is not None else ""
                 confluence_text.append(
-                    f"• {_format_num(lvl)} | TF: {fmt(tfs)} | {pr} | {spread_str} | {kind}"
+                    f"• {_format_num(lvl)} | TF: {fmt(tfs)} | {pr} | {spread_str}{ld_str}{prox_str} | {kind}"
                 )
 
     tf_span_text = []
