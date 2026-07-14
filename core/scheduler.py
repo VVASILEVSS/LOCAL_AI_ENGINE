@@ -311,6 +311,7 @@ async def run_hourly_analysis(
 
             # Liquidity heatmap (лёгкий текстовый контекст)
             heatmap_data = {}
+            ltf_df = None
             try:
                 from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
                 from core.data_provider import OhlcvDataProvider
@@ -325,6 +326,23 @@ async def run_hourly_analysis(
                     heatmap_text = "Liquidity heatmap: CSV недоступен."
             except Exception as e:
                 heatmap_text = f"Liquidity heatmap: ошибка ({type(e).__name__})."
+
+            # BUG 2 FIX: period_high/period_low — abs max/min свечей между сканами
+            # для детекции intrabar sweep (ложный пробой внутри свечи).
+            # Берём последние ~6 свечей M15 (≈90 мин ≈ интервал автоскана 30 мин × 2-3 цикла).
+            period_high = None
+            period_low = None
+            if ltf_df is not None and hasattr(ltf_df, "columns"):
+                try:
+                    cols = {c.lower(): c for c in ltf_df.columns}
+                    hi_col = cols.get("high", "high")
+                    lo_col = cols.get("low", "low")
+                    tail = ltf_df.tail(6)
+                    period_high = float(tail[hi_col].max())
+                    period_low = float(tail[lo_col].min())
+                except Exception:
+                    period_high = None
+                    period_low = None
 
             # Добавляем heatmap в metrics
             metrics_str += f"\n{heatmap_text}"
@@ -350,7 +368,8 @@ async def run_hourly_analysis(
             # Load previous state and build state_context BEFORE LLM call
             # so the LLM sees what changed vs last analysis
             _prev_state = load_state(symbol_id, timeframes[-1])
-            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
+            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones},
+                                        period_high=period_high, period_low=period_low)
             _state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
 
             prev_ctx = {
@@ -385,6 +404,8 @@ async def run_hourly_analysis(
                 symbol=symbol_id,
                 timeframe=timeframes[-1],
                 current=parsed,
+                period_high=period_high,
+                period_low=period_low,
             )
 
             if isinstance(parsed, dict):
