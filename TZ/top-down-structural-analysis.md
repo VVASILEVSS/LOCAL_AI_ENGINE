@@ -73,13 +73,13 @@
 
 ---
 
-## 3. Реализовано (T1-T5, коммит `641493f`)
+## 3. Реализовано (T1-T5, MERGED в main `c0d989f`)
 
 | Фаза | Что | Статус | Файл |
 |---|---|---|---|
 | **T1** | `parent_zone` + soft clamp (10%) в `analyze_tf_structure()` | ✅ работает | `structure.py` |
 | **T2** | `analyze_topdown()` оркестратор. `benchmark_zigzag.py` → 3 фазы | ✅ работает | `structure.py`, `benchmark_zigzag.py` |
-| **T3** | `detect_accumulation()` (N пивотов без обновления zone) | ⚠️ баг: `tf` не передаётся | `structure.py` |
+| **T3** | `detect_accumulation()` (N пивотов без обновления zone) | ✅ пофиксено (`fdbb4fc`) | `structure.py` |
 | **T4** | `targets` из parent boundaries + prev_structure swing | ✅ работает | `structure.py` |
 | **T5** | `_enforce_zone_uniqueness` → confluence (убрано expand_pct) | ✅ код корректный | `ollama_client.py` |
 
@@ -154,7 +154,7 @@ BTC D1 может содержать stale/outlier pivots (например ATH 
 | **T3** | detect_accumulation() | ✅ FIXED (`fdbb4fc`) | — |
 | **T4** | targets | ✅ | — |
 | **T5** | confluence | ✅ | — |
-| **MERGE** | **merge `feature/top-down-structure` → main** | ⏳ готов к merge | **P0** |
+| **MERGE** | **merge `feature/top-down-structure` → main** | ✅ DONE (`c0d989f`) | — |
 | **T6** | volume_at_level (1.5×ATR радиус, 5 vs 20 свечей) | не начат | P2 |
 | **T7** | промпт фаза 2 (precomputed → концепция C) | не начат | P3 |
 | **T10** | `detect_trend_lines()` — трендовые линии по LH/HL + угол + r² (модуль `trend_lines.py`) | не начат | P1 (после стабилизации) |
