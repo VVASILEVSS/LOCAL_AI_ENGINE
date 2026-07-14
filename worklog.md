@@ -125,3 +125,29 @@ Stage Summary:
 - Log-distance: symmetric proximity scoring, -30% and +30% get same penalty
 - Source tracking: tf_zones now carry "source" field for dashboard debugging
 - Branch fix/zones-sticking can be deleted (merged manually)
+
+---
+Task ID: 1.2
+Agent: Super Z
+Task: Проверить analyze_topdown() на синтетических данных (Binance API заблокирован с сервера)
+
+Work Log:
+- Написал test_topdown_abs_extremes.py: 4 ТФ (D1→H4→H1→15M), синтетические BTC-подобные данные
+- Все 4 ТФ: prev_structure берёт АБСОЛЮТНЫЙ max/min (✅), иерархия зон корректная (✅)
+- 1H и 15M разделяют shared floor с 4H — parent constraint работает
+- Коммит c0c7c8e уже на origin/feature/top-down-structure
+
+Stage Summary:
+- ✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ на синтетике
+- Результат: скрипт в /home/z/my-project/scripts/test_topdown_abs_extremes.py
+
+---
+## ПРАВИЛА РАБОТЫ (обязательно соблюдать)
+
+1. **НЕ СПАМИТЬ** — не писать письма Гермесу, не коммитить, не пушить без явной просьбы пользователя. Один результат — одно письмо/коммит. Не дробить на 5 мелких.
+
+2. **Веточная дисциплина** — каждая ветка мержится только в main, между собой НЕ мержим.
+
+3. **Письма только в exchange/** — формат: `YYYY-MM-DD_от-кого-тема.md`
+
+4. **Старый код не трогать** — на fix/zones-sticking работаем только с auto_chart.py/ollama_client.py/handlers.py/main.py
