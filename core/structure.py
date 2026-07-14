@@ -1,16 +1,20 @@
-"""core/structure.py — BOS detection + structure split для REAL pivot data.
+"""core/structure.py — BOS detection + structure split + top-down chain.
 
 Принимает список пивотов от _find_real_pivots() и цены закрытия.
 Определяет:
   - Последний Break of Structure (BOS)
   - Разделение на prev_structure и curr_structure
-  - Формирует narrative текст для промпта LLM
+  - Top-down structural chain (D1→H4→H1→M15→5M)
+  - Накопление (accumulation detection)
+  - Цели (targets) из parent boundaries
+  - Narrative текст для промпта LLM
 
 BOS = момент когда цена пробивает значимый swing high (bullish BOS)
 или swing low (bearish BOS), подтверждая смену направления структуры.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,6 +64,14 @@ class StructureAnalysis:
     swing_direction: str = "sideways"
     # Количество пивотов в текущей структуре
     active_pivot_count: int = 0
+    # T3: Accumulation
+    is_accumulation: bool = False
+    accumulation_pivot_count: int = 0
+    # T4: Targets (parent boundaries + swing levels)
+    targets: List[Dict[str, Any]] = field(default_factory=list)
+    # T1: Top-down metadata
+    parent_tf: Optional[str] = None
+    chain_broken: bool = False  # True если parent_zone violated >10%
 
 
 def detect_bos(
@@ -247,8 +259,13 @@ def split_structure(
     # Prev structure
     prev = None
     if prev_pivots:
-        prev_h = max(p["price"] for p in prev_pivots if p["type"] == "high") or current_price
-        prev_l = min(p["price"] for p in prev_pivots if p["type"] == "low") or current_price
+        # Вариант A: берём ПОСЛЕДНИЙ swing каждого типа перед BOS.
+        # Это даёт range последней суб-структуры (не абсолютный max/min за всю историю).
+        # Пример: BTC D1 с BOS @59130 → prev = 82380→59130 (LH2→BOS), не 97924→59130 (LH1→BOS).
+        prev_highs = [p for p in prev_pivots if p["type"] == "high"]
+        prev_lows = [p for p in prev_pivots if p["type"] == "low"]
+        prev_h = prev_highs[-1]["price"] if prev_highs else current_price
+        prev_l = prev_lows[-1]["price"] if prev_lows else current_price
         start = prev_pivots[0]["index"]
         if len(prev_pivots) >= 2:
             prev_dir = _structure_direction(prev_pivots[0], prev_pivots[-1], bos.price)
@@ -335,6 +352,8 @@ def analyze_tf_structure(
     current_price: float,
     total_candles: int = 200,
     closes: Optional[List[float]] = None,
+    parent_zone: Optional[Tuple[float, float]] = None,
+    parent_tf: Optional[str] = None,
 ) -> StructureAnalysis:
     """Полный структурный анализ одного ТФ.
 
@@ -346,9 +365,12 @@ def analyze_tf_structure(
         current_price: текущая цена
         total_candles: количество свечей в данных
         closes: массив close (для точного BOS)
+        parent_zone: (low, high) рамка от старшего ТФ (T1: top-down)
+        parent_tf: имя родительского ТФ (для логирования)
 
     Returns:
-        StructureAnalysis с BOS, prev/curr structures, zone
+        StructureAnalysis с BOS, prev/curr structures, zone,
+        accumulation, targets, top-down metadata.
     """
     bos = detect_bos(swing_points, closes, current_price)
     prev_struct, curr_struct = split_structure(
@@ -371,7 +393,34 @@ def analyze_tf_structure(
     elif swing_points:
         active_pivots = len(swing_points)
 
-    return StructureAnalysis(
+    # ── T1: Soft clamp к parent_zone ──
+    chain_broken = False
+    if parent_zone is not None:
+        p_low, p_high = parent_zone
+        # Если zone выходит за parent > 10% — possible parent BOS break
+        if zone_high > p_high * 1.10:
+            logging.warning(
+                "TOPDOWN: %s zone_high %.1f exceeds parent %s %.1f by >10%% "
+                "— possible parent BOS break, chain broken",
+                tf, zone_high, parent_tf or "?", p_high,
+            )
+            chain_broken = True
+        elif zone_low < p_low * 0.90:
+            logging.warning(
+                "TOPDOWN: %s zone_low %.1f below parent %s %.1f by >10%% "
+                "— possible parent BOS break, chain broken",
+                tf, zone_low, parent_tf or "?", p_low,
+            )
+            chain_broken = True
+        else:
+            # Normal clamp: zone внутри parent
+            zone_high = min(zone_high, p_high)
+            zone_low = max(zone_low, p_low)
+
+    # ── T3: Accumulation detection ──
+    is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
+
+    result = StructureAnalysis(
         tf=tf,
         bos=bos,
         prev_structure=prev_struct,
@@ -380,7 +429,162 @@ def analyze_tf_structure(
         zone_low=zone_low,
         swing_direction=swing_dir,
         active_pivot_count=active_pivots,
+        is_accumulation=is_acc,
+        accumulation_pivot_count=acc_count,
+        parent_tf=parent_tf,
+        chain_broken=chain_broken,
     )
+
+    return result
+
+
+# ── T3: Accumulation detection ──
+
+_ACCUM_MIN_PIVOTS: Dict[str, int] = {
+    "1d": 2, "4h": 3, "1h": 3, "15m": 4, "5m": 4,
+}
+
+
+def detect_accumulation(
+    swing_points: List[Dict[str, Any]],
+    zone_high: float,
+    zone_low: float,
+    tf: str = "",
+) -> Tuple[bool, int]:
+    """Накопление = последние min_pivots пивотов не обновляют zone bounds.
+
+    Если N последних пивотов не пробивают zone_high (для high-пивотов)
+    и не пробивают zone_low (для low-пивотов) → накопление.
+
+    Returns:
+        (is_accumulation, count_of_consecutive_non_updating_pivots)
+    """
+    if not swing_points:
+        return False, 0
+
+    min_piv = _ACCUM_MIN_PIVOTS.get(tf.lower(), 3)
+
+    # Считаем сколько последних пивотов подряд не обновляют zone
+    count = 0
+    for p in reversed(swing_points):
+        if p["type"] == "high" and p["price"] > zone_high:
+            break  # Новый HH — не накопление
+        if p["type"] == "low" and p["price"] < zone_low:
+            break  # Новый LL — не накопление
+        count += 1
+
+    return count >= min_piv, count
+
+
+# ── T2: Top-down orchestrator ──
+
+# Стандартный порядок анализа (старший → младший)
+_TF_ORDER: List[str] = ["1d", "4h", "1h", "15m", "5m"]
+
+
+def analyze_topdown(
+    tf_data: Dict[str, Dict[str, Any]],
+    tf_order: Optional[List[str]] = None,
+) -> Dict[str, StructureAnalysis]:
+    """Top-down structural analysis chain.
+
+    Анализирует ТФ по порядку от старшего к младшему.
+    Каждый младший ТФ получает parent_zone от старшего.
+    Если zone выходит за parent > 10% — chain break, младший ТФ независимый.
+
+    Args:
+        tf_data: словарь {tf: {"swing_points": [...], "current_price": float,
+                    "closes": [...], "total_candles": int}}
+        tf_order: порядок анализа (по умолчанию D1→H4→H1→15M→5M)
+
+    Returns:
+        {tf: StructureAnalysis} для каждого ТФ.
+    """
+    if tf_order is None:
+        tf_order = list(_TF_ORDER)
+
+    results: Dict[str, StructureAnalysis] = {}
+    parent_zone: Optional[Tuple[float, float]] = None
+    parent_tf_name: Optional[str] = None
+
+    for tf in tf_order:
+        tf_lower = tf.lower()
+        # Ищем данные по разным вариантам ключа
+        data = None
+        for key in (tf, tf_lower, tf.upper()):
+            if key in tf_data:
+                data = tf_data[key]
+                break
+        if not isinstance(data, dict) or not data.get("swing_points"):
+            logging.debug("TOPDOWN: %s — no data, skipping", tf)
+            continue
+
+        analysis = analyze_tf_structure(
+            swing_points=data["swing_points"],
+            tf=tf,
+            current_price=data["current_price"],
+            total_candles=data.get("total_candles", 200),
+            closes=data.get("closes"),
+            parent_zone=parent_zone,
+            parent_tf=parent_tf_name,
+        )
+
+        # T4: Собираем targets из parent boundaries
+        targets = []
+        if parent_zone is not None and parent_tf_name:
+            p_low, p_high = parent_zone
+            if analysis.zone_high is not None and p_high > analysis.zone_high:
+                targets.append({
+                    "level": round(p_high, 1),
+                    "type": "parent_boundary",
+                    "tf": parent_tf_name.upper(),
+                    "side": "above",
+                })
+            if analysis.zone_low is not None and p_low < analysis.zone_low:
+                targets.append({
+                    "level": round(p_low, 1),
+                    "type": "parent_boundary",
+                    "tf": parent_tf_name.upper(),
+                    "side": "below",
+                })
+        # Также добавляем значимые swing levels из prev_structure
+        if analysis.prev_structure:
+            ps = analysis.prev_structure
+            if ps.high > (analysis.zone_high or 0):
+                targets.append({
+                    "level": round(ps.high, 1),
+                    "type": "swing_level",
+                    "tf": tf.upper(),
+                    "side": "above",
+                })
+            if ps.low < (analysis.zone_low or float("inf")):
+                targets.append({
+                    "level": round(ps.low, 1),
+                    "type": "swing_level",
+                    "tf": tf.upper(),
+                    "side": "below",
+                })
+        analysis.targets = targets
+
+        results[tf_lower] = analysis
+
+        # Передаём zone как parent для следующего (младшего) ТФ
+        # Но если chain broken — не передаём
+        if analysis.chain_broken:
+            logging.warning(
+                "TOPDOWN: chain broken at %s, next TF will be independent",
+                tf,
+            )
+            parent_zone = None
+            parent_tf_name = None
+        elif analysis.zone_high is not None and analysis.zone_low is not None:
+            parent_zone = (analysis.zone_low, analysis.zone_high)
+            parent_tf_name = tf_lower
+        else:
+            parent_zone = None
+            parent_tf_name = None
+
+    return results
 
 
 def format_structure_narrative(analysis: StructureAnalysis, price: float) -> str:
@@ -427,10 +631,26 @@ def format_structure_narrative(analysis: StructureAnalysis, price: float) -> str
 
     if analysis.zone_high and analysis.zone_low:
         span_pct = (analysis.zone_high - analysis.zone_low) / price * 100
-        lines.append(
+        zone_line = (
             f"  Zone = [{analysis.zone_low:.1f} - {analysis.zone_high:.1f}] "
             f"(span {span_pct:.1f}%)."
         )
+        if analysis.parent_tf:
+            zone_line += f" (внутри {analysis.parent_tf.upper()})"
+        if analysis.chain_broken:
+            zone_line += " [CHAIN BROKEN]"
+        lines.append(zone_line)
+
+    if analysis.is_accumulation:
+        lines.append(
+            f"  Накопление: {analysis.accumulation_pivot_count} пивотов без обновления zone."
+        )
+
+    if analysis.targets:
+        tgt_str = ", ".join(
+            f"{t['level']:.0f} ({t['type']}, {t['tf']})" for t in analysis.targets[:4]
+        )
+        lines.append(f"  Цели: {tgt_str}.")
 
     return "\n".join(lines)
 

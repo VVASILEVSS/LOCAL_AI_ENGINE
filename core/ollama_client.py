@@ -974,33 +974,32 @@ def enforce_risk_rules(data: dict) -> dict:
     data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
 
     # -----------------------------
-    # 2b) Раздувание прилипших зон (D1=H4=H1 → расширить parent)
-    # Из fix/zones-sticking (Hermes), адаптировано: сохранён LM контекст.
+    # 2b) Confluence detection (T5: top-down refactor)
+    # Если соседние ТФ имеют идентичные зоны (sticking):
+    #   - child микроканал (span < min_span) → удалить → fallback подставит
+    #   - child структурная зона → confluence, НЕ трогать (общий уровень = сильный)
+    # Убрано: синтетическое расширение parent (expand_pct).
     # -----------------------------
     def _enforce_zone_uniqueness(tf_zones: dict, price: float | None) -> dict:
         """
-        Если соседние ТФ имеют идентичные зоны (lower и upper совпадают
-        в пределах tolerance) — LLM скопировал одну зону на несколько ТФ.
-        Расширяем parent outward для создания иерархии:
-        D1 ±2.5%, H4 ±1.5%, H1 ±0.75%.
-        Если child прилип к parent и child слишком узкий (микроканал) —
-        удаляем child зону, чтобы fallback (VP/ZigZag) подставил реальную.
+        Sticking detection с двумя путями:
+        1) Child зона = микроканал → удалить (fallback подставит реальную).
+        2) Child зона структурная (>= min_span) → confluence (не трогать).
+
+        После top-down (T1-T5) общие границы = confluence = нормально.
+        Синтетическое расширение parent убрано.
         """
         if not tf_zones or price is None:
             return tf_zones
 
-        tf_expand = [("1D", 0.025), ("4H", 0.015), ("1H", 0.0075), ("15M", 0.004), ("5M", 0.002)]
+        tf_pairs = [("1D", "4H"), ("4H", "1H"), ("1H", "15M"), ("15M", "5M")]
         tolerance_pct = 0.005  # 0.5% — зона считается "прилипшей"
-        # Минимальный span по ТФ как % от цены (ниже = микроканал, не структурная зона)
-        # Пороги на реальных структурных ranges (20 свечей Binance)
         min_span_pct = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
         price_safe = price if price > 0 else 1.0
 
         to_delete: list[str] = []
 
-        for i in range(len(tf_expand) - 1):
-            parent_tf, expand_pct = tf_expand[i]
-            child_tf, _ = tf_expand[i + 1]
+        for parent_tf, child_tf in tf_pairs:
             parent = tf_zones.get(parent_tf)
             child = tf_zones.get(child_tf)
             if not isinstance(parent, dict) or not isinstance(child, dict):
@@ -1015,17 +1014,21 @@ def enforce_risk_rules(data: dict) -> dict:
             lower_diff = abs(p_lower - c_lower) / price_safe
             upper_diff = abs(p_upper - c_upper) / price_safe
             if lower_diff < tolerance_pct and upper_diff < tolerance_pct:
-                # Прилипли. Два варианта:
-                # 1) expand_pct > 0 — расширяем parent outward (старое поведение)
-                # 2) child слишком узкий — удаляем child, fallback подставит реальную зону
                 child_span = abs(c_upper - c_lower) / price_safe
                 child_min = min_span_pct.get(child_tf, 0.002)
                 if child_span < child_min:
                     # Child зона = микроканал, не структурный range → удалить
+                    logging.info(
+                        "CONFLUENCE: %s sticking to %s but microchannel (%.3f%% < %.3f%%) — removing",
+                        child_tf, parent_tf, child_span * 100, child_min * 100,
+                    )
                     to_delete.append(child_tf)
-                elif expand_pct > 0:
-                    parent["lower"] = round(p_lower * (1 - expand_pct), 2)
-                    parent["upper"] = round(p_upper * (1 + expand_pct), 2)
+                else:
+                    # Структурная зона совпадает с parent → confluence, НЕ трогаем
+                    logging.info(
+                        "CONFLUENCE: %s matches %s (span=%.2f%%) — leaving as is",
+                        child_tf, parent_tf, child_span * 100,
+                    )
 
         for tf_del in to_delete:
             del tf_zones[tf_del]
