@@ -206,6 +206,9 @@ ZigZag контекст:
 Liquidity heatmap:
 {liquidity_context}
 
+Liquidity Magnet (алгоритмические EQH/EQL кластеры + магнитные цели):
+{lm_context}
+
 State / history context:
 {state_context}
 
@@ -315,6 +318,7 @@ State / history context:
 8. tf_zones и key_zones — АНАЛИЗИРУЙ ПО ГРАФИКАМ. ZigZag контекст — это справочный индикатор (направление, свинги, позиция цены), НЕ готовые зоны для копирования. Определи зоны консолидации визуально по каждому графику. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones.
 8a. Если на графике видна чёткая зона консолидации — используй её. Если зона неопределённа — возьми ближайшие структурные high/low. Пропуск ТФ в tf_zones НЕ допускается.
 8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫМИ lower/upper. Старший ТФ шире, младший уже. D1 ≠ H4 ≠ H1 ≠ M15.
+8c. Liquidity Magnet показывает алгоритмические Equal Highs/Lows (EQH/EQL) и магнитные цели. Используй эти кластеры как подтверждение своих зон — если LM нашёл EQH вблизи твоего resistance, это усиливает зону. Если LM показывает magnet-target ≠ твой зоне, проверь — возможно ты пропустил более сильный уровень.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -2091,6 +2095,7 @@ async def analyze_multi_images(
         volume_str = "{}"
         state_str = "{}"
         liquidity_str = "Liquidity heatmap недоступна."
+        lm_str = str(prev_analysis.get("lm_context") or "Liquidity Magnet: данные недоступны.")
         multi_str = "Мульти-символьный контекст: данные недоступны."
 
     user_text = PRO_TA_USER_PROMPT.format(
@@ -2100,6 +2105,7 @@ async def analyze_multi_images(
         zigzag_context=zigzag_str,
         volume_context=volume_str,
         liquidity_context=liquidity_str,
+        lm_context=lm_str,
         state_context=state_str,
         backtest=bt_str,
         multi_symbol=multi_str,

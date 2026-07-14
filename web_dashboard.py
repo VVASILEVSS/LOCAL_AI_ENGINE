@@ -62,6 +62,7 @@ DASHBOARD_MODEL_NAME = os.getenv("DASHBOARD_MODEL_NAME", "glm-5.2-fast-preview")
 # ── Импорты из core (общий код с KXROBO) ────────────────────────────────────
 
 from core.ollama_client import analyze_multi_images, enforce_risk_rules, format_json_for_tg
+from core.liquidity_magnet import build_liquidity_magnet_from_zones
 from core.config import USER_ANALYSIS_CACHE
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import update_and_save_state
@@ -415,6 +416,47 @@ def _fill_missing_tf_zones(
                 zone = {"upper": zz.get("upper"), "lower": zz.get("lower")}
                 source = "zigzag"
 
+        # Fallback-1.5: Liquidity Magnet — вычисляем зону из уже известных зон других ТФ.
+        # Если есть зоны хотя бы на 2 ТФ — LM кластеризует их и находит
+        # ближайший magnet к текущей цене для отсутствующего ТФ.
+        if zone is None and price_safe is not None:
+            try:
+                lm_result = build_liquidity_magnet_from_zones(
+                    zones_by_tf=tf_zones,
+                    current_price=price_safe,
+                    symbol=result.get("symbol", ""),
+                    eq_tolerance_pct=5.0,  # 5% — средний tolerance для кластеризации
+                    debug=False,
+                )
+                lm_pools = lm_result.get("pools", [])
+                # Ищем pool для текущего ТФ — если его нет, берём ближайший
+                # по log-distance magnet, который совпадает по направлению
+                if lm_pools:
+                    # Сначала ищем pool нашего ТФ (может быть от кластеризации)
+                    tf_pool = None
+                    for p in lm_pools:
+                        if p.get("tf") == norm_key:
+                            tf_pool = p
+                            break
+                    # Если нет — берём top magnet (ближайший по score)
+                    if tf_pool is None:
+                        # Сортируем: сначала equal-зоны (кластеры), потом по proximity
+                        lm_pools.sort(key=lambda x: (x.get("shared_extremum", False), -x.get("probability", 0)))
+                        tf_pool = lm_pools[0] if lm_pools else None
+
+                    if tf_pool and tf_pool.get("price") is not None:
+                        lm_price = tf_pool["price"]
+                        is_high = tf_pool.get("is_high", True)
+                        # Строим зону: центр = lm_price, ширина = ~0.3% от цены (ATR-like)
+                        zone_half = price_safe * 0.003  # ~0.3% = типичная ширина зоны
+                        if is_high:
+                            zone = {"upper": round(lm_price + zone_half, 2), "lower": round(lm_price - zone_half, 2)}
+                        else:
+                            zone = {"upper": round(lm_price + zone_half, 2), "lower": round(lm_price - zone_half, 2)}
+                        source = "liquidity_magnet"
+            except Exception as e:
+                logging.debug("DASHBOARD: LM fallback failed for %s: %s", norm_key, e)
+
         # Fallback-2: prev_tf_zones (для ТФ которых ZigZag/VP не загрузили, напр. 1D fetch failed)
         if zone is None:
             prev_zone = _find_zone(prev_tf_zones)
@@ -562,6 +604,42 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             except Exception:
                 heatmap_text = "Liquidity heatmap: ошибка."
 
+            # Liquidity Magnet — кластеризация VP/ZigZag зон, определение shared highs/lows
+            lm_context = "Liquidity Magnet: unavailable."
+            try:
+                from core.liquidity_magnet import build_liquidity_magnet_from_zones
+                lm_zones_for_tf = {}
+                for tf_raw, m in all_metrics.items():
+                    z = m.get("zone")
+                    if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None):
+                        lm_zones_for_tf[tf_raw] = z
+                if lm_zones_for_tf and live_price > 0:
+                    lm_result = build_liquidity_magnet_from_zones(
+                        zones_by_tf=lm_zones_for_tf,
+                        current_price=live_price,
+                        symbol=symbol,
+                        eq_tolerance_pct=5.0,
+                        debug=False,
+                    )
+                    sh = lm_result.get("shared_highs", [])
+                    sl = lm_result.get("shared_lows", [])
+                    top3 = lm_result.get("top3", [])
+                    parts = []
+                    if sh:
+                        parts.append(f"Shared Highs (EQH): {', '.join(f'{v:.2f}' for v in sh)}")
+                    if sl:
+                        parts.append(f"Shared Lows (EQL): {', '.join(f'{v:.2f}' for v in sl)}")
+                    for i, t in enumerate(top3):
+                        direction = "▲" if t.get("is_high") else "▼"
+                        eq_mark = " ⊜" if t.get("is_equal") else ""
+                        parts.append(
+                            f"  Magnet #{i+1}: {direction} {t.get('price', 0):.2f} "
+                            f"({t.get('probability', 0):.1f}%){eq_mark}"
+                        )
+                    lm_context = "Liquidity Magnet: " + " | ".join(parts) if parts else "Liquidity Magnet: zones too few for clustering."
+            except Exception as e:
+                logging.debug("LM context failed: %s", e)
+
             prev_ctx = {
                 "metrics": metrics_str,
                 "tf_context": tf_context,
@@ -570,6 +648,7 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                 "zigzag_context": zigzag_context,
                 "volume_context": ltf_volume,
                 "heatmap_context": heatmap_text,
+                "lm_context": lm_context,
             }
 
             # LLM через CLOUD
