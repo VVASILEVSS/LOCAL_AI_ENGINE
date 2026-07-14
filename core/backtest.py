@@ -175,7 +175,7 @@ def save_signal_log(
                sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
                zone_upper, zone_lower, key_resistance, key_support,
                consistency_runs, consistency_agreed, prompt_variant, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol, now, status, direction, entry,
             sl, tp1, tp2, tp3, rr,

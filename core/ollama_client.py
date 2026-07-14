@@ -965,11 +965,18 @@ def enforce_risk_rules(data: dict) -> dict:
         tolerance_pct = 0.005  # 0.5% — зона считается "прилипшей"
         price_safe = price if price > 0 else 1.0
 
+        # Case-insensitive lookup — LLM может вернуть "4h" вместо "4H"
+        def _find_zone(tf_zones: dict, tf_name: str) -> dict | None:
+            for k, v in tf_zones.items():
+                if k.upper().replace("H", "h") == tf_name.upper().replace("H", "h") or k.upper() == tf_name.upper():
+                    return v if isinstance(v, dict) else None
+            return None
+
         for i in range(len(tf_expand) - 1):
             parent_tf, expand_pct = tf_expand[i]
             child_tf, _ = tf_expand[i + 1]
-            parent = tf_zones.get(parent_tf)
-            child = tf_zones.get(child_tf)
+            parent = _find_zone(tf_zones, parent_tf)
+            child = _find_zone(tf_zones, child_tf)
             if not isinstance(parent, dict) or not isinstance(child, dict):
                 continue
             p_lower = parent.get("lower")
