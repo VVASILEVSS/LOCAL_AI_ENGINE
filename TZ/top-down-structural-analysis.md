@@ -101,70 +101,47 @@ Top-down nesting работает. Chain broken = False везде. Накопл
 
 ## 4. Известные баги
 
-### БАГ-1: `detect_accumulation()` — `tf` не передаётся (БЛОКИРУЕТ MERGE)
+### ~~БАГ-1: `detect_accumulation()` — `tf` не передаётся~~ ✅ FIXED (`fdbb4fc`)
 
-**Файл:** `core/structure.py`, строка ~413 (в `analyze_tf_structure()`)
-
-```python
-# Сейчас:
-is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low)
-#                                                          ← tf не передаётся!
-
-# Должно быть:
-is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
-```
-
-**Эффект:** `_ACCUM_MIN_PIVOTS.get("", 3)` = 3 для всех ТФ.
-- D1: min_piv=3 вместо 2 → BTC 1D (2 пивота) = False, должно быть True
-- 15M: min_piv=3 вместо 4 → слишком чувствителен
-
-**Фикс:** 1 строка. Ready.
-
-### БАГ-2: `split_structure()` — абсолютный max vs последняя суб-структура
-
-**Файл:** `core/structure.py`, строки 250-251
+**Файл:** `core/structure.py` (в `analyze_tf_structure()`)
 
 ```python
-prev_h = max(p["price"] for p in prev_pivots if p["type"] == "high") or current_price
-prev_l = min(p["price"] for p in prev_pivots if p["type"] == "low") or current_price
+is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)  # tf добавлен
 ```
 
-`prev_pivots` = все пивоты от начала до BOS. `max(highs)` = абсолютный экстремум из ранней фазы.
+Тест:
+```
+BTC 1D:  is_accumulation=True  (2 pivots, min_piv=2 для D1) ✅
+BTC 15M: is_accumulation=False (2 pivots, min_piv=4 для 15m) ✅
+```
 
-**Пример:** BTC D1 → `prev_structure.high = 97924.5` (LH1, Jan 2026). Но BOS @ 59130.9 сломал range 82380→59130 (LH2, May 2026). 97924 — из другой фазы.
+### ~~БАГ-2: `split_structure()` — абсолютный max vs последняя суб-структура~~ ✅ FIXED (`fdbb4fc`)
 
-### Варианты фикса (обсуждаем)
+**Решение:** Variant A (последний swing каждого типа перед BOS).
 
-**A. Последний swing перед BOS**
 ```python
 prev_highs = [p for p in prev_pivots if p["type"] == "high"]
 prev_lows  = [p for p in prev_pivots if p["type"] == "low"]
 prev_h = prev_highs[-1]["price"] if prev_highs else current_price
 prev_l = prev_lows[-1]["price"] if prev_lows else current_price
 ```
-- ✅ Простой, даёт 82380→59130
-- ⚠️ Может потерять контекст если последний high — мелкий pullback
 
-**B. Последняя суб-структура (от prev BOS)** — взять структуру между предыдущим BOS и текущим. Но в данных обычно один BOS → не работает.
-
-**C. Last N pivots**
-```python
-prev_recent = prev_pivots[-3:]  # последние 3 пивота перед BOS
-prev_h = max(p["price"] for p in prev_recent if p["type"]=="high")
-prev_l = min(p["price"] for p in prev_recent if p["type"]=="low")
+Тест:
 ```
-- ✅ Более репрезентативно
-- ⚠️ N — гиперпараметр
+BTC 1D:  prev [59080 - 67255.4]  ✅ (было [59080 - 97924.5])
+ETH 4H:  prev [1712.5 - 1833.0]  ✅ (было [1510 - 1848])
+```
 
-**D. Структурное окно для prev** — ограничить prev_pivots последними K свечами (D1=60, H4=40, H1=30, 15m=20).
-- ✅ Адаптивно
-- ⚠️ K — гиперпараметр
+**Почему A, не C/D (Super Z):**
+- A чисто структурно: BOS сломал range между последним swing high и последним swing low.
+- C (last N pivots): N — гиперпараметр, разный для ТФ.
+- D (structural window для prev): K — ещё гиперпараметр, плюс двойная обрезка.
+- Крайний случай A (мелкий pullback) — правильно: именно микро-range был сломан.
+- Более широкий контекст — задача narrative (показать LH1, LH2, BOS), не zone.
 
-**Статус:** ждём решение Super Z.
+### БАГ-3 (minor, не блокирует): outliers в pivot history
 
-### БАГ-3 (minor): BTC 1D `prev_structure` может содержать stale/outlier pivots
-
-Не блокирует merge. Можно решить через sanity check (filter outliers в `_find_real_pivots`) или через фикс БАГ-2.
+BTC D1 может содержать stale/outlier pivots (например ATH из 2025). Не блокирует merge после БАГ-2 (variant A берёт последний swing, а не абсолютный max). Можно решить через sanity check в `_find_real_pivots` (T11).
 
 ---
 
@@ -174,80 +151,88 @@ prev_l = min(p["price"] for p in prev_recent if p["type"]=="low")
 |---|---|---|---|
 | **T1** | parent_zone + soft clamp | ✅ | — |
 | **T2** | analyze_topdown() | ✅ | — |
-| **T3** | detect_accumulation() | ⚠️ баг | **P0** (блокирует merge) |
+| **T3** | detect_accumulation() | ✅ FIXED (`fdbb4fc`) | — |
 | **T4** | targets | ✅ | — |
 | **T5** | confluence | ✅ | — |
+| **MERGE** | **merge `feature/top-down-structure` → main** | ⏳ готов к merge | **P0** |
 | **T6** | volume_at_level (1.5×ATR радиус, 5 vs 20 свечей) | не начат | P2 |
 | **T7** | промпт фаза 2 (precomputed → концепция C) | не начат | P3 |
-| **T8** | `detect_trend_lines()` — трендовые линии по LH/HL + угол + r² | не начат | P1 |
-| **T9** | `check_trend_line_break()` + `is_false_breakout()` | не начат | P1 |
-| **T10** | chart markup: ZigZag линия + BOS вертикаль + zone rect | не начат | P3 |
-| **T11** | sanity check outliers в `_find_real_pivots` | не начат | P2 |
+| **T10** | `detect_trend_lines()` — трендовые линии по LH/HL + угол + r² (модуль `trend_lines.py`) | не начат | P1 (после стабилизации) |
+| **T11** | `check_trend_line_break()` + potential/true/false | не начат | P1 (после стабилизации) |
+| **T12** | chart markup: ZigZag линия + BOS вертикаль + zone rect | не начат | P3 |
+| **T13** | sanity check outliers в `_find_real_pivots` | не начат | P2 |
 
 ---
 
-## 6. T8-T9: Трендовые линии (предложение Hermes)
+## 6. T10-T11: Трендовые линии (спецификация, согласованная Hermes ↔ Super Z)
 
-### T8: `detect_trend_lines(pivots, direction)`
+**Модуль:** `core/trend_lines.py` (отдельный, не в structure.py).
+
+### T10: `detect_trend_lines(pivots, direction, min_points=3)`
 
 ```python
 def detect_trend_lines(
-    swing_points: List[Dict],
+    swing_points: List[Dict[str, Any]],
     direction: str,  # "bullish" (HL series) or "bearish" (LH series)
-) -> Optional[Dict]:
+    min_points: int = 3,
+) -> Optional[TrendLine]:
     """
     Строит трендовую линию по последовательности HL (bullish) или LH (bearish).
 
-    Берёт последние N пивотов одного типа:
-      - bearish: pivot["type"]=="high" (LH series)
-      - bullish: pivot["type"]=="low"  (HL series)
+    Берёт последовательные LH/HL с конца, останавливается когда
+    последовательность прерывается (bearish: появился HH; bullish: появился LL).
 
-    Линейная регрессия → slope, intercept, r².
-    slope_pct = slope / first_price * 100  # % per candle
+    min_points=3 (2 точки = тривиально, 3 = тренд подтверждён).
+    Без upper limit — r² отфильтрует шум.
 
-    Returns: {
-        "slope_pct": float,      # % per candle
-        "intercept": float,
-        "r_squared": float,      # 0-1, качество линии
-        "pivot_points": [...],   # пивоты на линии
-        "direction": str,        # bullish/bearish
-        "angle_class": str,      # steep/moderate/shallow
-    }
+    r² через numpy.polyfit(xs, ys, 1) + ручной r².
+    Slope — log returns, нормализованные к дневному эквиваленту:
+      daily_slope = log_slope * candles_per_day[tf]
+      (1d=1, 4h=6, 1h=24, 15m=96, 5m=288)
+
+    angle_class:
+      |daily_slope| > 2.0%  → steep
+      |daily_slope| > 0.5%  → moderate
+      else                  → shallow
+
+    Returns: TrendLine(slope_pct, intercept, r_squared, pivot_points,
+                       direction, angle_class)
     """
 ```
 
-### T9: `check_trend_line_break(price, line, closes, lookback=5)`
+### T11: `check_trend_line_break(price, line, closes, swing_points, lookback=5)`
 
 ```python
 def check_trend_line_break(
     current_price: float,
-    line: Dict,         # из detect_trend_lines
+    line: TrendLine,
     closes: List[float],
-    lookback: int = 5,  # свечей после пробоя для проверки
-) -> Dict:
+    swing_points: List[Dict],
+    lookback: int = 5,
+) -> Dict[str, Any]:
     """
     Проверяет пробой трендовой линии.
 
-    - true breakout = закрытие выше линии + следующий pivot обновляет HH
-    - false breakout = возврат под линию за lookback свечей
-    - none = линия не пробита
+    Тройка статусов (вместо просто true/false):
+      - "potential" — цена пересекла линию + lookback OK (мгновенный вердикт)
+      - "true"      — + следующий pivot обновляет HH/LL (структурное подтверждение)
+      - "false"     — возврат под линию за lookback свечей
 
-    Returns: {
-        "broken": bool,
-        "break_type": str,    # "true" / "false" / "none"
-        "break_price": float,
-        "break_index": int,
-    }
+    True подтверждается структурно (новый HH/LL), не временным окном.
+
+    Returns: {"broken": bool, "break_type": str, "break_price": float, "break_index": int}
     """
 ```
 
-### Открытые вопросы для Super Z
+### Решения по 5 открытым вопросам (Hermes ↔ Super Z, 2026-07-14)
 
-1. Сколько пивотов брать для линии (2? 3? все?)
-2. Как считать r² (numpy.polyfit? вручную?)
-3. Как определять false breakout (lookback? закрытие выше/ниже?)
-4. Угол: % per candle vs log returns vs ATR-normalized?
-5. Куда встраивать — `structure.py` (как T1-T5) или отдельный модуль `trend_lines.py`?
+| Вопрос | Решение |
+|---|---|
+| 1. Сколько пивотов | min 3, без upper limit, до прерывания последовательности |
+| 2. r² | `numpy.polyfit(xs, ys, 1)` + ручной r² (O(n), нет новых зависимостей) |
+| 3. False breakout | Тройка `potential`/`true`/`false`. True = структурное подтверждение (новый HH/LL), не временное окно |
+| 4. Угол | Log returns, нормализованные к дневному эквиваленту (`candles_per_day`) |
+| 5. Модуль | `core/trend_lines.py` (отдельный, не в structure.py) |
 
 ### Зачем это нужно
 
@@ -285,7 +270,9 @@ Top-down pipeline = prerequisite для C. T1-T5 + T8-T9 → можно убра
 
 | Коммит | Автор | Что |
 |---|---|---|
-| (pending) | Hermes | ТЗ + письмо (split_structure баг + T8-T9) |
+| (pending) | Hermes | ревью `fdbb4fc` + ТЗ обновление (T10-T11 спек) |
+| `fdbb4fc` | Super Z | багфиксы: split_structure variant A + detect_accumulation tf |
+| `209ff20` | Hermes | ТЗ top-down + письмо Z (split_structure баг + T8-T9) |
 | `0da1bb0` | Hermes | ревью T1-T5 |
 | `641493f` | Super Z | T1-T5 код |
 | `0057d4d` | Hermes | запуск T1-T5 (письмо) |
