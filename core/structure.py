@@ -259,8 +259,13 @@ def split_structure(
     # Prev structure
     prev = None
     if prev_pivots:
-        prev_h = max(p["price"] for p in prev_pivots if p["type"] == "high") or current_price
-        prev_l = min(p["price"] for p in prev_pivots if p["type"] == "low") or current_price
+        # Вариант A: берём ПОСЛЕДНИЙ swing каждого типа перед BOS.
+        # Это даёт range последней суб-структуры (не абсолютный max/min за всю историю).
+        # Пример: BTC D1 с BOS @59130 → prev = 82380→59130 (LH2→BOS), не 97924→59130 (LH1→BOS).
+        prev_highs = [p for p in prev_pivots if p["type"] == "high"]
+        prev_lows = [p for p in prev_pivots if p["type"] == "low"]
+        prev_h = prev_highs[-1]["price"] if prev_highs else current_price
+        prev_l = prev_lows[-1]["price"] if prev_lows else current_price
         start = prev_pivots[0]["index"]
         if len(prev_pivots) >= 2:
             prev_dir = _structure_direction(prev_pivots[0], prev_pivots[-1], bos.price)
@@ -413,7 +418,7 @@ def analyze_tf_structure(
             zone_low = max(zone_low, p_low)
 
     # ── T3: Accumulation detection ──
-    is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low)
+    is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
 
     result = StructureAnalysis(
         tf=tf,
