@@ -304,6 +304,19 @@ def split_structure(
     curr_h = max(curr_h_list) if curr_h_list else current_price
     curr_l = min(curr_l_list) if curr_l_list else current_price
 
+    # BUG 1 FIX: Если BOS bullish и curr не обновила high —
+    # подтянуть последний high ДО BOS (пробитый уровень = ceiling).
+    # Если BOS bearish и curr не обновила low — подтянуть последний low ДО BOS.
+    if bos:
+        if bos.direction == "bullish":
+            prev_highs_before_bos = [p["price"] for p in prev_pivots if p["type"] == "high"]
+            if prev_highs_before_bos and curr_h < max(prev_highs_before_bos):
+                curr_h = max(prev_highs_before_bos)
+        elif bos.direction == "bearish":
+            prev_lows_before_bos = [p["price"] for p in prev_pivots if p["type"] == "low"]
+            if prev_lows_before_bos and curr_l > min(prev_lows_before_bos):
+                curr_l = min(prev_lows_before_bos)
+
     # Включаем current_price в range текущей структуры
     h = max(curr_h, current_price)
     l = min(curr_l, current_price)
