@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Optional, Tuple
 
 # Adaptive pivot depth per timeframe — larger TF = wider window
 _PIVOT_DEPTH: Dict[str, int] = {
-    "1d": 8, "4h": 6, "1h": 5, "15m": 3, "5m": 2,
+    "1d": 3, "4h": 3, "1h": 3, "15m": 3, "5m": 4,
 }
 # Minimum inter-pivot distance as ATR multiplier
 _PIVOT_ATR_K: float = 0.5
