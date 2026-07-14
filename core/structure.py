@@ -259,13 +259,12 @@ def split_structure(
     # Prev structure
     prev = None
     if prev_pivots:
-        # Вариант A: берём ПОСЛЕДНИЙ swing каждого типа перед BOS.
-        # Это даёт range последней суб-структуры (не абсолютный max/min за всю историю).
-        # Пример: BTC D1 с BOS @59130 → prev = 82380→59130 (LH2→BOS), не 97924→59130 (LH1→BOS).
+        # АБСОЛЮТНЫЕ экстремумы за весь период до BOS — зона = полная структурная ranged
+        # НЕ зацикливаемся на ТФ, работаем по структуре, старший ТФ в приоритете.
         prev_highs = [p for p in prev_pivots if p["type"] == "high"]
         prev_lows = [p for p in prev_pivots if p["type"] == "low"]
-        prev_h = prev_highs[-1]["price"] if prev_highs else current_price
-        prev_l = prev_lows[-1]["price"] if prev_lows else current_price
+        prev_h = max(p["price"] for p in prev_highs) if prev_highs else current_price
+        prev_l = min(p["price"] for p in prev_lows) if prev_lows else current_price
         start = prev_pivots[0]["index"]
         if len(prev_pivots) >= 2:
             prev_dir = _structure_direction(prev_pivots[0], prev_pivots[-1], bos.price)
