@@ -2143,8 +2143,11 @@ def format_json_for_tg(data: dict) -> str:
 
 def _format_zigzag_context_compact(ctx: dict) -> str:
     """
-    Компактный текстовый сериализатор ZigZag контекста для промпта LLM.
-    ~700 chars вместо 3584 chars сырого JSON — меньше токенов, больше сигнала.
+    Сериализатор ZigZag контекста для промпта LLM.
+
+    При наличии structure.narrative (реальные пивоты + BOS) — использует
+    structure narrative вместо абстрактных mode/swing/pos метрик.
+    Фоллбэк на старый формат если structure данных нет.
     """
     if not ctx or not isinstance(ctx, dict) or ctx.get("error"):
         return ctx.get("message", "ZigZag недоступен.") if isinstance(ctx, dict) else "{}"
@@ -2159,15 +2162,28 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
             f"dom={stack.get('dominant_tf','?')} | {' '.join(f'{k}:{v}' for k,v in (stack.get('directions') or {}).items())}"
         )
 
-    # Per-TF: только качественные метрики (БЕЗ числовых lower/upper!)
-    # LLM должен анализировать зоны ПО ГРАФИКАМ, не копировать числа.
+    # Per-TF: structure narrative (если есть) или legacy формат
     tfs = ctx.get("timeframes") or {}
+    has_structure = False
     for tf, data in tfs.items():
         if not isinstance(data, dict):
             continue
+        struct = data.get("structure")
+        narrative = struct.get("narrative") if isinstance(struct, dict) else None
+        if narrative:
+            lines.append(narrative)
+            has_structure = True
+        else:
+            # Legacy fallback: mode/swing/pos
+            lines.append(
+                f"{tf}: mode={data.get('market_mode','?')} swing={data.get('swing_direction','?')} "
+                f"pivots={data.get('pivot_count','?')} pos={data.get('price_position','?')}"
+            )
+
+    # Если был structure narrative — добавить подсказку для LLM
+    if has_structure:
         lines.append(
-            f"{tf}: mode={data.get('market_mode','?')} swing={data.get('swing_direction','?')} "
-            f"pivots={data.get('pivot_count','?')} pos={data.get('price_position','?')}"
+            "ВАЖНО: Zone выше = структурный range после BOS, НЕ последние 5 свечей."
         )
 
     # Confluence levels

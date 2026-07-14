@@ -377,6 +377,50 @@ def run_benchmark(
             lower = min(recent_l) if recent_l else min(pivot_lows)
         # else: оставляем raw upper/lower (нет пивотов = нет данных)
 
+        # ── BOS detection + structure split ──
+        structure_info = None
+        structure_narrative = ""
+        try:
+            from core.structure import analyze_tf_structure, format_structure_narrative
+            struct_analysis = analyze_tf_structure(
+                swing_points=swing_points,
+                tf=tf,
+                current_price=current_price,
+                total_candles=len(df),
+                closes=list(closes),
+            )
+            structure_narrative = format_structure_narrative(struct_analysis, current_price)
+            # Если структура дала зону — используем её вместо recent pivots
+            if struct_analysis.zone_high and struct_analysis.zone_low:
+                upper = struct_analysis.zone_high
+                lower = struct_analysis.zone_low
+            if struct_analysis.swing_direction != "sideways":
+                swing_direction = struct_analysis.swing_direction
+            structure_info = {
+                "bos": {
+                    "direction": struct_analysis.bos.direction,
+                    "price": round(struct_analysis.bos.broken_level, 1),
+                } if struct_analysis.bos else None,
+                "prev_structure": {
+                    "direction": struct_analysis.prev_structure.direction,
+                    "high": round(struct_analysis.prev_structure.high, 1),
+                    "low": round(struct_analysis.prev_structure.low, 1),
+                    "pivot_count": struct_analysis.prev_structure.pivot_count,
+                    "candle_count": struct_analysis.prev_structure.candle_count,
+                } if struct_analysis.prev_structure else None,
+                "curr_structure": {
+                    "direction": struct_analysis.curr_structure.direction,
+                    "high": round(struct_analysis.curr_structure.high, 1),
+                    "low": round(struct_analysis.curr_structure.low, 1),
+                    "pivot_count": struct_analysis.curr_structure.pivot_count,
+                    "candle_count": struct_analysis.curr_structure.candle_count,
+                } if struct_analysis.curr_structure else None,
+                "narrative": structure_narrative,
+            }
+        except Exception as e:
+            import logging
+            logging.warning("structure analysis failed for %s %s: %s", symbol, tf, e)
+
         # Recalculate price_position после обновления upper/lower
         width = max(upper - lower, 1e-9)
         price_position = round((current_price - lower) / width, 4)
@@ -424,6 +468,7 @@ def run_benchmark(
             "pattern_tags": tags,
             "pivot_count": pivot_count,
             "levels": zones,
+            "structure": structure_info,
             "summary": f"{tf} {market_mode} near {'resistance' if price_position >= 0.8 else 'support' if price_position <= 0.2 else 'range'}",
         }
 
@@ -448,6 +493,8 @@ def run_benchmark(
             ),
             "swing_points": swing_points,
             "zones": zones,
+            "structure": structure_info,
+            "structure_narrative": structure_narrative,
             "meta": {
                 "regime": regime,
                 "instrument_multiplier": instr_mult,
