@@ -1414,6 +1414,12 @@ async def main():
     ])
     me = await bot.get_me()
     logging.info(f"Dashboard bot: @{me.username} (id={me.id})")
+
+    # Auto-resume autoscan if it was active before restart
+    if _dash_get_setting("autoscan_active", False):
+        logging.info("Autoscan was active — resuming...")
+        _start_autoscan(bot)
+
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
