@@ -305,17 +305,30 @@ def split_structure(
     curr_l = min(curr_l_list) if curr_l_list else current_price
 
     # BUG 1 FIX: Если BOS bullish и curr не обновила high —
-    # подтянуть последний high ДО BOS (пробитый уровень = ceiling).
-    # Если BOS bearish и curr не обновила low — подтянуть последний low ДО BOS.
+    # подтянуть swing high пробитый BOS + max swing high из последнего цикла до BOS.
+    # BOS price = пробитый swing high. Но часто последний реальный swing high
+    # был ДО пробитого (lower high pattern). Берём max из последних N=5 swing highs до BOS.
+    # НЕ берём max всех prev_pivots — там древние экстремумы (78080).
     if bos:
         if bos.direction == "bullish":
-            prev_highs_before_bos = [p["price"] for p in prev_pivots if p["type"] == "high"]
-            if prev_highs_before_bos and curr_h < max(prev_highs_before_bos):
-                curr_h = max(prev_highs_before_bos)
+            broken_high = bos.price
+            prev_highs_before_bos = sorted(
+                [p for p in prev_pivots if p["type"] == "high"],
+                key=lambda p: p["index"],
+            )
+            # Берём max из последних 5 swing highs до BOS (свежий рыночный цикл)
+            recent_highs = prev_highs_before_bos[-5:] if len(prev_highs_before_bos) >= 5 else prev_highs_before_bos
+            max_recent_high = max(p["price"] for p in recent_highs) if recent_highs else broken_high
+            curr_h = max(curr_h, broken_high, max_recent_high)
         elif bos.direction == "bearish":
-            prev_lows_before_bos = [p["price"] for p in prev_pivots if p["type"] == "low"]
-            if prev_lows_before_bos and curr_l > min(prev_lows_before_bos):
-                curr_l = min(prev_lows_before_bos)
+            broken_low = bos.price
+            prev_lows_before_bos = sorted(
+                [p for p in prev_pivots if p["type"] == "low"],
+                key=lambda p: p["index"],
+            )
+            recent_lows = prev_lows_before_bos[-5:] if len(prev_lows_before_bos) >= 5 else prev_lows_before_bos
+            min_recent_low = min(p["price"] for p in recent_lows) if recent_lows else broken_low
+            curr_l = min(curr_l, broken_low, min_recent_low)
 
     # Включаем current_price в range текущей структуры
     h = max(curr_h, current_price)
