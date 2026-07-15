@@ -474,7 +474,9 @@ def run_benchmark(
             structure_info = {
                 "bos": {
                     "direction": struct.bos.direction,
-                    "price": round(struct.bos.broken_level, 1),
+                    "price": round(struct.bos.price, 1),
+                    "broken_level": round(struct.bos.broken_level, 1),
+                    "index": struct.bos.index,
                 } if struct.bos else None,
                 "prev_structure": {
                     "direction": struct.prev_structure.direction,
