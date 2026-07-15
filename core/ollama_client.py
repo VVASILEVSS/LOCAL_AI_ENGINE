@@ -61,10 +61,10 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
   "key_zones": { "resistance": 64245.0, "support": 63640.0 },
   "key_zones_comment": "Resistance 4H, Support 4H",
   "tf_zones": {
-    "15m": { "upper": 63950.0, "lower": 63820.0 },
-    "1h": { "upper": 64100.0, "lower": 63750.0 },
-    "4h": { "upper": 64245.0, "lower": 63640.0 },
-    "1D": { "upper": 64680.0, "lower": 61929.0 }
+    "15m": { "range": [63820.0, 63950.0], "bos_price": 63950.0, "bos_dir": "up", "bos_age": 8 },
+    "1h": { "range": [63750.0, 64100.0], "bos_price": 64100.0, "bos_dir": "up", "bos_age": 12 },
+    "4h": { "range": [63640.0, 64245.0], "bos_price": 64245.0, "bos_dir": "up", "bos_age": 5 },
+    "1D": { "range": [61929.0, 64680.0], "bos_price": 64680.0, "bos_dir": "up", "bos_age": 20 }
   },
   "tf_zones_comment": "Цена внутри всех зон, пробоя нет",
   "tf_span_map": { "15m": 130.0, "1h": 350.0, "4h": 605.0, "1D": 2751.0 },
@@ -117,10 +117,10 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
   "key_zones": { "resistance": 65000.0, "support": 64245.0 },
   "key_zones_comment": "Бывший resistance стал support",
   "tf_zones": {
-    "15m": { "upper": 64400.0, "lower": 64200.0 },
-    "1h": { "upper": 64500.0, "lower": 64100.0 },
-    "4h": { "upper": 65000.0, "lower": 64245.0 },
-    "1D": { "upper": 66000.0, "lower": 63640.0 }
+    "15m": { "range": [64200.0, 64400.0], "bos_price": 64400.0, "bos_dir": "up", "bos_age": 2 },
+    "1h": { "range": [64100.0, 64500.0], "bos_price": 64500.0, "bos_dir": "up", "bos_age": 4 },
+    "4h": { "range": [64245.0, 65000.0], "bos_price": 64245.0, "bos_dir": "up", "bos_age": 1 },
+    "1D": { "range": [63640.0, 66000.0], "bos_price": 66000.0, "bos_dir": "up", "bos_age": 15 }
   },
   "tf_zones_comment": "4H resistance 64245 пробит, стал support",
   "tf_span_map": { "15m": 200.0, "1h": 400.0, "4h": 755.0, "1D": 2360.0 },
@@ -248,7 +248,7 @@ State / history context:
   "key_zones_comment": "краткий комментарий",
 
   "tf_zones": {{
-    "<ТФ>": {{ "upper": <number|null>, "lower": <number|null> }}
+    "<ТФ>": {{ "range": [<low>, <high>], "bos_price": <number|null>, "bos_dir": "up|down|null", "bos_age": <int|null> }}
   }},
   "tf_zones_comment": "краткий комментарий",
 
@@ -312,10 +312,10 @@ State / history context:
    - balance = боковик / сжатие
    - correction = коррекция
 7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
-8. tf_zones и key_zones — АНАЛИЗИРУЙ ПО ГРАФИКАМ. ZigZag контекст — это справочный индикатор (направление, свинги, позиция цены), НЕ готовые зоны для копирования. Определи зоны консолидации визуально по каждому графику. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones.
-8a. Если на графике видна чёткая зона консолидации — используй её. Если зона неопределённа — возьми ближайшие структурные high/low. Пропуск ТФ в tf_zones НЕ допускается.
-8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫМИ lower/upper. Старший ТФ шире, младший уже. D1 ≠ H4 ≠ H1 ≠ M15.
-8c. Зона для каждого ТФ = range от последнего слома структуры (BOS) до текущего момента. НЕ ставь зону = микроканал последних 5-10 свечей. Если видишь сжатие — расширь зону до ближайших структурных high/low.
+8. tf_zones и key_zones — НЕ пересчитывай, НЕ усредняй, НЕ выдумывай. Зоны предвычислены структурно (ZigZag: крайние свинги prev_structure до BOS). Верни ровно те зоны, что пришли в контексте (prev_ctx.tf_zones), в том же формате. Если в контексте {{range: [low, high], bos_price, bos_dir, bos_age}} — верни {{range, bos_price, bos_dir, bos_age}} как есть. Если {{upper, lower}} — верни {{upper, lower}} как есть. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones. Пропуск ТФ НЕ допускается.
+8a. tf_zones.range = [zone_low, zone_high] — range предыдущей структуры до BOS. bos_price = пробитый структурный уровень (broken_level), НЕ точка детекции, НЕ close свечи. bos_dir = "up" (bullish BOS) | "down" (bearish BOS). bos_age = сколько свечей назад произошёл BOS (старость пробоя).
+8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫМИ range/bos. Старший ТФ шире, младший уже. D1 ⊃ 4H ⊃ 1H ⊃ 15M.
+8c. Зона для каждого ТФ = range от последнего слома структуры (BOS) до текущего момента. bos_price — уровень пробоя, bos_age — свежесть пробоя. Молодой BOS (bos_age < 5) = свежий пробой, цена ещё не ушла далеко. Старый BOS (bos_age > 20) = зона устарела, возможен новый BOS.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -332,6 +332,8 @@ State / history context:
 22. При споре между false_breakout и retest выбирай retest.
 23. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
 24. Младший пробой не означает старший пробой.
+25. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
+26. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
 """
 
 
@@ -387,16 +389,42 @@ def parse_llm_json(raw: str) -> dict:
             if key in data:
                 data[key] = _safe_float(data.get(key))
 
-        # Нормализация tf_zones
+        # Нормализация tf_zones (Phase 1 + Phase 2 совместимость)
+        # Phase 2: {range: [low, high], bos_price, bos_dir, bos_age}
+        # Phase 1 (legacy): {upper, lower}
+        # NaN guard: _safe_float("nan") returns float('nan') (truthy, not None) —
+        # нормализуем к None, иначе NaN протекает в JSON-вывод и ломает валидаторы.
+        def _clean_float(val):
+            f = _safe_float(val)
+            if f is not None and f != f:  # NaN check (NaN != NaN)
+                return None
+            return f
+
         if isinstance(data.get("tf_zones"), dict):
             normalized = {}
             for k, v in data["tf_zones"].items():
                 tf_key = str(k).strip().upper().replace("MIN", "M")
                 if isinstance(v, dict):
-                    normalized[tf_key] = {
-                        "upper": _safe_float(v.get("upper")),
-                        "lower": _safe_float(v.get("lower")),
-                    }
+                    entry = {}
+                    rng = v.get("range")
+                    if isinstance(rng, list) and len(rng) == 2:
+                        # Phase 2: извлекаем upper/lower из range
+                        entry["lower"] = _clean_float(rng[0])
+                        entry["upper"] = _clean_float(rng[1])
+                        entry["range"] = [entry["lower"], entry["upper"]]
+                        entry["bos_price"] = _clean_float(v.get("bos_price"))
+                        raw_dir = v.get("bos_dir")
+                        entry["bos_dir"] = raw_dir if raw_dir in ("up", "down") else None
+                        raw_age = v.get("bos_age")
+                        try:
+                            entry["bos_age"] = int(raw_age) if raw_age is not None else None
+                        except (TypeError, ValueError):
+                            entry["bos_age"] = None
+                    else:
+                        # Phase 1 (legacy)
+                        entry["upper"] = _clean_float(v.get("upper"))
+                        entry["lower"] = _clean_float(v.get("lower"))
+                    normalized[tf_key] = entry
                 else:
                     normalized[tf_key] = v
             data["tf_zones"] = normalized
@@ -662,19 +690,53 @@ def enforce_risk_rules(data: dict) -> dict:
             if "/" in tf_key or " " in tf_key:
                 continue
 
-            upper = _safe_float(z.get("upper"))
-            lower = _safe_float(z.get("lower"))
+            # Phase 2: {range: [low, high], bos_price, bos_dir, bos_age}
+            # Phase 1 (legacy): {upper, lower}
+            # Извлекаем upper/lower из range если есть, иначе из upper/lower.
+            rng = z.get("range")
+            upper = None
+            lower = None
+            bos_price = None
+            bos_dir = None
+            bos_age = None
+            is_phase2 = False
+
+            if isinstance(rng, list) and len(rng) == 2:
+                # range = [low, high]
+                lower = _safe_float(rng[0])
+                upper = _safe_float(rng[1])
+                bos_price = _safe_float(z.get("bos_price"))
+                raw_dir = z.get("bos_dir")
+                if raw_dir in ("up", "down"):
+                    bos_dir = raw_dir
+                raw_age = z.get("bos_age")
+                try:
+                    bos_age = int(raw_age) if raw_age is not None else None
+                except (TypeError, ValueError):
+                    bos_age = None
+                is_phase2 = True
+            else:
+                upper = _safe_float(z.get("upper"))
+                lower = _safe_float(z.get("lower"))
 
             if upper is None and lower is None:
                 continue
             if upper is not None and lower is not None and lower > upper:
                 lower, upper = upper, lower
 
-            normalized[tf_key] = {
+            entry = {
                 "upper": upper,
                 "lower": lower,
                 "source": str(z.get("source", "llm")).lower() if z.get("source") else "llm",
             }
+            # Phase 2: сохраняем bos поля для downstream (backtest, state_tracker, narrative)
+            if is_phase2:
+                entry["range"] = [lower, upper] if (lower is not None and upper is not None) else None
+                entry["bos_price"] = bos_price
+                entry["bos_dir"] = bos_dir
+                entry["bos_age"] = bos_age
+
+            normalized[tf_key] = entry
 
         return dict(sorted(normalized.items(), key=lambda item: order.get(item[0], 99)))
 
@@ -900,7 +962,80 @@ def enforce_risk_rules(data: dict) -> dict:
     data["tf_zones"] = _normalize_tf_zones(data.get("tf_zones") or {})
 
     # -----------------------------
-    # 2a) Валидация матрёшки зон + ограничение D1
+    # 1b) Контаминация зон: если LLM скопировал D1 lower в младшие ТФ —
+    # заменить на zigzag_context zone для этого ТФ.
+    # Симптом: lower(child) == lower(parent) в пределах tolerance.
+    # Z сказал: ZigZag benchmark корректный (per-TF independent).
+    # -----------------------------
+    def _detect_contamination(tf_zones: dict, data: dict) -> dict:
+        if not isinstance(tf_zones, dict) or len(tf_zones) < 2:
+            return tf_zones
+
+        zz_ctx = data.get("zigzag_context") or {}
+        if not isinstance(zz_ctx, dict):
+            return tf_zones
+        zz_tfs = zz_ctx.get("timeframes") or {}
+        if not isinstance(zz_tfs, dict):
+            return tf_zones
+
+        # Иерархия: parent → child
+        nesting = [("1D", "4H"), ("4H", "1H"), ("1H", "15M"), ("15M", "5M")]
+        # 0.5% tolerance — зона считается "прилипшей" к parent lower
+        tol_pct = 0.005
+        price = data.get("price") or data.get("current_price") or 0.0
+        price_safe = price if price > 0 else 1.0
+
+        # Снапшот оригинальных lower ДО фиксов — иначе при последовательном
+        # исправлении H4 lower меняется, и пара (4H→1H) не детектирует H1.
+        original_lowers = {}
+        for tf_key, z in tf_zones.items():
+            if isinstance(z, dict):
+                original_lowers[tf_key] = z.get("lower")
+
+        fixed_count = 0
+        for parent_tf, child_tf in nesting:
+            parent = tf_zones.get(parent_tf)
+            child = tf_zones.get(child_tf)
+            if not isinstance(parent, dict) or not isinstance(child, dict):
+                continue
+            p_lower = original_lowers.get(parent_tf)
+            c_lower = original_lowers.get(child_tf)
+            if p_lower is None or c_lower is None:
+                continue
+
+            # Детектор контаминации: child lower ≈ parent lower (по оригиналам)
+            lower_diff = abs(p_lower - c_lower) / price_safe
+            if lower_diff < tol_pct:
+                # Контаминация! Ищем правильную зону в zigzag_context
+                zz_tf_data = None
+                for zz_key in (child_tf, child_tf.lower(), child_tf.replace("M", "m").replace("H", "h").replace("D", "d")):
+                    if zz_key in zz_tfs:
+                        zz_tf_data = zz_tfs[zz_key]
+                        break
+                if isinstance(zz_tf_data, dict):
+                    fb_lower = _safe_float(zz_tf_data.get("lower"))
+                    fb_upper = _safe_float(zz_tf_data.get("upper"))
+                    if fb_lower is not None and fb_upper is not None and fb_upper > fb_lower:
+                        logging.warning(
+                            "CONTAMINATION FIX: %s lower=%.2f == %s lower=%.2f (contamination) "
+                            "→ replacing with ZigZag zone [%.2f - %.2f]",
+                            child_tf, c_lower, parent_tf, p_lower, fb_lower, fb_upper,
+                        )
+                        child["lower"] = fb_lower
+                        child["upper"] = fb_upper
+                        child["source"] = "zigzag_anticontamination"
+                        if "range" in child:
+                            child["range"] = [fb_lower, fb_upper]
+                        fixed_count += 1
+
+        if fixed_count:
+            logging.info("CONTAMINATION: fixed %d zone(s) from ZigZag context", fixed_count)
+        return tf_zones
+
+    data["tf_zones"] = _detect_contamination(data["tf_zones"], data)
+
+    # -----------------------------
+    # 2) Валидация матрёшки зон + ограничение D1
     # -----------------------------
     def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
         """
@@ -968,6 +1103,19 @@ def enforce_risk_rules(data: dict) -> dict:
                 child["lower"] = p_lower
             if c_upper is not None and p_upper is not None and c_upper > p_upper:
                 child["upper"] = p_upper
+
+        # Phase 2 sync: после сдвигов upper/lower синхронизируем range.
+        # Если upper/lower были изменены валидатором, range должен следовать.
+        for tf_key, z in tf_zones.items():
+            if not isinstance(z, dict):
+                continue
+            if "range" in z:
+                z_low = z.get("lower")
+                z_high = z.get("upper")
+                if z_low is not None and z_high is not None:
+                    z["range"] = [z_low, z_high]
+                else:
+                    z["range"] = None
 
         return tf_zones
 
@@ -1088,18 +1236,10 @@ def enforce_risk_rules(data: dict) -> dict:
                         break
                 if not isinstance(zz_tf_data, dict):
                     continue
-                # Приоритет: structure zone > raw upper/lower
-                struct = zz_tf_data.get("structure")
-                fb_upper = fb_lower = None
-                if isinstance(struct, dict):
-                    # curr_structure zone (после BOS — структурный range)
-                    curr = struct.get("curr_structure")
-                    if isinstance(curr, dict):
-                        fb_upper = _safe_float(curr.get("high"))
-                        fb_lower = _safe_float(curr.get("low"))
-                if fb_upper is None or fb_lower is None:
-                    fb_upper = _safe_float(zz_tf_data.get("upper"))
-                    fb_lower = _safe_float(zz_tf_data.get("lower"))
+                # Приоритет: TF-level upper/lower (полная зона с parent constraint)
+                # > structure zone > raw upper/lower
+                fb_upper = _safe_float(zz_tf_data.get("upper"))
+                fb_lower = _safe_float(zz_tf_data.get("lower"))
                 if fb_upper is not None and fb_lower is not None and fb_upper > fb_lower:
                     logging.info(
                         "FALLBACK: %s zone from ZigZag structure: [%.2f - %.2f]",
@@ -1358,7 +1498,17 @@ def enforce_risk_rules(data: dict) -> dict:
             lower = _safe_float(z.get("lower"))
             if upper is not None and lower is not None and lower > upper:
                 lower, upper = upper, lower
-            merged_tf_zones[tf_key] = {"upper": upper, "lower": lower}
+            entry = {"upper": upper, "lower": lower}
+            # Phase 2: сохраняем bos поля и range при merge
+            if "range" in z:
+                entry["range"] = [lower, upper] if (lower is not None and upper is not None) else None
+            for bos_key in ("bos_price", "bos_dir", "bos_age"):
+                if bos_key in z:
+                    entry[bos_key] = z[bos_key]
+            # source тоже сохраняем
+            if "source" in z:
+                entry["source"] = z["source"]
+            merged_tf_zones[tf_key] = entry
 
         # keep individual tf zones — visual grouping is done in format_json_for_tg
         data["tf_zones"] = merged_tf_zones
@@ -2086,10 +2236,23 @@ def format_json_for_tg(data: dict) -> str:
     if ordered:
         # Каждый ТФ на отдельной строке — без группировки через "/".
         # Группировка создавала путаницу: "D1/H4" выглядело как баг.
+        # Phase 2: показываем оба уровня зоны + BOS-уровень (Z's request):
+        #   • 1D: [55000 - 64680] | BOS↑ 64680 (age=20)
+        # Zone = [prev swing low - prev swing high] до BOS.
+        # bos_price = broken_level = пробитый уровень (где был BOS).
         for tf, z in ordered:
             upper = z.get("upper")
             lower = z.get("lower")
-            tf_block.append(f"• {tf}: [{_format_num(lower)} - {_format_num(upper)}]")
+            zone_str = f"• {tf}: [{_format_num(lower)} - {_format_num(upper)}]"
+            # Phase 2: добавляем BOS-уровень если есть
+            bos_price = z.get("bos_price")
+            bos_dir = z.get("bos_dir")
+            bos_age = z.get("bos_age")
+            if bos_price is not None:
+                dir_arrow = "↑" if bos_dir == "up" else "↓" if bos_dir == "down" else "•"
+                age_str = f" age={bos_age}" if bos_age is not None else ""
+                zone_str += f" | BOS{dir_arrow} {_format_num(bos_price)}{age_str}"
+            tf_block.append(zone_str)
     else:
         tf_block.append("• Нет")
 
@@ -2398,6 +2561,12 @@ async def analyze_multi_images(
     # Пробрасываем liquidity_pools из prev_analysis в data для enforce_risk_rules
     if isinstance(prev_analysis, dict) and prev_analysis.get("liquidity_pools"):
         final["liquidity_pools"] = prev_analysis["liquidity_pools"]
+
+    # Пробрасываем zigzag_context из prev_analysis в data для enforce_risk_rules.
+    # LLM output не содержит zigzag_context — он был в промпте (prev_analysis).
+    # Без этого _detect_contamination не видит per-TF ZigZag zones и не фиксит контаминацию.
+    if isinstance(prev_analysis, dict) and prev_analysis.get("zigzag_context"):
+        final["zigzag_context"] = prev_analysis["zigzag_context"]
 
     final = enforce_risk_rules(final)
     final["error"] = False

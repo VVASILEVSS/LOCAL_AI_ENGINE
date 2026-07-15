@@ -1,0 +1,609 @@
+# Patch: Real ZigZag pivot detection (bd9ab4c)
+
+**От:** Super Z
+**Дата:** 2026-07-14
+**Коммит:** bd9ab4c (существует только в контейнере Super Z)
+**База:** 104c035 (HEAD на origin/main)
+
+---
+
+## Применение
+
+```bash
+# 1. Заменить файл полностью:
+cp <этот_файл_распакованный> core/zigzag/benchmark_zigzag.py
+
+# 2. Применить мелкий diff к ollama_client.py:
+git apply ollama_dead_code_fix.diff
+```
+
+---
+
+## Файл 1: core/zigzag/benchmark_zigzag.py (ПОЛНАЯ ЗАМЕНА)
+
+528 строк. Ключевые изменения vs 104c035:
+
+1. **Новые константы** (строки 6-11):
+   - `_PIVOT_DEPTH` — адаптивный depth по ТФ: D1=8, H4=6, H1=5, 15m=3, 5m=2
+   - `_PIVOT_ATR_K = 0.5` — множитель ATR для фильтра шума
+
+2. **Новая функция `_find_real_pivots()`** (строки 88-168):
+   - Local extremum detection: `highs[i] == max(highs[i-depth:i+depth+1])`
+   - Dedup: подряд идущие пивоты одного типа с разницей < 0.1% → оставляем экстремум
+   - ATR distance filter: соседние пивоты ближе `k * ATR` → удаляем менее значимый
+
+3. **Новая функция `_derive_swing_direction()`** (строки 171-197):
+   - Direction из реальных пивотов, не hardcoded bias
+   - Последний pivot = high, цена ниже → bearish; последний = low, цена выше → bullish
+
+4. **Изменён `run_benchmark()`** (строки 348-398):
+   - Вызов `_find_real_pivots()` вместо фейка alternating high/low
+   - `swing_direction` из `_derive_swing_direction()`
+   - `market_bias = swing_direction` (не hardcoded "bearish" для 15m/4h/1d)
+   - `pivot_count = len(swing_points)` (не формула `len(df)/25 * mult`)
+   - `upper/lower` из недавних пивотов (последние 40%), не raw max/min за 200 свечей
+   - Recalculate `price_position`, `channel_state`, `breakout_state` после обновления
+
+### Полный код:
+
+```python
+import ccxt
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
+
+# Adaptive pivot depth per timeframe — larger TF = wider window
+_PIVOT_DEPTH: Dict[str, int] = {
+    "1d": 8, "4h": 6, "1h": 5, "15m": 3, "5m": 2,
+}
+# Minimum inter-pivot distance as ATR multiplier
+_PIVOT_ATR_K: float = 0.5
+
+from core.utils import is_futures
+
+
+def _normalize_symbol(symbol: str) -> str:
+    return symbol.replace("/", "").upper().strip()
+
+
+def _tf_multiplier(timeframe: str) -> float:
+    tf = timeframe.lower().strip()
+    if tf in ("1d", "d1", "1day"):
+        return 1.15
+    if tf in ("4h", "h4", "4"):
+        return 1.08
+    if tf in ("1h", "h1", "1"):
+        return 1.0
+    if tf in ("15m", "m15", "15"):
+        return 0.9
+    return 1.0
+
+
+def _regime_from_atr(price: float, atr: float) -> str:
+    if price <= 0 or atr <= 0:
+        return "medium"
+    ratio = atr / price
+    if ratio < 0.005:
+        return "low"
+    if ratio < 0.015:
+        return "medium"
+    return "high"
+
+
+def _instrument_multiplier(symbol: str) -> float:
+    s = _normalize_symbol(symbol)
+    if "BTC" in s:
+        return 1.0
+    if "ETH" in s:
+        return 0.95
+    if "XAU" in s or "GOLD" in s:
+        return 0.85
+    return 0.9
+
+
+def _cluster_levels(levels: List[float], tolerance_ratio: float = 0.0035) -> List[Dict[str, Any]]:
+    if not levels:
+        return []
+    levels = sorted(levels)
+    clusters: List[Dict[str, Any]] = []
+    for price in levels:
+        placed = False
+        for c in clusters:
+            center = c["center"]
+            tol = max(center * tolerance_ratio, 1e-9)
+            if abs(price - center) <= tol:
+                c["levels"].append(price)
+                c["center"] = sum(c["levels"]) / len(c["levels"])
+                placed = True
+                break
+        if not placed:
+            clusters.append({"center": price, "levels": [price]})
+    for c in clusters:
+        c["count"] = len(c["levels"])
+        c["spread"] = round(max(c["levels"]) - min(c["levels"]), 6) if len(c["levels"]) > 1 else 0.0
+        c["strength"] = round(c["count"] + max(0.0, 3.0 - c["spread"]), 3)
+    clusters.sort(key=lambda x: (x["count"], x["strength"]), reverse=True)
+    return clusters
+
+
+def _extract_levels(tf_result: Dict[str, Any]) -> List[float]:
+    zones = tf_result.get("zones") or tf_result.get("levels") or {}
+    levels = []
+    levels.extend(zones.get("resistance", []) or [])
+    levels.extend(zones.get("support", []) or [])
+    return [float(x) for x in levels if isinstance(x, (int, float))]
+
+
+def _find_real_pivots(
+    highs: np.ndarray,
+    lows: np.ndarray,
+    depth: int = 3,
+    min_atr_distance: float = 0.0,
+) -> List[Dict[str, Any]]:
+    """
+    Реальные swing highs/lows через локальный экстремум.
+    Candle[i] = pivot high если highs[i] = max(highs[i-depth:i+depth+1]).
+    Аналогично для pivot lows.
+
+    Args:
+        highs: массив high цен
+        lows: массив low цен
+        depth: окно поиска (адаптивно по ТФ)
+        min_atr_distance: минимальное расстояние между пивотами (в ценах).
+            Фильтрует шум в боковике. 0 = без фильтра.
+
+    Returns:
+        Список пивотов [{"index": int, "type": "high"|"low", "price": float}]
+        отсортированных по index.
+    """
+    pivots_h: List[Tuple[int, float]] = []
+    pivots_l: List[Tuple[int, float]] = []
+    n = len(highs)
+
+    for i in range(depth, n - depth):
+        window_h = highs[i - depth : i + depth + 1]
+        window_l = lows[i - depth : i + depth + 1]
+        if highs[i] == np.max(window_h):
+            pivots_h.append((i, float(highs[i])))
+        if lows[i] == np.min(window_l):
+            pivots_l.append((i, float(lows[i])))
+
+    # Merge + sort by index
+    all_pivots: List[Dict[str, Any]] = []
+    for idx, price in pivots_h:
+        all_pivots.append({"index": int(idx), "type": "high", "price": round(price, 2)})
+    for idx, price in pivots_l:
+        all_pivots.append({"index": int(idx), "type": "low", "price": round(price, 2)})
+    all_pivots.sort(key=lambda p: p["index"])
+
+    # Dedup: подряд идущие пивоты одного типа с разницей < 0.1% → оставляем экстремум
+    deduped: List[Dict[str, Any]] = []
+    for p in all_pivots:
+        if deduped:
+            last = deduped[-1]
+            if (last["type"] == p["type"]
+                    and last["price"] > 0
+                    and abs(p["price"] - last["price"]) / last["price"] < 0.001):
+                # Оставляем тот, что экстремальнее
+                if p["type"] == "high" and p["price"] > last["price"]:
+                    deduped[-1] = p
+                elif p["type"] == "low" and p["price"] < last["price"]:
+                    deduped[-1] = p
+                continue
+        deduped.append(p)
+
+    # ATR distance filter: если два соседних пивота ближе чем min_atr_distance →
+    # удаляем менее значимый (ближе к центру диапазона)
+    if min_atr_distance > 0 and len(deduped) > 2:
+        filtered: List[Dict[str, Any]] = [deduped[0]]
+        for i in range(1, len(deduped)):
+            prev = filtered[-1]
+            curr = deduped[i]
+            dist = abs(curr["price"] - prev["price"])
+            if dist < min_atr_distance:
+                # Удаляем тот, чья цена ближе к среднему между prev-prev и curr-next
+                # (если есть соседи)
+                if len(filtered) >= 2:
+                    mid = (filtered[-2]["price"] + curr["price"]) / 2
+                else:
+                    mid = curr["price"]
+                if abs(prev["price"] - mid) < abs(curr["price"] - mid):
+                    filtered[-1] = curr  # prev ближе к центру → заменяем
+                # else: curr ближе к центру → skip curr
+            else:
+                filtered.append(curr)
+        deduped = filtered
+
+    return deduped
+
+
+def _derive_swing_direction(pivots: List[Dict[str, Any]], current_price: float) -> str:
+    """Определяет направление на основе последних 2-3 реальных пивотов.
+
+    Если последний pivot = high и цена ниже него → bearish (откат от сопротивления).
+    Если последний pivot = low и цена выше него → bullish (отскок от поддержки).
+    """
+    if len(pivots) < 2:
+        return "sideways"
+
+    last = pivots[-1]
+    prev = pivots[-2]
+
+    # Последний пивот = high → цена под ним = медвежий откат
+    if last["type"] == "high":
+        return "bearish" if current_price < last["price"] else "bullish"
+    # Последний пивот = low → цена над ним = бычий отскок
+    if last["type"] == "low":
+        return "bullish" if current_price > last["price"] else "bearish"
+
+    # Fallback: по тренду последних пивотов
+    if len(pivots) >= 3:
+        if (pivots[-1]["price"] > pivots[-2]["price"] > pivots[-3]["price"]):
+            return "bullish"
+        if (pivots[-1]["price"] < pivots[-2]["price"] < pivots[-3]["price"]):
+            return "bearish"
+
+    return "sideways"
+
+
+def _build_level_confluence(tf_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+    all_levels: List[float] = []
+    for result in tf_results.values():
+        all_levels.extend(_extract_levels(result))
+    clusters = _cluster_levels(all_levels)
+
+    confluence: List[Dict[str, Any]] = []
+    for c in clusters:
+        touched_tfs = []
+        for tf, result in tf_results.items():
+            levels = _extract_levels(result)
+            if any(abs(l - c["center"]) <= max(c["center"] * 0.0035, 1e-9) for l in levels):
+                touched_tfs.append(tf)
+
+        touched_tfs = list(dict.fromkeys(touched_tfs))
+        priority = "high" if len(touched_tfs) >= 3 else "medium" if len(touched_tfs) == 2 else "low"
+        if priority == "low" and c["count"] < 2:
+            continue
+
+        confluence.append(
+            {
+                "level": round(c["center"], 2),
+                "count": c["count"],
+                "spread": round(c["spread"], 2),
+                "strength": c["strength"],
+                "timeframes": touched_tfs,
+                "priority": priority,
+            }
+        )
+
+    confluence.sort(key=lambda x: ({"high": 3, "medium": 2, "low": 1}.get(x["priority"], 0), len(x["timeframes"]), x["count"], x["strength"]), reverse=True)
+    return confluence
+
+
+def _classify_structure(direction: str, price_position: float, tf: str, market_bias: str) -> str:
+    tf = tf.lower().strip()
+    direction = (direction or "unknown").lower()
+
+    if direction == "bullish":
+        if market_bias == "bearish":
+            return "bullish_correction"
+        if price_position >= 0.72:
+            return "bullish_extension"
+        if price_position >= 0.45:
+            return "bullish_trend"
+        return "bullish_recovery"
+
+    if direction == "bearish":
+        if market_bias == "bullish":
+            return "bearish_correction"
+        if price_position <= 0.28:
+            return "bearish_extension"
+        if price_position <= 0.55:
+            return "bearish_trend"
+        return "bearish_recovery"
+
+    return "sideways"
+
+
+def _pattern_tags(direction: str, price_position: float, breakout_state: str, channel_state: str, market_bias: str) -> List[str]:
+    tags: List[str] = []
+    if breakout_state == "inside_channel":
+        tags.append("range_context")
+    elif breakout_state == "inside_upper_zone":
+        tags.append("upper_pressure")
+    elif breakout_state == "inside_lower_zone":
+        tags.append("lower_pressure")
+
+    if direction == "bullish" and market_bias == "bearish":
+        tags.append("bullish_correction")
+    elif direction == "bearish" and market_bias == "bullish":
+        tags.append("bearish_correction")
+    elif direction == "bullish":
+        tags.append("bullish_structure")
+    elif direction == "bearish":
+        tags.append("bearish_structure")
+    else:
+        tags.append("no_clear_pattern")
+
+    if channel_state in ("upper_zone", "lower_zone"):
+        tags.append("compression")
+
+    if price_position >= 0.8:
+        tags.append("near_resistance")
+    elif price_position <= 0.2:
+        tags.append("near_support")
+
+    return list(dict.fromkeys(tags))
+
+
+def run_benchmark(
+    symbol: str,
+    market_type: str = "future",
+    timeframes: Optional[List[str]] = None,
+    limit: int = 200,
+    mode: str = "hybrid_atr",
+    length: Optional[int] = None,
+    percent: Optional[float] = None,
+    confirmation_mode: str = "close",
+    debug: bool = False,
+    output: Optional[str] = None,
+    output_mode: str = "compact",
+) -> Dict[str, Any]:
+    if timeframes is None:
+        timeframes = ["15m", "1h", "4h", "1d"]
+
+    normalized_symbol = _normalize_symbol(symbol)
+    exchange = ccxt.binance({"options": {"defaultType": market_type}})
+    tf_results: Dict[str, Dict[str, Any]] = {}
+
+    print(f"\n=== ZIGZAG BENCHMARK: {symbol} ===")
+    print(
+        f"settings: market_type={market_type}, mode={mode}, length={length}, percent={percent}, "
+        f"confirmation_mode={confirmation_mode}, limit={limit}, debug={debug}"
+    )
+
+    for tf in timeframes:
+        try:
+            # Binance принимает lowercase timeframe ('1d', '4h', '1h', '15m').
+            # forecasts.db хранит '1D' (uppercase) — нормализуем.
+            tf_norm = tf.lower()
+            bars = exchange.fetch_ohlcv(symbol, tf_norm, limit=limit)
+        except Exception as e:
+            print(f"  {tf}: fetch failed ({type(e).__name__}), skipping")
+            continue
+        if not bars or len(bars) < 5:
+            print(f"  {tf}: insufficient data ({len(bars) if bars else 0} bars), skipping")
+            continue
+        df = pd.DataFrame(bars, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+
+        highs = df["high"].astype(float).to_numpy()
+        lows = df["low"].astype(float).to_numpy()
+        closes = df["close"].astype(float).to_numpy()
+
+        current_price = float(closes[-1])
+
+        atr = pd.Series(highs - lows).rolling(14, min_periods=1).mean().iloc[-1]
+        regime = _regime_from_atr(current_price, float(atr))
+        instr_mult = _instrument_multiplier(symbol)
+        tf_mult = _tf_multiplier(tf)
+
+        # Initial upper/lower = raw extremes (fallback if no pivots found)
+        upper = float(np.max(highs))
+        lower = float(np.min(lows))
+        width = max(upper - lower, 1e-9)
+        price_position = round((current_price - lower) / width, 4)
+
+        # ── Real pivot detection (заменяет фейк alternating high/low) ──
+        tf_lower = tf.lower().strip()
+        depth = _PIVOT_DEPTH.get(tf_lower, 3)
+        min_atr_dist = float(atr) * _PIVOT_ATR_K if atr > 0 else 0.0
+        swing_points = _find_real_pivots(highs, lows, depth=depth, min_atr_distance=min_atr_dist)
+
+        # swing_direction — из реальных пивотов, не из hardcoded bias
+        if len(swing_points) >= 2:
+            swing_direction = _derive_swing_direction(swing_points, current_price)
+        else:
+            # Fallback: слишком мало пивотов — определяем по позиции в канале
+            swing_direction = ("bullish" if price_position >= 0.55
+                               else "bearish" if price_position <= 0.45
+                               else "sideways")
+
+        market_bias = swing_direction  # bias = реальный direction, не hardcoded
+        pivot_count = len(swing_points)
+
+        # upper/lower — из реальных пивотов (последние значимые), не raw max/min
+        pivot_highs = [p["price"] for p in swing_points if p["type"] == "high"]
+        pivot_lows = [p["price"] for p in swing_points if p["type"] == "low"]
+        if pivot_highs and pivot_lows:
+            # Берём недавние пивоты (последние 40% выборки)
+            cutoff_idx = int(len(df) * 0.6)
+            recent_h = [p["price"] for p in swing_points
+                        if p["type"] == "high" and p["index"] >= cutoff_idx]
+            recent_l = [p["price"] for p in swing_points
+                        if p["type"] == "low" and p["index"] >= cutoff_idx]
+            upper = max(recent_h) if recent_h else max(pivot_highs)
+            lower = min(recent_l) if recent_l else min(pivot_lows)
+        # else: оставляем raw upper/lower (нет пивотов = нет данных)
+
+        # Recalculate price_position после обновления upper/lower
+        width = max(upper - lower, 1e-9)
+        price_position = round((current_price - lower) / width, 4)
+
+        if price_position >= 0.62:
+            channel_state = "upper_zone"
+        elif price_position <= 0.38:
+            channel_state = "lower_zone"
+        else:
+            channel_state = "mid_channel"
+
+        breakout_state = "inside_channel"
+        if price_position >= 0.82:
+            breakout_state = "inside_upper_zone"
+        elif price_position <= 0.18:
+            breakout_state = "inside_lower_zone"
+
+        market_mode = _classify_structure(swing_direction, price_position, tf, market_bias)
+        tags = _pattern_tags(swing_direction, price_position, breakout_state, channel_state, market_bias)
+
+        upper_res = round(upper, 1)
+        lower_sup = round(lower, 1)
+
+        zones = {
+            "resistance": sorted(list({
+                round(upper_res, 1),
+                round(upper_res * 0.992, 1),
+                round(upper_res * 0.985, 1),
+            }), reverse=True),
+            "support": sorted(list({
+                round(lower_sup, 1),
+                round(lower_sup * 1.008, 1),
+                round(lower_sup * 1.015, 1),
+            })),
+        }
+
+        compact_result = {
+            "tf": tf,
+            "current_price": round(current_price, 1),
+            "price_position": price_position,
+            "upper": round(upper, 1),
+            "lower": round(lower, 1),
+            "market_mode": market_mode,
+            "swing_direction": swing_direction,
+            "pattern_tags": tags,
+            "pivot_count": pivot_count,
+            "levels": zones,
+            "summary": f"{tf} {market_mode} near {'resistance' if price_position >= 0.8 else 'support' if price_position <= 0.2 else 'range'}",
+        }
+
+        full_result = {
+            "symbol": symbol,
+            "timeframe": tf,
+            "swing_direction": swing_direction,
+            "upper": round(upper, 1),
+            "lower": round(lower, 1),
+            "channel_state": channel_state,
+            "breakout_state": breakout_state,
+            "market_mode": market_mode,
+            "price_position": price_position,
+            "pattern_tags": tags,
+            "pivot_count": pivot_count,
+            "current_price": round(current_price, 1),
+            "atr_last": round(float(atr), 6),
+            "summary": (
+                f"TF={tf}; mode={mode}; dir={swing_direction}; pivots={pivot_count}; pos={price_position}; "
+                f"price={current_price}; atr={atr}; width={round(width, 1)}; patterns={','.join(tags)}; "
+                f"regime={regime}; instrument_multiplier={instr_mult}; tf_multiplier={tf_mult}"
+            ),
+            "swing_points": swing_points,
+            "zones": zones,
+            "meta": {
+                "regime": regime,
+                "instrument_multiplier": instr_mult,
+                "tf_multiplier": tf_mult,
+            },
+        }
+
+        tf_results[tf] = compact_result if output_mode == "compact" and not debug else full_result
+
+        print(f"\n--- {tf.upper()} ---")
+        print(tf_results[tf])
+
+    directions = {tf: r["swing_direction"] for tf, r in tf_results.items()}
+    bull = sum(1 for d in directions.values() if d == "bullish")
+    bear = sum(1 for d in directions.values() if d == "bearish")
+
+    stack_bias = "bullish" if bull > bear else "bearish" if bear > bull else "mixed"
+    alignment = "aligned" if (bull == 0 or bear == 0) else "mixed"
+    dominant_tf = "1h" if "1h" in tf_results else (timeframes[0] if timeframes else "1h")
+
+    stack = {
+        "stack_bias": stack_bias,
+        "alignment": alignment,
+        "dominant_tf": dominant_tf,
+        "directions": directions,
+        "market_modes": {tf: r["market_mode"] for tf, r in tf_results.items()},
+        "breakout_states": {tf: r.get("breakout_state", "inside_channel") for tf, r in tf_results.items()},
+        "channel_states": {tf: r.get("channel_state", "mid_channel") for tf, r in tf_results.items()},
+        "summary": f"stack_bias={stack_bias}; alignment={alignment}; dominant_tf={dominant_tf}; " + " ".join(f"{tf}:{directions[tf]}" for tf in timeframes if tf in directions),
+    }
+
+    confluence = _build_level_confluence({tf: (tf_results[tf] if isinstance(tf_results[tf], dict) else {}) for tf in tf_results})
+
+    payload = {
+        "symbol": symbol,
+        "market_type": market_type,
+        "normalized_symbol": normalized_symbol,
+        "settings": {
+            "mode": mode,
+            "length": length,
+            "percent": percent,
+            "confirmation_mode": confirmation_mode,
+            "limit": limit,
+            "debug": debug,
+            "output_mode": output_mode,
+        },
+        "timeframes": tf_results,
+        "stack": stack,
+        "confluence_levels": confluence,
+    }
+
+    print("\n=== MULTI-TF STACK SUMMARY ===")
+    print(stack)
+
+    return payload
+```
+
+---
+
+## Файл 2: core/ollama_client.py (ТОЛЬКО ИЗМЕНЁННЫЙ УЧАСТОК)
+
+**Файл:** `core/ollama_client.py`
+**Функция:** `enforce_risk_rules()` → `_validate_min_span()`
+**Строки:** ~1056-1061
+
+### Было (104c035):
+```python
+            if span_pct < min_pct:
+                # Не удаляем — помечаем. Dashboard/web увидит mark и подставит fallback.
+                z["_min_span_rejected"] = True
+                z["_min_span_actual"] = round(span_pct, 6)
+                z["_min_span_required"] = min_pct
+                del tf_zones[tf_key]
+```
+
+### Стало (bd9ab4c):
+```python
+            if span_pct < min_pct:
+                logging.info(
+                    "POST-LLM: %s zone too narrow: %.4f%% < min %.4f%%, removing",
+                    tf_key, span_pct * 100, min_pct * 100,
+                )
+                del tf_zones[tf_key]
+```
+
+### Diff:
+```diff
+--- a/core/ollama_client.py
++++ b/core/ollama_client.py
+@@ -1054,10 +1054,10 @@ def enforce_risk_rules(data: dict) -> dict:
+             span_pct = abs(upper - lower) / price
+             min_pct = min_span_pct.get(tf_key, 0.002)
+             if span_pct < min_pct:
+-                # Не удаляем — помечаем. Dashboard/web увидит mark и подставит fallback.
+-                z["_min_span_rejected"] = True
+-                z["_min_span_actual"] = round(span_pct, 6)
+-                z["_min_span_required"] = min_pct
++                logging.info(
++                    "POST-LLM: %s zone too narrow: %.4f%% < min %.4f%%, removing",
++                    tf_key, span_pct * 100, min_pct * 100,
++                )
+                 del tf_zones[tf_key]
+         return tf_zones
+```
+
+---
+
+## Файл 3: exchange/inbox/2026-07-14_ответ-z-ревью-96cff81-реальный-zigzag-bos.md
+
+Ответное письмо Hermes с ответами на 7 вопросов + road-map D. Добавить в `exchange/inbox/`.

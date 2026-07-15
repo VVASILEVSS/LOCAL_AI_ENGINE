@@ -474,7 +474,9 @@ def run_benchmark(
             structure_info = {
                 "bos": {
                     "direction": struct.bos.direction,
-                    "price": round(struct.bos.broken_level, 1),
+                    "price": round(struct.bos.price, 1),
+                    "broken_level": round(struct.bos.broken_level, 1),
+                    "index": struct.bos.index,
                 } if struct.bos else None,
                 "prev_structure": {
                     "direction": struct.prev_structure.direction,
@@ -496,6 +498,8 @@ def run_benchmark(
                 "targets": struct.targets,
                 "parent_tf": struct.parent_tf,
                 "chain_broken": struct.chain_broken,
+                "zone_high": round(struct.zone_high, 1) if struct.zone_high else None,
+                "zone_low": round(struct.zone_low, 1) if struct.zone_low else None,
             }
 
         compact_result = {

@@ -71,7 +71,7 @@ class StructureAnalysis:
     targets: List[Dict[str, Any]] = field(default_factory=list)
     # T1: Top-down metadata
     parent_tf: Optional[str] = None
-    chain_broken: bool = False  # True если parent_zone violated >10%
+    chain_broken: bool = False  # Reserved: всегда False (жёсткий parent constraint)
 
 
 def detect_bos(
@@ -256,10 +256,13 @@ def split_structure(
     # Текущая структура: от BOS до конца
     curr_pivots = [p for p in swing_points if p["index"] >= bos_idx]
 
-    # Prev structure
+    # Prev structure: АБСОЛЮТНЫЕ экстремумы за весь период до BOS.
+    # Зона = полный видимый structural range (все пивоты до BOS).
+    # Старший ТФ задаёт границы, младшие наследуют через parent constraint.
+    # Пример: BTC D1 → prev_high = max всех highs до BOS, prev_low = min всех lows.
     prev = None
     if prev_pivots:
-        # АБСОЛЮТНЫЕ экстремумы за весь период до BOS — зона = полная структурная ranged
+        # АБСОЛЮТНЫЕ экстремумы за весь период до BOS — зона = полная структурная range.
         # НЕ зацикливаемся на ТФ, работаем по структуре, старший ТФ в приоритете.
         prev_highs = [p for p in prev_pivots if p["type"] == "high"]
         prev_lows = [p for p in prev_pivots if p["type"] == "low"]
@@ -402,11 +405,16 @@ def analyze_tf_structure(
         swing_points, bos, total_candles, current_price
     )
 
-    # Зона = range текущей структуры (или всей выборки если BOS нет)
+    # Зона = range текущей И предыдущей структуры.
+    # prev_struct.high часто содержит значимый LH/HH который формирует
+    # верхнюю границу видимого range (например D1 high = 82850 из мая).
     if curr_struct:
         zone_high = curr_struct.high
         zone_low = curr_struct.low
         swing_dir = curr_struct.direction
+        if prev_struct:
+            zone_high = max(zone_high, prev_struct.high)
+            zone_low = min(zone_low, prev_struct.low)
     else:
         zone_high = current_price
         zone_low = current_price
@@ -418,29 +426,25 @@ def analyze_tf_structure(
     elif swing_points:
         active_pivots = len(swing_points)
 
-    # ── T1: Soft clamp к parent_zone ──
+    # ── T1: Parent constraint — ребёнок ВНУТРИ parent, но сохраняет свои границы ──
+    # При Variant E (ZigZag authoritative) каждый TF должен иметь СВОИ zone boundaries.
+    # Старший ТФ задаёт абсолютные рамки, но НЕ перезаписывает child boundaries.
     chain_broken = False
     if parent_zone is not None:
         p_low, p_high = parent_zone
-        # Если zone выходит за parent > 10% — possible parent BOS break
-        if zone_high > p_high * 1.10:
-            logging.warning(
-                "TOPDOWN: %s zone_high %.1f exceeds parent %s %.1f by >10%% "
-                "— possible parent BOS break, chain broken",
+        if zone_high > p_high:
+            logging.info(
+                "TOPDOWN: %s zone_high %.1f clamped to parent %s %.1f",
                 tf, zone_high, parent_tf or "?", p_high,
             )
-            chain_broken = True
-        elif zone_low < p_low * 0.90:
-            logging.warning(
-                "TOPDOWN: %s zone_low %.1f below parent %s %.1f by >10%% "
-                "— possible parent BOS break, chain broken",
+        if zone_low < p_low:
+            logging.info(
+                "TOPDOWN: %s zone_low %.1f raised to parent %s %.1f",
                 tf, zone_low, parent_tf or "?", p_low,
             )
-            chain_broken = True
-        else:
-            # Normal clamp: zone внутри parent
-            zone_high = min(zone_high, p_high)
-            zone_low = max(zone_low, p_low)
+        # Clamp: ребёнок внутри parent, но сохраняет СВОИ значения если внутри.
+        zone_high = min(zone_high, p_high)
+        zone_low = max(zone_low, p_low)
 
     # ── T3: Accumulation detection ──
     is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
@@ -515,7 +519,8 @@ def analyze_topdown(
 
     Анализирует ТФ по порядку от старшего к младшему.
     Каждый младший ТФ получает parent_zone от старшего.
-    Если zone выходит за parent > 10% — chain break, младший ТФ независимый.
+    Старший ТФ задаёт жёсткие рамки (low = пол, high = потолок)
+    для всех младших ТФ. Chain break убран — структура едина.
 
     Args:
         tf_data: словарь {tf: {"swing_points": [...], "current_price": float,
@@ -593,16 +598,10 @@ def analyze_topdown(
 
         results[tf_lower] = analysis
 
-        # Передаём zone как parent для следующего (младшего) ТФ
-        # Но если chain broken — не передаём
-        if analysis.chain_broken:
-            logging.warning(
-                "TOPDOWN: chain broken at %s, next TF will be independent",
-                tf,
-            )
-            parent_zone = None
-            parent_tf_name = None
-        elif analysis.zone_high is not None and analysis.zone_low is not None:
+        # Передаём zone как parent для следующего (младшего) ТФ.
+        # Chain break убран — senior TF ВСЕГДА propagate вниз.
+        # Это обеспечивает общий low для всех ТФ (как в ручной разметке).
+        if analysis.zone_high is not None and analysis.zone_low is not None:
             parent_zone = (analysis.zone_low, analysis.zone_high)
             parent_tf_name = tf_lower
         else:
@@ -658,12 +657,10 @@ def format_structure_narrative(analysis: StructureAnalysis, price: float) -> str
         span_pct = (analysis.zone_high - analysis.zone_low) / price * 100
         zone_line = (
             f"  Zone = [{analysis.zone_low:.1f} - {analysis.zone_high:.1f}] "
-            f"(span {span_pct:.1f}%)."
+            f"(span {span_pct:.1f}%, полный структурный range)."
         )
         if analysis.parent_tf:
-            zone_line += f" (внутри {analysis.parent_tf.upper()})"
-        if analysis.chain_broken:
-            zone_line += " [CHAIN BROKEN]"
+            zone_line += f" (parent {analysis.parent_tf.upper()} задал рамки)"
         lines.append(zone_line)
 
     if analysis.is_accumulation:

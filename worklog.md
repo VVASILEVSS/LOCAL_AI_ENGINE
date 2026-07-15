@@ -1,6 +1,31 @@
 # LOCAL_AI_ENGINE — Work Log
 
 ---
+Task ID: 7
+Agent: Super Z
+Task: Fix zone calculation — match user's manual markup (structure-based, senior TF priority)
+
+Work Log:
+- Analyzed root cause: `split_structure()` used `_ZONE_LOOKBACK=10` for prev_high (only last 10 pivots) instead of absolute max/min
+- Found that Hermes had already fixed 3/4 parts: hard parent constraint (no 10% soft clamp), chain_broken removal, narrative text update
+- Changed `split_structure()` prev_structure to use ABSOLUTE max/min of ALL pivots before BOS (removed _ZONE_LOOKBACK)
+- Updated `analyze_topdown()` docstring to reflect new behavior
+- Verified with unit test: prev.high=97932 (absolute max), prev.low=56804 (absolute min)
+- Verified full top-down chain: all TFs share D1 low=56704, cascading high narrowing
+- Confirmed scheduler already disabled in main.py (line 44 commented out)
+- Confirmed fallback in ollama_client.py already uses full zone (upper/lower from zone_high/zone_low)
+
+Stage Summary:
+- Zone calculation now matches user's manual markup approach:
+  - D1 zone = full structural range (absolute extremes of all pivots)
+  - All child TFs inherit D1's low as hard floor (shared lows)
+  - Senior TF high = ceiling for all child TFs (cascading narrowing)
+  - No chain-breaking — structure is treated as unified entity
+- File changed: core/structure.py (lines 259-268, 493-498)
+- Scheduler: already disabled in main.py (no change needed)
+- Ready for commit + Hermes review
+
+---
 Task ID: 1
 Agent: Super Z
 Task: AUTO_SIGNAL_ONLY — selective auto-notification mode
@@ -100,3 +125,29 @@ Stage Summary:
 - Log-distance: symmetric proximity scoring, -30% and +30% get same penalty
 - Source tracking: tf_zones now carry "source" field for dashboard debugging
 - Branch fix/zones-sticking can be deleted (merged manually)
+
+---
+Task ID: 1.2
+Agent: Super Z
+Task: Проверить analyze_topdown() на синтетических данных (Binance API заблокирован с сервера)
+
+Work Log:
+- Написал test_topdown_abs_extremes.py: 4 ТФ (D1→H4→H1→15M), синтетические BTC-подобные данные
+- Все 4 ТФ: prev_structure берёт АБСОЛЮТНЫЙ max/min (✅), иерархия зон корректная (✅)
+- 1H и 15M разделяют shared floor с 4H — parent constraint работает
+- Коммит c0c7c8e уже на origin/feature/top-down-structure
+
+Stage Summary:
+- ✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ на синтетике
+- Результат: скрипт в /home/z/my-project/scripts/test_topdown_abs_extremes.py
+
+---
+## ПРАВИЛА РАБОТЫ (обязательно соблюдать)
+
+1. **НЕ СПАМИТЬ API** — Binance банит IP за частые запросы (DDoSProtection 418). Текущий бан до ~15.07 03:12 UTC. Между запросами пауза минимум 2-3 секунды, не делать больше 5 запросов подряд. Если забанен — ждать снятия, не долбить.
+
+2. **Веточная дисциплина** — каждая ветка мержится только в main, между собой НЕ мержим.
+
+3. **Письма только в exchange/** — формат: `YYYY-MM-DD_от-кого-тема.md`
+
+4. **Старый код не трогать** — на fix/zones-sticking работаем только с auto_chart.py/ollama_client.py/handlers.py/main.py

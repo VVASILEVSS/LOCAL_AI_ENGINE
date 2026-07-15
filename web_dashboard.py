@@ -65,7 +65,7 @@ from core.ollama_client import analyze_multi_images, enforce_risk_rules, format_
 from core.config import USER_ANALYSIS_CACHE
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import update_and_save_state
-from core.db import get_backtest_stats, get_history_df, get_setting, set_setting
+from core.db import get_backtest_stats, get_history_df, get_setting, set_setting, init_breakout_events_table
 from core.scheduler import update_timer
 from core.utils import validate_symbol, fetch_ticker_safe, format_symbol, is_futures, sort_timeframes
 
@@ -397,11 +397,25 @@ def _fill_missing_tf_zones(
                         min_span = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
                         min_pct = min_span.get(norm_key, 0.002)
                         if span_pct < min_pct:
-                            logging.info(
-                                "DASHBOARD: %s zone too narrow: %.4f%% < min %.4f%%, replacing with fallback for %s",
-                                norm_key, span_pct * 100, min_pct * 100, result.get("symbol", "?"),
+                            # ВАРИАНТ C: зона с валидным BOS — структурная, не микроканал.
+                            # BOS (bos_price + bos_dir up/down) доказывает что зона после пробоя,
+                            # а не сжатие из 5 свечей. Узкая зона после свежего BOS — нормально.
+                            has_valid_bos = (
+                                z.get("bos_price") is not None
+                                and z.get("bos_dir") in ("up", "down")
                             )
-                            del tf_zones[norm_key]
+                            if has_valid_bos:
+                                logging.info(
+                                    "DASHBOARD: %s zone narrow (%.4f%% < %.4f%%) but has valid BOS %s %s age=%s — keeping",
+                                    norm_key, span_pct * 100, min_pct * 100,
+                                    z.get("bos_dir"), z.get("bos_price"), z.get("bos_age"),
+                                )
+                            else:
+                                logging.info(
+                                    "DASHBOARD: %s zone too narrow: %.4f%% < min %.4f%%, replacing with fallback for %s",
+                                    norm_key, span_pct * 100, min_pct * 100, result.get("symbol", "?"),
+                                )
+                                del tf_zones[norm_key]
                 if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
                     continue
 
@@ -620,7 +634,11 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                     zigzag_timeframes=zigzag_context.get("timeframes", {}),
                     vp_timeframes=vp_context.get("timeframes", {}),
                 )
-                # Re-run enforce_risk_rules: применит матрёшку + D1 cap
+                # Проброс zigzag_context для _detect_contamination в enforce_risk_rules.
+                # parsed_result — это LLM output, в нём нет zigzag_context.
+                if not parsed_result.get("zigzag_context"):
+                    parsed_result["zigzag_context"] = zigzag_context
+                # Re-run enforce_risk_rules: применит матрёшку + D1 cap + anti-contamination
                 # к fallback-зонам, добавленным из prev_analysis.
                 parsed_result = enforce_risk_rules(parsed_result)
 
@@ -637,7 +655,10 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             await bot.send_message(chat_id, f"📊 Анализ {_format_symbol(symbol)}:\n\n{final_text}")
 
         except Exception as e:
-            await bot.send_message(chat_id, f"⚠️ Ошибка: {e}")
+            import traceback as _tb
+            _tb_str = _tb.format_exc()
+            logging.error("Dashboard analysis error: %s\n%s", e, _tb_str)
+            await bot.send_message(chat_id, f"⚠️ Ошибка: {e}\n\n```\n{_tb_str[-500:]}\n```")
 
 
 @dp.message(Command("scan"))
@@ -1380,9 +1401,15 @@ def api_stop():
 # ═══════════════════════════════════════════════════════════════════════════
 
 async def main():
-    if not is_main_bot_running():
-        start_main_bot()
-        logging.info(f"Main bot started (PID {main_bot_process.pid})")
+    # Phase 3: init breakout_events table
+    init_breakout_events_table()
+    # DISABLED: auto-start main.py (@KXROBObot) to avoid TelegramConflictError.
+    # Two bots polling same token caused "AUTO ЗАПУСК 15М НЕ СРАБОТАЛ" — only one
+    # bot (dashboard, @my_hermes_lokal_ai_bot) should run. Enable manually via /startbot.
+    # if not is_main_bot_running():
+    #     start_main_bot()
+    #     logging.info(f"Main bot started (PID {main_bot_process.pid})")
+    logging.info("Auto-start main.py DISABLED — only dashboard bot will run")
 
     def run_flask():
         app.run(host="0.0.0.0", port=WEB_PORT, debug=False, use_reloader=False)
