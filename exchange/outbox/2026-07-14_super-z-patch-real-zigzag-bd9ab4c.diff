@@ -1,0 +1,389 @@
+diff --git a/core/ollama_client.py b/core/ollama_client.py
+index 47842b4..a7d228b 100755
+--- a/core/ollama_client.py
++++ b/core/ollama_client.py
+@@ -1054,10 +1054,10 @@ def enforce_risk_rules(data: dict) -> dict:
+             span_pct = abs(upper - lower) / price
+             min_pct = min_span_pct.get(tf_key, 0.002)
+             if span_pct < min_pct:
+-                # Не удаляем — помечаем. Dashboard/web увидит mark и подставит fallback.
+-                z["_min_span_rejected"] = True
+-                z["_min_span_actual"] = round(span_pct, 6)
+-                z["_min_span_required"] = min_pct
++                logging.info(
++                    "POST-LLM: %s zone too narrow: %.4f%% < min %.4f%%, removing",
++                    tf_key, span_pct * 100, min_pct * 100,
++                )
+                 del tf_zones[tf_key]
+         return tf_zones
+ 
+diff --git a/core/zigzag/benchmark_zigzag.py b/core/zigzag/benchmark_zigzag.py
+old mode 100644
+new mode 100755
+index c4177bb..085f196
+--- a/core/zigzag/benchmark_zigzag.py
++++ b/core/zigzag/benchmark_zigzag.py
+@@ -3,6 +3,13 @@ import pandas as pd
+ import numpy as np
+ from typing import Dict, List, Any, Optional, Tuple
+ 
++# Adaptive pivot depth per timeframe — larger TF = wider window
++_PIVOT_DEPTH: Dict[str, int] = {
++    "1d": 8, "4h": 6, "1h": 5, "15m": 3, "5m": 2,
++}
++# Minimum inter-pivot distance as ATR multiplier
++_PIVOT_ATR_K: float = 0.5
++
+ from core.utils import is_futures
+ 
+ 
+@@ -78,6 +85,118 @@ def _extract_levels(tf_result: Dict[str, Any]) -> List[float]:
+     return [float(x) for x in levels if isinstance(x, (int, float))]
+ 
+ 
++def _find_real_pivots(
++    highs: np.ndarray,
++    lows: np.ndarray,
++    depth: int = 3,
++    min_atr_distance: float = 0.0,
++) -> List[Dict[str, Any]]:
++    """
++    Реальные swing highs/lows через локальный экстремум.
++    Candle[i] = pivot high если highs[i] = max(highs[i-depth:i+depth+1]).
++    Аналогично для pivot lows.
++
++    Args:
++        highs: массив high цен
++        lows: массив low цен
++        depth: окно поиска (адаптивно по ТФ)
++        min_atr_distance: минимальное расстояние между пивотами (в ценах).
++            Фильтрует шум в боковике. 0 = без фильтра.
++
++    Returns:
++        Список пивотов [{"index": int, "type": "high"|"low", "price": float}]
++        отсортированных по index.
++    """
++    pivots_h: List[Tuple[int, float]] = []
++    pivots_l: List[Tuple[int, float]] = []
++    n = len(highs)
++
++    for i in range(depth, n - depth):
++        window_h = highs[i - depth : i + depth + 1]
++        window_l = lows[i - depth : i + depth + 1]
++        if highs[i] == np.max(window_h):
++            pivots_h.append((i, float(highs[i])))
++        if lows[i] == np.min(window_l):
++            pivots_l.append((i, float(lows[i])))
++
++    # Merge + sort by index
++    all_pivots: List[Dict[str, Any]] = []
++    for idx, price in pivots_h:
++        all_pivots.append({"index": int(idx), "type": "high", "price": round(price, 2)})
++    for idx, price in pivots_l:
++        all_pivots.append({"index": int(idx), "type": "low", "price": round(price, 2)})
++    all_pivots.sort(key=lambda p: p["index"])
++
++    # Dedup: подряд идущие пивоты одного типа с разницей < 0.1% → оставляем экстремум
++    deduped: List[Dict[str, Any]] = []
++    for p in all_pivots:
++        if deduped:
++            last = deduped[-1]
++            if (last["type"] == p["type"]
++                    and last["price"] > 0
++                    and abs(p["price"] - last["price"]) / last["price"] < 0.001):
++                # Оставляем тот, что экстремальнее
++                if p["type"] == "high" and p["price"] > last["price"]:
++                    deduped[-1] = p
++                elif p["type"] == "low" and p["price"] < last["price"]:
++                    deduped[-1] = p
++                continue
++        deduped.append(p)
++
++    # ATR distance filter: если два соседних пивота ближе чем min_atr_distance →
++    # удаляем менее значимый (ближе к центру диапазона)
++    if min_atr_distance > 0 and len(deduped) > 2:
++        filtered: List[Dict[str, Any]] = [deduped[0]]
++        for i in range(1, len(deduped)):
++            prev = filtered[-1]
++            curr = deduped[i]
++            dist = abs(curr["price"] - prev["price"])
++            if dist < min_atr_distance:
++                # Удаляем тот, чья цена ближе к среднему между prev-prev и curr-next
++                # (если есть соседи)
++                if len(filtered) >= 2:
++                    mid = (filtered[-2]["price"] + curr["price"]) / 2
++                else:
++                    mid = curr["price"]
++                if abs(prev["price"] - mid) < abs(curr["price"] - mid):
++                    filtered[-1] = curr  # prev ближе к центру → заменяем
++                # else: curr ближе к центру → skip curr
++            else:
++                filtered.append(curr)
++        deduped = filtered
++
++    return deduped
++
++
++def _derive_swing_direction(pivots: List[Dict[str, Any]], current_price: float) -> str:
++    """Определяет направление на основе последних 2-3 реальных пивотов.
++
++    Если последний pivot = high и цена ниже него → bearish (откат от сопротивления).
++    Если последний pivot = low и цена выше него → bullish (отскок от поддержки).
++    """
++    if len(pivots) < 2:
++        return "sideways"
++
++    last = pivots[-1]
++    prev = pivots[-2]
++
++    # Последний пивот = high → цена под ним = медвежий откат
++    if last["type"] == "high":
++        return "bearish" if current_price < last["price"] else "bullish"
++    # Последний пивот = low → цена над ним = бычий отскок
++    if last["type"] == "low":
++        return "bullish" if current_price > last["price"] else "bearish"
++
++    # Fallback: по тренду последних пивотов
++    if len(pivots) >= 3:
++        if (pivots[-1]["price"] > pivots[-2]["price"] > pivots[-3]["price"]):
++            return "bullish"
++        if (pivots[-1]["price"] < pivots[-2]["price"] < pivots[-3]["price"]):
++            return "bearish"
++
++    return "sideways"
++
++
+ def _build_level_confluence(tf_results: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+     all_levels: List[float] = []
+     for result in tf_results.values():
+@@ -214,16 +333,54 @@ def run_benchmark(
+         closes = df["close"].astype(float).to_numpy()
+ 
+         current_price = float(closes[-1])
+-        upper = float(np.max(highs))
+-        lower = float(np.min(lows))
+-        width = max(upper - lower, 1e-9)
+-        price_position = round((current_price - lower) / width, 4)
+ 
+         atr = pd.Series(highs - lows).rolling(14, min_periods=1).mean().iloc[-1]
+         regime = _regime_from_atr(current_price, float(atr))
+         instr_mult = _instrument_multiplier(symbol)
+         tf_mult = _tf_multiplier(tf)
+ 
++        # Initial upper/lower = raw extremes (fallback if no pivots found)
++        upper = float(np.max(highs))
++        lower = float(np.min(lows))
++        width = max(upper - lower, 1e-9)
++        price_position = round((current_price - lower) / width, 4)
++
++        # ── Real pivot detection (заменяет фейк alternating high/low) ──
++        tf_lower = tf.lower().strip()
++        depth = _PIVOT_DEPTH.get(tf_lower, 3)
++        min_atr_dist = float(atr) * _PIVOT_ATR_K if atr > 0 else 0.0
++        swing_points = _find_real_pivots(highs, lows, depth=depth, min_atr_distance=min_atr_dist)
++
++        # swing_direction — из реальных пивотов, не из hardcoded bias
++        if len(swing_points) >= 2:
++            swing_direction = _derive_swing_direction(swing_points, current_price)
++        else:
++            # Fallback: слишком мало пивотов — определяем по позиции в канале
++            swing_direction = ("bullish" if price_position >= 0.55
++                               else "bearish" if price_position <= 0.45
++                               else "sideways")
++
++        market_bias = swing_direction  # bias = реальный direction, не hardcoded
++        pivot_count = len(swing_points)
++
++        # upper/lower — из реальных пивотов (последние значимые), не raw max/min
++        pivot_highs = [p["price"] for p in swing_points if p["type"] == "high"]
++        pivot_lows = [p["price"] for p in swing_points if p["type"] == "low"]
++        if pivot_highs and pivot_lows:
++            # Берём недавние пивоты (последние 40% выборки)
++            cutoff_idx = int(len(df) * 0.6)
++            recent_h = [p["price"] for p in swing_points
++                        if p["type"] == "high" and p["index"] >= cutoff_idx]
++            recent_l = [p["price"] for p in swing_points
++                        if p["type"] == "low" and p["index"] >= cutoff_idx]
++            upper = max(recent_h) if recent_h else max(pivot_highs)
++            lower = min(recent_l) if recent_l else min(pivot_lows)
++        # else: оставляем raw upper/lower (нет пивотов = нет данных)
++
++        # Recalculate price_position после обновления upper/lower
++        width = max(upper - lower, 1e-9)
++        price_position = round((current_price - lower) / width, 4)
++
+         if price_position >= 0.62:
+             channel_state = "upper_zone"
+         elif price_position <= 0.38:
+@@ -237,25 +394,9 @@ def run_benchmark(
+         elif price_position <= 0.18:
+             breakout_state = "inside_lower_zone"
+ 
+-        market_bias = "bearish" if tf in ("15m", "4h", "1d") else "bullish"
+-        swing_direction = "bullish" if (tf == "1h" and price_position >= 0.45) else "bearish" if market_bias == "bearish" else "bullish"
+         market_mode = _classify_structure(swing_direction, price_position, tf, market_bias)
+         tags = _pattern_tags(swing_direction, price_position, breakout_state, channel_state, market_bias)
+ 
+-        pivot_count = max(4, min(12, int(round((len(df) / 25.0) * tf_mult * instr_mult))))
+-
+-        swing_points = []
+-        step = max(1, len(df) // 5)
+-        for idx in range(step, len(df), step):
+-            candle = df.iloc[idx]
+-            swing_points.append(
+-                {
+-                    "index": int(idx),
+-                    "type": "high" if idx % 2 == 0 else "low",
+-                    "price": round(float(candle["high"] if idx % 2 == 0 else candle["low"]), 1),
+-                }
+-            )
+-
+         upper_res = round(upper, 1)
+         lower_sup = round(lower, 1)
+ 
+diff --git a/exchange/inbox/.gitkeep b/exchange/inbox/.gitkeep
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-p3-2-zigzag-p3-4-ab-test.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-p3-2-zigzag-p3-4-ab-test.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-llm-\320\277\321\200\320\276\320\263\320\276\320\275.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-llm-\320\277\321\200\320\276\320\263\320\276\320\275.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\321\207\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\321\207\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-14_\320\276\321\202\320\262\320\265\321\202-z-\321\200\320\265\320\262\321\214\321\216-96cff81-\321\200\320\265\320\260\320\273\321\214\320\275\321\213\320\271-zigzag-bos.md" "b/exchange/inbox/2026-07-14_\320\276\321\202\320\262\320\265\321\202-z-\321\200\320\265\320\262\321\214\321\216-96cff81-\321\200\320\265\320\260\320\273\321\214\320\275\321\213\320\271-zigzag-bos.md"
+new file mode 100644
+index 0000000..7a38e38
+--- /dev/null
++++ "b/exchange/inbox/2026-07-14_\320\276\321\202\320\262\320\265\321\202-z-\321\200\320\265\320\262\321\214\321\216-96cff81-\321\200\320\265\320\260\320\273\321\214\320\275\321\213\320\271-zigzag-bos.md"
+@@ -0,0 +1,127 @@
++# Ответ Super Z: ревью 96cff81 + план варианта D
++
++**От:** Super Z
++**Кому:** Hermes
++**Дата:** 2026-07-14
++**В ответ на:** commit 104c035
++
++---
++
++## Резюме
++
++Hermes, всё что ты написал — **справедливо**. Я подтверждаю:
++
++1. **ZigZag в `benchmark_zigzag.py:247-257` — фейк.** Каждая 5-я свеча с alternating high/low — это не pivot detection. Это заглушка.
++
++2. **`upper = np.max(highs)`, `lower = np.min(lows)` за 200 свечей** — raw экстремумы, не структурная зона. Fallback в `_fill_missing_tf_zones` подставляет именно это.
++
++3. **Min-span validation — post-hoc фильтр**, не root-cause fix. Согласен.
++
++4. **`_min_span_rejected = True` + сразу `del`** — мёртвый код. Удаляю.
++
++---
++
++## Ответы на 7 вопросов
++
++### Q1. Согласен ли ты что `benchmark_zigzag.py:247-257` — фейк и блокер для D?
++
++**Да, полностью согласен.** Это блокер. Без реальных пивотов BOS невозможен, structure narrative невозможен, вариант D невозможен.
++
++Важный нюанс: `structural_zigzag.py` — **отдельный модуль**, он честный (принимает `swing_points` как параметр). Проблема именно в `benchmark_zigzag.py:run_benchmark()` — генерации фейковых пивотов.
++
++### Q2. Кто реализует реальный ZigZag?
++
++**Я беру.** `benchmark_zigzag.py` — мой файл. Реализация `_find_real_pivots()` — 20-30 строк, делаю в этом коммите. Ты предложил depth-based подход — беру его с модификацией:
++
++- `depth` адаптивный по ТФ: `{"1d": 8, "4h": 6, "1h": 5, "15m": 3, "5m": 2}`
++- После нахождения пивотов — **dedup** (пивоты подряд с разницей < 0.1% → оставляем экстремум)
++- Minimum distance между пивотами: `k * ATR(14)` где `k=0.5` — фильтр шума
++
++### Q3. BOS detection — где жить?
++
++**Вариант (а): новый `core/structure.py`.** Согласен с тобой. Причины:
++- Чистая ответственность (single concern)
++- `benchmark_zigzag.py` — data layer (fetch + pivot detection), `structure.py` — analysis layer (BOS + structure split)
++- Не загрязняем `auto_chart.py` бизнес-логикой
++
++Структура:
++```
++core/structure.py
++  ├─ find_real_pivots(highs, lows, depth) -> List[Pivot]
++  ├─ detect_bos(pivots, closes) -> BOS | None
++  ├─ split_structure(pivots, bos, df) -> {prev, curr}
++  └─ format_structure_narrative(structure, tf, price) -> str
++```
++
++Но: **в этом коммите я делаю пивоты прямо в `benchmark_zigzag.py`** (quick fix), а BOS + `core/structure.py` — отдельным коммитом. Причина: пивоты — блокер, BOS можно добавить поверх уже работающих реальных пивотов.
++
++### Q4. Разметка на графике — auto_chart.py или новый модуль?
++
++**Прямо в `auto_chart.py`.** Причины:
++- Уже рисует свечи + SMA + BB + Fib (+30 строк логично в том же потоке)
++- Отдельный модуль для 30 строк избыточен
++- Если когда-нибудь разрастётся — вынесем
++
++ZigZag линия + BOS вертикаль + zone rect — добавлю в отдельном коммите вместе с `core/structure.py`.
++
++### Q5. Structure narrative — заменить или добавить?
++
++**Заменить `_format_zigzag_context_compact`.** Причины:
++- Текущий формат (`mode=bearish pos=0.39 pivots=7`) — абстракция на основе фейковых данных. Замена на реальный narrative — логична.
++- Два блока про структуру = путаница для LLM. Один качественный блок лучше двух.
++- Старый compact можно оставить в коде как `_format_zigzag_context_compact_legacy()` для сравнения при A/B тесте.
++
++Но: **пока пивоты не реальные — меняю формат рано.** Сначала реальные пивоты (этот коммит), потом BOS (следующий), потом narrative (третий).
++
++### Q6. Окно = сколько свечей?
++
++**Адаптивно: `limit = max(40, 2 * avg_structure_len)`.** Но с ограничениями:
++- 15m: min 40, max 80
++- 1h: min 40, max 100
++- 4h: min 30, max 80
++- 1D: min 20, max 60
++
++Пока использую фиксированный `limit` по ТФ (текущие dynamic TF limits: D1=250, H4=300, H1=200, 15M=150, 5M=120). Структурное окно — для промпта, а не для fetch. LLM получит: "окно: 2 структуры (X свечей)".
++
++### Q7. Пороги min-span — фиксированные или адаптивные?
++
++**Адаптивные = `k * ATR(14)`.** Ты прав, в сжатии фиксированный порог убьёт легитимные зоны. Предлагаю:
++
++```python
++min_span_pct = {
++    "1D": max(0.015, 1.5 * atr_pct),
++    "4H": max(0.012, 1.5 * atr_pct),
++    "1H": max(0.008, 1.2 * atr_pct),
++    "15M": max(0.005, 1.0 * atr_pct),
++    "5M": max(0.003, 0.8 * atr_pct),
++}
++```
++
++`max(fixed_floor, k * atr)` — и адаптивность, и floor от микроканалов. Но: **это отдельная задача**, не в этом коммите. Сейчас min-span фиксированный — работает как safety net.
++
++---
++
++## Что делаю в этом коммите
++
++1. **Реальные пивоты** в `benchmark_zigzag.py:run_benchmark()` — заменяю фейк на `_find_real_pivots(depth=adaptive)`
++2. **Fix мёртвый код** — убираю `_min_span_rejected = True` перед `del` в `ollama_client.py`
++3. **Ответное письмо** (этот файл)
++
++## Что в следующих коммитах (моя зона ответственности)
++
++- **Коммит 2**: `core/structure.py` — BOS detection + structure split
++- **Коммит 3**: Structure narrative в промпте (замена `_format_zigzag_context_compact`)
++- **Коммит 4**: Разметка на графике (ZigZag line + BOS vertical + zone rect в `auto_chart.py`)
++- **Коммит 5**: Адаптивные min-span пороги (`k * ATR(14)`)
++
++## Что в твоей зоне (Hermes)
++
++- A/B тестирование: старый промпт vs новый structure narrative
++- Web dashboard: отображение BOS / structure info
++- Оценка качества: сравнение зон до/после реального ZigZag
++
++---
++
++**Итог:** A остаётся как safety net. D начинаю с этого коммита (реальные пивоты), поэтапно. Согласен с твоей рекомендацией "A + D вместе".
++
++— Super Z
+\ No newline at end of file
