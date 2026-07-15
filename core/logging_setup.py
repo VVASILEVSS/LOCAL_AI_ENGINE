@@ -34,6 +34,9 @@ NOISY_LIBS = {
     "PIL": logging.WARNING,
     "asyncio": logging.WARNING,
     "aiogram.event": logging.WARNING,
+    "ccxt": logging.WARNING,
+    "urllib3": logging.WARNING,
+    "werkzeug": logging.WARNING,
 }
 
 _initialized = False

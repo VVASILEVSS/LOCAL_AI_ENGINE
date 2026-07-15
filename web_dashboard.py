@@ -18,7 +18,11 @@ import sqlite3
 import subprocess
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# Подключаем централизованное логирование (RotatingFileHandler → logs/bot.log)
+from core.logging_setup import setup_logging
+setup_logging()
 
 # Загрузка .env (DASHBOARD_LLM_* для облака)
 from dotenv import load_dotenv
@@ -1245,11 +1249,24 @@ async def _autoscan_sequential_cycle(bot: Bot):
     _autoscan_running = True
 
     symbols = _get_autoscan_symbols()
-    interval = _dash_get_setting("autoscan_interval", 30)
+    interval_raw = _dash_get_setting("autoscan_interval", 30)
+    try:
+        interval = int(interval_raw)
+    except (ValueError, TypeError):
+        interval = 30
     inter_symbol_pause = 120  # 2 минуты между символами
 
     import core.config as cfg
     import core.scheduler as sched_mod
+    from core.backtest import cleanup_old_signal_logs
+
+    # Очистка старых записей при старте autoscan (retain 14 дней)
+    try:
+        deleted = cleanup_old_signal_logs(retain_days=14)
+        if deleted > 0:
+            logging.info("Autoscan startup: cleaned %d old signal_log records", deleted)
+    except Exception as e:
+        logging.warning("Autoscan startup: signal_log cleanup failed: %s", e)
 
     try:
         while _dash_get_setting("autoscan_active", False) and _autoscan_running:
@@ -1538,6 +1555,6 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+    # setup_logging() уже вызван выше (строка 23) — basicConfig не нужен
     print(f"📊 Dashboard Bot + Web: http://localhost:{WEB_PORT}")
     asyncio.run(main())
