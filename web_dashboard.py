@@ -397,11 +397,25 @@ def _fill_missing_tf_zones(
                         min_span = {"1D": 0.025, "4H": 0.020, "1H": 0.012, "15M": 0.008, "5M": 0.004}
                         min_pct = min_span.get(norm_key, 0.002)
                         if span_pct < min_pct:
-                            logging.info(
-                                "DASHBOARD: %s zone too narrow: %.4f%% < min %.4f%%, replacing with fallback for %s",
-                                norm_key, span_pct * 100, min_pct * 100, result.get("symbol", "?"),
+                            # ВАРИАНТ C: зона с валидным BOS — структурная, не микроканал.
+                            # BOS (bos_price + bos_dir up/down) доказывает что зона после пробоя,
+                            # а не сжатие из 5 свечей. Узкая зона после свежего BOS — нормально.
+                            has_valid_bos = (
+                                z.get("bos_price") is not None
+                                and z.get("bos_dir") in ("up", "down")
                             )
-                            del tf_zones[norm_key]
+                            if has_valid_bos:
+                                logging.info(
+                                    "DASHBOARD: %s zone narrow (%.4f%% < %.4f%%) but has valid BOS %s %s age=%s — keeping",
+                                    norm_key, span_pct * 100, min_pct * 100,
+                                    z.get("bos_dir"), z.get("bos_price"), z.get("bos_age"),
+                                )
+                            else:
+                                logging.info(
+                                    "DASHBOARD: %s zone too narrow: %.4f%% < min %.4f%%, replacing with fallback for %s",
+                                    norm_key, span_pct * 100, min_pct * 100, result.get("symbol", "?"),
+                                )
+                                del tf_zones[norm_key]
                 if norm_key in tf_zones and isinstance(tf_zones[norm_key], dict):
                     continue
 
@@ -637,7 +651,10 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
             await bot.send_message(chat_id, f"📊 Анализ {_format_symbol(symbol)}:\n\n{final_text}")
 
         except Exception as e:
-            await bot.send_message(chat_id, f"⚠️ Ошибка: {e}")
+            import traceback as _tb
+            _tb_str = _tb.format_exc()
+            logging.error("Dashboard analysis error: %s\n%s", e, _tb_str)
+            await bot.send_message(chat_id, f"⚠️ Ошибка: {e}\n\n```\n{_tb_str[-500:]}\n```")
 
 
 @dp.message(Command("scan"))

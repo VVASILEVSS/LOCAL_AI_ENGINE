@@ -4,6 +4,8 @@
 > **Ветка:** `feature/top-down-structure`
 > **Дата создания:** 2026-07-14
 > **Связанные коммиты:** `cb7e93b` (архитектура), `dd5ceef` (оценка Z), `0057d4d` (запуск T1-T5), `641493f` (T1-T5 код), `0da1bb0` (ревью Hermes), (письмо+ТЗ)
+>
+> **Референс-канал:** [Вячеслав Возный (@Vyacheslav_Voznyy)](references/vyacheslav-voznyy-channel.md) — SMC-концепция 1:1 с нашим подходом. YouTube+Telegram. Инструкция для Hermes по экстракту транскриптов. Fib-цели (50%/61.8%/100%) — отложенный T14.
 
 ---
 
@@ -161,6 +163,7 @@ BTC D1 может содержать stale/outlier pivots (например ATH 
 | **T11** | `check_trend_line_break()` + potential/true/false | не начат | P1 (после стабилизации) |
 | **T12** | chart markup: ZigZag линия + BOS вертикаль + zone rect | не начат | P3 |
 | **T13** | sanity check outliers в `_find_real_pivots` | не начат | P2 |
+| **T14** | `compute_fib_targets(trend_height)` — 50%/61.8%/100% цели коррекции (по Возному) | не начат | P3 (отложено) |
 
 ---
 

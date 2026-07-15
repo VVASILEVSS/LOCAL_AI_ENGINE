@@ -225,11 +225,61 @@ async def cmd_scan(message: types.Message) -> None:
                 "confluence_levels": [],
             }
 
+        # Phase 2: enrich tf_zones with BOS info from zigzag_context.
+        # zone = {upper, lower} из all_metrics (структурные свинги до BOS).
+        # bos = {direction, broken_level, index} из zigzag structure.
+        # bos_age = current_index - bos.index (current_index = длина данных TF).
+        # Если bos нет (например is_accumulation без недавнего BOS) — зона без bos полей.
+        zz_tfs = zigzag_context.get("timeframes", {}) if isinstance(zigzag_context, dict) else {}
+        for tf in timeframes:
+            zone = tf_zones.get(tf)
+            if not isinstance(zone, dict):
+                continue
+            # ZigZag хранит под разными вариантами ключа (1D/1d/15M/15m)
+            zz_tf_data = None
+            for zz_key in (tf, tf.upper(), tf.lower(), tf.replace("M", "m").replace("H", "h").replace("D", "d")):
+                if zz_key in zz_tfs:
+                    zz_tf_data = zz_tfs[zz_key]
+                    break
+            if not isinstance(zz_tf_data, dict):
+                continue
+            struct = zz_tf_data.get("structure") or {}
+            if not isinstance(struct, dict):
+                continue
+            bos = struct.get("bos")
+            if not isinstance(bos, dict):
+                continue
+            # enrich zone с Phase 2 полями
+            zone["range"] = [zone.get("lower"), zone.get("upper")]
+            zone["bos_price"] = bos.get("broken_level")
+            bos_dir_raw = bos.get("direction")
+            # Нормализуем направление: bullish→up, bearish→down
+            if bos_dir_raw in ("bullish", "up"):
+                zone["bos_dir"] = "up"
+            elif bos_dir_raw in ("bearish", "down"):
+                zone["bos_dir"] = "down"
+            else:
+                zone["bos_dir"] = None
+            # bos_age: текущий индекс - индекс BOS. Берем из pivot_count или candle_count
+            bos_idx = bos.get("index")
+            if isinstance(bos_idx, (int, float)):
+                # limit=200 (как в run_benchmark выше). Если pivot_count доступен — используем его
+                curr_struct = struct.get("curr_structure") or {}
+                candle_count = curr_struct.get("candle_count") if isinstance(curr_struct, dict) else None
+                if isinstance(candle_count, (int, float)) and candle_count > 0:
+                    zone["bos_age"] = int(candle_count)
+                else:
+                    # fallback: limit(200) - bos.index
+                    zone["bos_age"] = max(0, 200 - int(bos_idx))
+            else:
+                zone["bos_age"] = None
+
         ltf_volume = all_metrics[timeframes[-1]].get("volume_context", {})
         if not isinstance(ltf_volume, dict):
             ltf_volume = {}
 
         # Liquidity heatmap (как в scheduler.py)
+        ltf_df = None
         try:
             from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
             from core.data_provider import OhlcvDataProvider
@@ -243,6 +293,24 @@ async def cmd_scan(message: types.Message) -> None:
                 heatmap_text = "Liquidity heatmap: CSV недоступен."
         except Exception:
             heatmap_text = "Liquidity heatmap: ошибка."
+
+        # BUG 2 FIX: period_high/period_low — abs max/min свечей между сканами
+        # для детекции intrabar sweep (ложный пробой внутри свечи).
+        # Берём последние ~6 свечей LTF (≈90 мин ≈ интервал автоскана 30 мин × 2-3 цикла).
+        # Логика идентична scheduler.py:335-350 (Z, commit 6d4cafb).
+        period_high = None
+        period_low = None
+        if ltf_df is not None and hasattr(ltf_df, "columns"):
+            try:
+                cols = {c.lower(): c for c in ltf_df.columns}
+                hi_col = cols.get("high", "high")
+                lo_col = cols.get("low", "low")
+                tail = ltf_df.tail(6)
+                period_high = float(tail[hi_col].max())
+                period_low = float(tail[lo_col].min())
+            except Exception:
+                period_high = None
+                period_low = None
 
         prev_ctx = {
             "metrics": metrics_str,
@@ -258,7 +326,10 @@ async def cmd_scan(message: types.Message) -> None:
 
         parsed_result = raw_result
         if isinstance(parsed_result, dict):
-            parsed_result = update_and_save_state(symbol, timeframes[-1], parsed_result)
+            parsed_result = update_and_save_state(
+                symbol, timeframes[-1], parsed_result,
+                period_high=period_high, period_low=period_low,
+            )
 
         # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
         # tf_zones, D1 cap, nesting, confluence — всё валидировано.

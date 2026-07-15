@@ -150,20 +150,31 @@ def save_signal_log(
         c = conn.cursor()
         # P3: Извлечь зоны для backtest no_signal прогнозов.
         # Берём LTF зону (последний ТФ) как рабочую + key_zones.
+        # Phase 2: зона может быть {range: [low, high], bos_price, bos_dir, bos_age}
+        # или legacy {upper, lower}. Извлекаем upper/lower из range если есть.
         tf_zones = parsed.get("tf_zones") or {}
         # Последняя зона по каноническому порядку (самый младший ТФ)
         ltf_zone = None
         for tf_key in ["5M", "15M", "1H", "4H", "1D"]:
             z = tf_zones.get(tf_key)
-            if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None):
+            if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None
+                                        or (isinstance(z.get("range"), list) and len(z["range"]) == 2)):
                 ltf_zone = z
         # Если канонического нет — берём последнюю из dict
         if ltf_zone is None and tf_zones:
             last_key = list(tf_zones.keys())[-1]
             ltf_zone = tf_zones[last_key]
 
-        zone_upper = _safe_float(ltf_zone.get("upper")) if isinstance(ltf_zone, dict) else None
-        zone_lower = _safe_float(ltf_zone.get("lower")) if isinstance(ltf_zone, dict) else None
+        # Нормализуем upper/lower (с поддержкой Phase 2 range)
+        def _zone_bounds(z):
+            if not isinstance(z, dict):
+                return None, None
+            rng = z.get("range")
+            if isinstance(rng, list) and len(rng) == 2:
+                return _safe_float(rng[0]), _safe_float(rng[1])
+            return _safe_float(z.get("lower")), _safe_float(z.get("upper"))
+
+        zone_lower, zone_upper = _zone_bounds(ltf_zone)
 
         key_zones = parsed.get("key_zones") or {}
         key_resistance = _safe_float(key_zones.get("resistance"))
