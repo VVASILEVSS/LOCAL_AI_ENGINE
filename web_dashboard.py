@@ -65,7 +65,7 @@ from core.ollama_client import analyze_multi_images, enforce_risk_rules, format_
 from core.config import USER_ANALYSIS_CACHE
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import update_and_save_state
-from core.db import get_backtest_stats, get_history_df, get_setting, set_setting
+from core.db import get_backtest_stats, get_history_df, get_setting, set_setting, init_breakout_events_table
 from core.scheduler import update_timer
 from core.utils import validate_symbol, fetch_ticker_safe, format_symbol, is_futures, sort_timeframes
 
@@ -1401,6 +1401,8 @@ def api_stop():
 # ═══════════════════════════════════════════════════════════════════════════
 
 async def main():
+    # Phase 3: init breakout_events table
+    init_breakout_events_table()
     # DISABLED: auto-start main.py (@KXROBObot) to avoid TelegramConflictError.
     # Two bots polling same token caused "AUTO ЗАПУСК 15М НЕ СРАБОТАЛ" — only one
     # bot (dashboard, @my_hermes_lokal_ai_bot) should run. Enable manually via /startbot.

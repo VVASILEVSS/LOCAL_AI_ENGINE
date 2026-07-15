@@ -99,6 +99,105 @@ def update_actual_prices(prices: dict[str, float]) -> None:
     conn.close()
 
 
+def init_breakout_events_table() -> None:
+    """Phase 3: breakout_events — фиксация и трекинг пробоев уровней."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS breakout_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        level_type TEXT,
+        level_price REAL,
+        breakout_dir TEXT,
+        volume_ratio REAL,
+        confirmed INTEGER DEFAULT 0,
+        confirmed_at TEXT,
+        outcome TEXT,
+        candles_after INTEGER DEFAULT 0
+    )''')
+    # Индекс для быстрого поиска незакрытых событий
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_breakout_pending ON breakout_events(symbol, confirmed)''')
+    conn.commit()
+    conn.close()
+
+
+def save_breakout_event(symbol: str, timeframe: str, level_type: str,
+                        level_price: float, breakout_dir: str,
+                        volume_ratio: float) -> int:
+    """Сохраняет новый пробой (confirmed=0 — pending)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT INTO breakout_events
+        (timestamp, symbol, timeframe, level_type, level_price, breakout_dir, volume_ratio, confirmed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)''',
+        (datetime.utcnow().isoformat(), symbol, timeframe, level_type,
+         level_price, breakout_dir, volume_ratio))
+    conn.commit()
+    row_id = c.lastrowid
+    conn.close()
+    return row_id
+
+
+def get_pending_breakout_events(symbol: str, max_age_minutes: int = 45) -> list[dict]:
+    """Возвращает незакрытые пробои для символа (для подтверждения через N циклов)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''SELECT id, timestamp, symbol, timeframe, level_type, level_price,
+                 breakout_dir, volume_ratio, candles_after
+                 FROM breakout_events
+                 WHERE symbol = ? AND confirmed = 0
+                 AND datetime(timestamp, '+' || ? || ' minutes') > datetime('now')
+                 ORDER BY timestamp ASC''',
+              (symbol, str(max_age_minutes)))
+    rows = c.fetchall()
+    conn.close()
+    return [
+        {"id": r[0], "timestamp": r[1], "symbol": r[2], "timeframe": r[3],
+         "level_type": r[4], "level_price": r[5], "breakout_dir": r[6],
+         "volume_ratio": r[7], "candles_after": r[8]}
+        for r in rows
+    ]
+
+
+def confirm_breakout_event(event_id: int, confirmed: int, outcome: str = "",
+                            candles_after: int = 0) -> None:
+    """Подтверждает пробой: confirmed=1 (истинный), -1 (ложный), outcome='continued'/'reversed'/'retest'."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''UPDATE breakout_events
+                 SET confirmed = ?, confirmed_at = ?, outcome = ?, candles_after = ?
+                 WHERE id = ?''',
+              (confirmed, datetime.utcnow().isoformat(), outcome, candles_after, event_id))
+    conn.commit()
+    conn.close()
+
+
+def get_breakout_stats(symbol: str) -> dict:
+    """Возвращает статистику пробоев по символу (для обучения volume thresholds)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''SELECT
+        COUNT(*) as total,
+        AVG(CASE WHEN confirmed = 1 THEN volume_ratio END) as avg_vol_true,
+        AVG(CASE WHEN confirmed = -1 THEN volume_ratio END) as avg_vol_false,
+        SUM(CASE WHEN confirmed = 1 THEN 1 ELSE 0 END) as true_count,
+        SUM(CASE WHEN confirmed = -1 THEN 1 ELSE 0 END) as false_count
+        FROM breakout_events
+        WHERE symbol = ? AND confirmed != 0''', (symbol,))
+    row = c.fetchone()
+    conn.close()
+    total, avg_vol_true, avg_vol_false, true_count, false_count = row
+    return {
+        "total_confirmed": total or 0,
+        "true_breakouts": true_count or 0,
+        "false_breakouts": false_count or 0,
+        "avg_volume_true": round(avg_vol_true, 2) if avg_vol_true else None,
+        "avg_volume_false": round(avg_vol_false, 2) if avg_vol_false else None,
+    }
+
+
 def get_backtest_stats() -> dict[str, Any]:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
