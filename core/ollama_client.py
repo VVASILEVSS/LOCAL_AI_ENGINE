@@ -2562,6 +2562,12 @@ async def analyze_multi_images(
     if isinstance(prev_analysis, dict) and prev_analysis.get("liquidity_pools"):
         final["liquidity_pools"] = prev_analysis["liquidity_pools"]
 
+    # Пробрасываем zigzag_context из prev_analysis в data для enforce_risk_rules.
+    # LLM output не содержит zigzag_context — он был в промпте (prev_analysis).
+    # Без этого _detect_contamination не видит per-TF ZigZag zones и не фиксит контаминацию.
+    if isinstance(prev_analysis, dict) and prev_analysis.get("zigzag_context"):
+        final["zigzag_context"] = prev_analysis["zigzag_context"]
+
     final = enforce_risk_rules(final)
     final["error"] = False
 

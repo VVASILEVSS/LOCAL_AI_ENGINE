@@ -634,7 +634,11 @@ async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: B
                     zigzag_timeframes=zigzag_context.get("timeframes", {}),
                     vp_timeframes=vp_context.get("timeframes", {}),
                 )
-                # Re-run enforce_risk_rules: применит матрёшку + D1 cap
+                # Проброс zigzag_context для _detect_contamination в enforce_risk_rules.
+                # parsed_result — это LLM output, в нём нет zigzag_context.
+                if not parsed_result.get("zigzag_context"):
+                    parsed_result["zigzag_context"] = zigzag_context
+                # Re-run enforce_risk_rules: применит матрёшку + D1 cap + anti-contamination
                 # к fallback-зонам, добавленным из prev_analysis.
                 parsed_result = enforce_risk_rules(parsed_result)
 
