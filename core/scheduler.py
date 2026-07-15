@@ -2,6 +2,7 @@
 # Назначение: периодический анализ рынка и сбор контекста для LLM.
 # Отвечает за: запуск auto-analysis, передачу цен, зон, ZigZag-контекста и нормализацию ответа.
 # Связан с: ollama_client.py, auto_chart.py, db.py, utils.py.
+from datetime import datetime
 
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -524,8 +525,22 @@ async def run_hourly_analysis(
                         if isinstance(v, dict):
                             upper = v.get("upper")
                             lower = v.get("lower")
+                            # FIX: LLM возвращает "range": [low, high] вместо upper/lower
+                            if upper is None and lower is None and "range" in v:
+                                rng = v["range"]
+                                if isinstance(rng, list) and len(rng) >= 2:
+                                    lower = rng[0]
+                                    upper = rng[1]
                             if upper is not None or lower is not None:
-                                tf_zones_clean[norm_k] = v
+                                # Нормализуем: upper = max, lower = min
+                                if upper is not None and lower is not None:
+                                    orig_upper, orig_lower = float(upper), float(lower)
+                                    upper = max(orig_upper, orig_lower)
+                                    lower = min(orig_upper, orig_lower)
+                                v_norm = dict(v)
+                                v_norm["upper"] = upper
+                                v_norm["lower"] = lower
+                                tf_zones_clean[norm_k] = v_norm
 
                 parsed["tf_zones"] = tf_zones_clean
 

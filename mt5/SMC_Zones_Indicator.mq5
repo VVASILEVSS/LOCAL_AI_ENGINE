@@ -5,56 +5,81 @@
 //|                  Данные: http://localhost:5000/api/signals        |
 //+------------------------------------------------------------------+
 #property copyright "LOCAL_AI_ENGINE"
-#property version   "1.00"
+#property version   "1.15"
 #property indicator_chart_window
 #property indicator_plots 0
 
 // --- Входные параметры ---
-input string  ServerURL    = "http://localhost:5000/api/signals";  // URL API
-input string  TargetSymbol = "BTCUSDT";                              // Символ (как в боте)
-input int     PollSeconds  = 30;                                     // Частота опроса (сек)
-input bool    ShowAllTF    = true;                                   // Показать все ТФ
-input string  ShowTFs      = "15m,1h,4h,1D";                         // Какие ТФ рисовать
+input string  ServerURL    = "http://127.0.0.1:5000/api/signals";  // URL API (127.0.0.1 надёжнее localhost в MT5)
+input string  TargetSymbol = "AUTO";                              // Символ (AUTO = по графику, или вручную: BTCUSDT, ETHUSDT, XAUTUSDT)
+input int     PollSeconds  = 15;                                     // Частота опроса (сек)
+input string  ShowTFs      = "15M,1H,4H,1D";                         // ТФ (uppercase как в API!)
 input color   ColorUpper   = clrRed;                                 // Цвет resistance
 input color   ColorLower   = clrGreen;                               // Цвет support
 input color   ColorBreak   = clrGold;                                // Цвет стрелок пробоя
 input int     LineWidth    = 1;                                      // Толщина линий
 input bool    ShowPrice    = true;                                   // Показать цену
 input bool    ShowLabel    = true;                                   // Показать текстовые метки
+input bool    ShowZoneFill = true;                                   // Заливка зон прямоугольниками
+input color   ColorFill1D  = clrDimGray;                             // Заливка 1D
+input color   ColorFill4H  = clrDarkSlateGray;                       // Заливка 4H
+input color   ColorFill1H  = clrSlateGray;                           // Заливка 1H
+input color   ColorFill15M = clrGray;                                // Заливка 15M
+input bool    AutoTextColor = true;                                  // Авто-цвет текста (белый на тёмном, тёмный на светлом)
+input color   TextColorManual = clrWhite;                             // Цвет текста (если AutoTextColor=false)
 
 // --- Глобальные ---
-string PREFIX = "SMC_";  // Префикс объектов на графике
+string PREFIX = "SMC_";
 datetime lastPoll = 0;
 
+// State-tracking: логируем только при изменении
+string g_lastStateHash = "";      // хэш зон+цены+статуса
+string g_lastErrorKey = "";      // ключ последней ошибки (чтобы не спамить)
+int    g_pollCount = 0;           // счётчик поллов (для диагностики)
+
 //+------------------------------------------------------------------+
-//| Структура зоны                                                    |
+//| Автоопределение символа графика → формат бота                    |
+//| BTCUSD/BTCIUSD → BTCUSDT, ETHUSD → ETHUSDT, XAUUSD → XAUTUSDT   |
 //+------------------------------------------------------------------+
-struct ZoneData {
-   string  tf;
-   double  upper;
-   double  lower;
-};
+string ResolveSymbol() {
+   if(TargetSymbol != "AUTO") return TargetSymbol;
+   string s = Symbol();
+   StringToUpper(s);
+   // Убираем возможные суффиксы брокера: BTCUSD.r, BTCUSD#, BTCUSD-i
+   // Ищем ключевое слово в начале
+   if(StringFind(s, "BTC") == 0) return "BTCUSDT";
+   if(StringFind(s, "ETH") == 0) return "ETHUSDT";
+   if(StringFind(s, "XAU") == 0) return "XAUTUSDT";   // золото в боте = XAUTUSDT
+   if(StringFind(s, "XAG") == 0) return "XAGUSDT";
+   if(StringFind(s, "SOL") == 0) return "SOLUSDT";
+   // Не распозно — возвращаем как есть + добавляем USDT если нет
+   if(StringFind(s, "USDT") < 0) s += "USDT";
+   return s;
+}
 
 //+------------------------------------------------------------------+
 //| Инициализация                                                    |
 //+------------------------------------------------------------------+
 int OnInit() {
    EventSetTimer(PollSeconds);
-   Print("SMC Zones Indicator: старт. URL=", ServerURL, " Symbol=", TargetSymbol);
+   string resolved = ResolveSymbol();
+   Print("SMC Zones v1.15: старт. URL=", ServerURL, " Symbol=", TargetSymbol, "→", resolved,
+         " (chart=", Symbol(), ") ShowTFs=", ShowTFs);
+   PollSignals();
    return INIT_SUCCEEDED;
 }
 
 //+------------------------------------------------------------------+
-//| Деинициализация — удаляем все объекты                             |
+//| Деинициализация                                                  |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason) {
    EventKillTimer();
    CleanupObjects();
-   Print("SMC Zones Indicator: остановка. reason=", reason);
+   Print("SMC Zones: остановка. reason=", reason);
 }
 
 //+------------------------------------------------------------------+
-//| Таймер — опрашиваем API                                          |
+//| Таймер                                                           |
 //+------------------------------------------------------------------+
 void OnTimer() {
    if(TimeCurrent() - lastPoll < PollSeconds) return;
@@ -63,7 +88,7 @@ void OnTimer() {
 }
 
 //+------------------------------------------------------------------+
-//| Главная функция отрисовки                                        |
+//| OnCalculate                                                      |
 //+------------------------------------------------------------------+
 int OnCalculate(const int rates_total,
                 const int prev_calculated,
@@ -82,81 +107,157 @@ int OnCalculate(const int rates_total,
 //| Опрос API и отрисовка                                            |
 //+------------------------------------------------------------------+
 void PollSignals() {
-   string response = "";
+   g_pollCount++;
+   string sym = ResolveSymbol();
    string headers = "";
-   char   data[] = {0};
-   char   result[] = {0};
+   char data[] = {0};
+   char result[] = {0};
 
-   // WebRequest к Flask
-   string url = ServerURL;
+   string response = "";
+   bool useFile = false;
+
+   // --- Попытка 1: WebRequest ---
    ResetLastError();
-   int status = WebRequest("GET", url, "", "", 30000, data, 0, result, headers);
+   int status = WebRequest("GET", ServerURL, "", "", 30000, data, 0, result, headers);
 
    if(status == -1) {
-      Print("SMC: WebRequest failed — разрешите URL в MT5: Tools → Options → Expert Advisors → Allow WebRequest. err=", GetLastError());
-      return;
+      int err = GetLastError();
+      LogErrorOnce("WR_FAIL", "WebRequest FAIL err=" + IntegerToString(err)
+                   + " → fallback на файл signals_" + sym + ".json");
+      // --- Попытка 2: Файловый fallback ---
+      if(!TryReadFile(sym, response)) {
+         return;
+      }
+      useFile = true;
    }
-   if(status != 200) {
-      Print("SMC: HTTP error ", status);
-      return;
+   else if(status != 200) {
+      LogErrorOnce("HTTP_" + IntegerToString(status), "HTTP " + IntegerToString(status));
+      if(!TryReadFile(sym, response)) {
+         return;
+      }
+      useFile = true;
+   }
+   else {
+      response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
    }
 
-   // Парсим response как строку
-   response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
+   // Анти-спам: WR_FAIL логируем только раз — файловый fallback работает
+   // (не сбрасываем g_lastErrorKey, иначе каждый poll будет спамить ошибкой)
 
-   // Ищем наш символ
-   string symKey = "\"" + TargetSymbol + "\":";
+   // Для файлового режима response = JSON одного символа (без symbols wrapper)
+   string symKey = "\"" + sym + "\":";
    int symPos = StringFind(response, symKey);
-   if(symPos < 0) {
-      // Нет данных по этому символу — скан ещё не делался
-      return;
+
+   string zonesBlock;
+   string symBlock;
+
+   if(useFile || symPos < 0) {
+      // Файловый режим: весь response = данные символа
+      symBlock = response;
+      int zb = StringFind(response, "\"zones\"");
+      if(zb < 0) {
+         LogErrorOnce("NO_ZONES_FILE", "'zones' не найдено в файле");
+         return;
+      }
+      int braceStart = StringFind(response, "{", zb);
+      if(braceStart < 0) return;
+      int depth = 1, p = braceStart + 1, rlen = StringLen(response);
+      while(p < rlen && depth > 0) {
+         string ch = StringSubstr(response, p, 1);
+         if(ch == "{") depth++;
+         else if(ch == "}") depth--;
+         p++;
+      }
+      zonesBlock = StringSubstr(response, braceStart, p - braceStart);
+   }
+   else {
+      // WebRequest режим: ищем символ в symbols
+      int zonesKeyPos = StringFind(response, "\"zones\"", symPos);
+      if(zonesKeyPos < 0) {
+         LogErrorOnce("NO_ZONES", "'zones' не найдено после символа");
+         return;
+      }
+      int braceStart = StringFind(response, "{", zonesKeyPos);
+      if(braceStart < 0) {
+         LogErrorOnce("NO_BRACE", "'{' после zones не найдена");
+         return;
+      }
+      int depth = 1, p = braceStart + 1, rlen = StringLen(response);
+      while(p < rlen && depth > 0) {
+         string ch = StringSubstr(response, p, 1);
+         if(ch == "{") depth++;
+         else if(ch == "}") depth--;
+         p++;
+      }
+      zonesBlock = StringSubstr(response, braceStart, p - braceStart);
+      symBlock = StringSubstr(response, symPos, braceStart - symPos);
    }
 
-   // Извлекаем блок символа (от symPos до следующего " BTCUSDT" или конец symbols)
-   int blockEnd = StringFind(response, "},", symPos);
-   if(blockEnd < 0) blockEnd = StringLen(response);
-   string symBlock = StringSubstr(response, symPos, blockEnd - symPos + 1);
-
-   // --- Цена ---
-   double price = 0.0;
-   double val = ExtractDouble(symBlock, "\"price\":");
-   if(val > 0) price = val;
-
-   // --- signal_status ---
+   double price = ExtractDouble(symBlock, "\"price\":");
    string sigStatus = ExtractString(symBlock, "\"signal_status\":");
-
-   // --- phase ---
+   string sigDir = ExtractString(symBlock, "\"signal_direction\":");
    string phase = ExtractString(symBlock, "\"phase\":");
 
-   // --- Зоны по ТФ ---
-   int zonesStart = StringFind(symBlock, "\"zones\":");
-   if(zonesStart < 0) return;
-
-   string zonesBlock = StringSubstr(symBlock, zonesStart);
-
-   // Парсим каждый ТФ
    string tfs[];
    int tfCount = StringSplit(ShowTFs, ',', tfs);
 
-   // Сначала удаляем старые объекты
-   CleanupObjects();
-
-   // Рисуем цену (если включено)
-   if(ShowPrice && price > 0) {
-      string name = PREFIX + "PRICE";
-      if(ObjectFind(0, name) < 0)
-         ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
-      ObjectSetDouble(0, name, OBJPROP_PRICE, price);
-      ObjectSetInteger(0, name, OBJPROP_COLOR, clrDodgerBlue);
-      ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DOT);
-      ObjectSetString(0, name, OBJPROP_TEXT, "Цена: " + DoubleToString(price, _Digits));
-   }
-
-   // Рисуем зоны
+   // Собираем state hash — только значимые поля (зоны + статус, БЕЗ цены)
+   string stateHash = sigStatus + "|" + sigDir + "|" + phase + "|";
    for(int i = 0; i < tfCount; i++) {
       string tf = tfs[i];
       StringTrimLeft(tf);
       StringTrimRight(tf);
+      StringToUpper(tf);
+      string tfKey = "\"" + tf + "\":";
+      int tfPos = StringFind(zonesBlock, tfKey);
+      if(tfPos < 0) {
+         stateHash += tf + ":MISS|";
+         continue;
+      }
+      double upper = ExtractDoubleFromPos(zonesBlock, tfPos, "\"upper\":");
+      double lower = ExtractDoubleFromPos(zonesBlock, tfPos, "\"lower\":");
+      stateHash += tf + ":" + DoubleToString(upper, 1) + "/" + DoubleToString(lower, 1) + "|";
+   }
+
+   // Логируем только если состояние изменилось
+   bool changed = (stateHash != g_lastStateHash);
+   if(changed || g_pollCount == 1) {
+      Print("SMC: состояние изменено (poll #", g_pollCount, ")");
+      Print("  price=", DoubleToString(price, _Digits),
+            " status=", sigStatus, " dir=", sigDir, " phase=", phase);
+      for(int i = 0; i < tfCount; i++) {
+         string tf = tfs[i];
+         StringTrimLeft(tf);
+         StringTrimRight(tf);
+         StringToUpper(tf);
+         string tfKey = "\"" + tf + "\":";
+         int tfPos = StringFind(zonesBlock, tfKey);
+         if(tfPos < 0) {
+            Print("  ", tf, ": НЕ НАЙДЕН в API");
+            continue;
+         }
+         double upper = ExtractDoubleFromPos(zonesBlock, tfPos, "\"upper\":");
+         double lower = ExtractDoubleFromPos(zonesBlock, tfPos, "\"lower\":");
+         Print("  ", tf, ": R=", DoubleToString(upper, _Digits),
+               " S=", DoubleToString(lower, _Digits));
+      }
+      g_lastStateHash = stateHash;
+   }
+   // Анти-спам: WR_FAIL логируем только раз — файловый fallback работает
+   // (не сбрасываем g_lastErrorKey, иначе каждый poll будет спамить ошибкой)
+
+   CleanupZoneObjects();
+
+   if(ShowPrice && price > 0) {
+      DrawHLine(PREFIX + "PRICE", price, clrDodgerBlue, STYLE_DOT, 1, "Цена: " + DoubleToString(price, _Digits));
+   }
+
+   int zonesDrawn = 0;
+   for(int i = 0; i < tfCount; i++) {
+      string tf = tfs[i];
+      StringTrimLeft(tf);
+      StringTrimRight(tf);
+      StringToUpper(tf);
 
       string tfKey = "\"" + tf + "\":";
       int tfPos = StringFind(zonesBlock, tfKey);
@@ -165,68 +266,228 @@ void PollSignals() {
       double upper = ExtractDoubleFromPos(zonesBlock, tfPos, "\"upper\":");
       double lower = ExtractDoubleFromPos(zonesBlock, tfPos, "\"lower\":");
 
-      // Resistance (upper)
-      if(upper > 0) {
-         string name = PREFIX + "R_" + tf;
-         if(ObjectFind(0, name) < 0)
-            ObjectCreate(0, name, OBJ_HLINE, 0, 0, upper);
-         ObjectSetDouble(0, name, OBJPROP_PRICE, upper);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, ColorUpper);
-         ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
-         ObjectSetInteger(0, name, OBJPROP_WIDTH, LineWidth);
-         if(ShowLabel)
-            ObjectSetString(0, name, OBJPROP_TEXT, "R " + tf + ": " + DoubleToString(upper, _Digits));
+      if(ShowZoneFill && upper > 0 && lower > 0 && upper != lower) {
+         color fillColor = GetZoneColor(tf);
+         DrawZoneFill(PREFIX + "FILL_" + tf, lower, upper, fillColor);
+      }
 
-         // Стрелка пробоя если цена выше resistance
+      if(upper > 0) {
+         DrawHLine(PREFIX + "R_" + tf, upper, ColorUpper, STYLE_SOLID, LineWidth,
+                   "R " + tf + ": " + DoubleToString(upper, _Digits));
+         zonesDrawn++;
          if(price > upper && price > 0) {
             DrawBreakoutArrow("BRK_R_" + tf, upper, true, "ПРОБОЙ R " + tf);
          }
       }
 
-      // Support (lower)
       if(lower > 0) {
-         string name = PREFIX + "S_" + tf;
-         if(ObjectFind(0, name) < 0)
-            ObjectCreate(0, name, OBJ_HLINE, 0, 0, lower);
-         ObjectSetDouble(0, name, OBJPROP_PRICE, lower);
-         ObjectSetInteger(0, name, OBJPROP_COLOR, ColorLower);
-         ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
-         ObjectSetInteger(0, name, OBJPROP_WIDTH, LineWidth);
-         if(ShowLabel)
-            ObjectSetString(0, name, OBJPROP_TEXT, "S " + tf + ": " + DoubleToString(lower, _Digits));
-
-         // Стрелка пробоя если цена ниже support
+         DrawHLine(PREFIX + "S_" + tf, lower, ColorLower, STYLE_SOLID, LineWidth,
+                   "S " + tf + ": " + DoubleToString(lower, _Digits));
+         zonesDrawn++;
          if(price < lower && price > 0) {
             DrawBreakoutArrow("BRK_S_" + tf, lower, false, "ПРОБОЙ S " + tf);
          }
       }
    }
 
-   // Инфо-бейдж в углу
+   // Инфо-панель (разворачиваемая)
    if(ShowLabel) {
-      string badge = PREFIX + "BADGE";
-      if(ObjectFind(0, badge) < 0)
-         ObjectCreate(0, badge, OBJ_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, badge, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, badge, OBJPROP_XDISTANCE, 10);
-      ObjectSetInteger(0, badge, OBJPROP_YDISTANCE, 20);
-      ObjectSetString(0, badge, OBJPROP_TEXT,
-         "SMC Zones | " + TargetSymbol +
-         " | цена: " + DoubleToString(price, _Digits) +
-         " | статус: " + sigStatus +
-         " | фаза: " + phase);
-      ObjectSetInteger(0, badge, OBJPROP_COLOR, clrWhite);
-      ObjectSetInteger(0, badge, OBJPROP_FONTSIZE, 9);
+      DrawInfoPanel(price, sym, sigStatus, sigDir, phase, zonesBlock, tfs, tfCount);
    }
 
    ChartRedraw();
 }
 
 //+------------------------------------------------------------------+
-//| Рисование стрелки пробоя                                         |
+//| Разворачиваемая инфо-панель                                      |
+//| Клик по заголовку — раскрыть/скрыть детали                       |
+//+------------------------------------------------------------------+
+bool g_panelExpanded = false;
+
+void DrawInfoPanel(double price, string sym, string sigStatus, string sigDir, string phase,
+                   string zonesBlock, string &tfs[], int tfCount) {
+   string panelTag = PREFIX + "PANEL_TAG";
+   string panelBody = PREFIX + "PANEL_BODY";
+   color txtClr = GetTextColor();
+   color accentClr = (sigStatus == "accumulation") ? clrGold :
+                     (sigStatus == "bullish_breakout") ? clrLime :
+                     (sigStatus == "bearish_breakout") ? clrRed : clrGray;
+
+   string dirIcon = "";
+   if(sigDir == "bullish") dirIcon = " ↑";
+   else if(sigDir == "bearish") dirIcon = " ↓";
+
+   // --- Заголовок (всегда виден) ---
+   if(ObjectFind(0, panelTag) < 0)
+      ObjectCreate(0, panelTag, OBJ_LABEL, 0, 0, 0);
+   ObjectSetInteger(0, panelTag, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+   ObjectSetInteger(0, panelTag, OBJPROP_XDISTANCE, 10);
+   ObjectSetInteger(0, panelTag, OBJPROP_YDISTANCE, 20);
+   ObjectSetString(0, panelTag, OBJPROP_TEXT,
+      "SMC Zones " + sym + " | " + DoubleToString(price, _Digits) +
+      " | " + sigStatus + dirIcon + (g_panelExpanded ? "  [v]" : "  [>]"));
+   ObjectSetInteger(0, panelTag, OBJPROP_COLOR, accentClr);
+   ObjectSetInteger(0, panelTag, OBJPROP_FONTSIZE, 10);
+   ObjectSetInteger(0, panelTag, OBJPROP_SELECTABLE, true);
+   ObjectSetInteger(0, panelTag, OBJPROP_SELECTED, false);
+
+   // --- Тело панели (если развёрнута) ---
+   if(g_panelExpanded) {
+      if(ObjectFind(0, panelBody) < 0)
+         ObjectCreate(0, panelBody, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, panelBody, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, panelBody, OBJPROP_XDISTANCE, 10);
+      ObjectSetInteger(0, panelBody, OBJPROP_YDISTANCE, 42);
+
+      string body = "";
+      body += "Статус: " + sigStatus + dirIcon + "\n";
+      body += "Фаза: " + phase + "\n";
+      body += "Цена: " + DoubleToString(price, _Digits) + "\n";
+      body += "---------------------------\n";
+      body += "TF  |  R (upper)  |  S (lower)\n";
+      for(int i = 0; i < tfCount; i++) {
+         string tf = tfs[i];
+         StringTrimLeft(tf);
+         StringTrimRight(tf);
+         StringToUpper(tf);
+         string tfKey = "\"" + tf + "\":";
+         int tfPos = StringFind(zonesBlock, tfKey);
+         if(tfPos < 0) continue;
+         double upper = ExtractDoubleFromPos(zonesBlock, tfPos, "\"upper\":");
+         double lower = ExtractDoubleFromPos(zonesBlock, tfPos, "\"lower\":");
+         body += tf + "  |  " + DoubleToString(upper, _Digits) +
+                 "  |  " + DoubleToString(lower, _Digits) + "\n";
+      }
+      body += "---------------------------\n";
+      body += "Click title to collapse";
+
+      ObjectSetString(0, panelBody, OBJPROP_TEXT, body);
+      ObjectSetInteger(0, panelBody, OBJPROP_COLOR, txtClr);
+      ObjectSetInteger(0, panelBody, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, panelBody, OBJPROP_SELECTABLE, false);
+   } else {
+      ObjectDelete(0, panelBody);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Обработка клика по панели (ChartEvent)                          |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam) {
+   if(id == CHARTEVENT_OBJECT_CLICK) {
+      if(sparam == PREFIX + "PANEL_TAG") {
+         g_panelExpanded = !g_panelExpanded;
+         // Перезапросим данные для отрисовки панели
+         PollSignals();
+         ChartRedraw();
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Чтение JSON из файла (fallback для MT5 без WebRequest)           |
+//+------------------------------------------------------------------+
+bool TryReadFile(string sym, string &content) {
+   // Динамически генерируем имя файла из символа: signals_BTCUSDT.json
+   string filename = "signals_" + sym + ".json";
+   // FILE_COMMON = C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files\
+   // FILE_SHARE_READ|WRITE — чтобы Flask мог писать, а индикатор читать одновременно
+   int handle = FileOpen(filename, FILE_READ | FILE_TXT | FILE_ANSI | FILE_COMMON | FILE_SHARE_READ | FILE_SHARE_WRITE);
+   if(handle == INVALID_HANDLE) {
+      LogErrorOnce("FILE_OPEN", "FileOpen FAIL path=" + filename + " err=" + IntegerToString(GetLastError()));
+      return false;
+   }
+   content = FileReadString(handle);
+   FileClose(handle);
+   if(StringLen(content) < 10) {
+      LogErrorOnce("FILE_EMPTY", "Файл пуст: " + filename);
+      return false;
+   }
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Лог ошибки только при первом появлении (анти-спам)                |
+//+------------------------------------------------------------------+
+void LogErrorOnce(string key, string msg) {
+   if(key != g_lastErrorKey) {
+      Print("SMC: ", msg, " (poll #", g_pollCount, ")");
+      g_lastErrorKey = key;
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Автоопределение цвета текста по фону графика                     |
+//| (clrWhite на тёмном фоне, clrBlack на светлом)                   |
+//+------------------------------------------------------------------+
+color GetTextColor() {
+   if(!AutoTextColor) return TextColorManual;
+   color bg = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+   // Читаем яркость фона: среднее RGB
+   int r = (bg & 0xFF);
+   int g = (bg >> 8) & 0xFF;
+   int b = (bg >> 16) & 0xFF;
+   int brightness = (r + g + b) / 3;
+   if(brightness < 128) return clrWhite;   // тёмный фон → белый текст
+   return clrBlack;                        // светлый фон → тёмный текст
+}
+
+//+------------------------------------------------------------------+
+//| Рисование горизонтальной линии                                   |
+//+------------------------------------------------------------------+
+void DrawHLine(string name, double price, color clr, int style, int width, string text) {
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_HLINE, 0, 0, price);
+   ObjectSetDouble(0, name, OBJPROP_PRICE, price);
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, style);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+   ObjectSetString(0, name, OBJPROP_TEXT, text);
+   ObjectSetInteger(0, name, OBJPROP_BACK, true);
+   // Цвет текста метки = автоопределение по фону
+   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+   color txtClr = GetTextColor();
+   ObjectSetInteger(0, name, OBJPROP_LEVELCOLOR, txtClr);
+}
+
+//+------------------------------------------------------------------+
+//| Заливка зоны прямоугольником                                     |
+//+------------------------------------------------------------------+
+void DrawZoneFill(string name, double lower, double upper, color clr) {
+   datetime t1 = TimeCurrent() - PeriodSeconds(PERIOD_CURRENT) * 50;
+   datetime t2 = TimeCurrent() + PeriodSeconds(PERIOD_CURRENT) * 10;
+
+   if(ObjectFind(0, name) < 0)
+      ObjectCreate(0, name, OBJ_RECTANGLE, 0, t1, lower, t2, upper);
+   else {
+      ObjectSetInteger(0, name, OBJPROP_TIME, 0, t1);
+      ObjectSetDouble(0, name, OBJPROP_PRICE, 0, lower);
+      ObjectSetInteger(0, name, OBJPROP_TIME, 1, t2);
+      ObjectSetDouble(0, name, OBJPROP_PRICE, 1, upper);
+   }
+   ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
+   ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_SOLID);
+   ObjectSetInteger(0, name, OBJPROP_WIDTH, 1);
+   ObjectSetInteger(0, name, OBJPROP_BACK, true);
+   ObjectSetInteger(0, name, OBJPROP_FILL, true);
+}
+
+//+------------------------------------------------------------------+
+//| Цвет заливки по ТФ                                               |
+//+------------------------------------------------------------------+
+color GetZoneColor(string tf) {
+   if(tf == "1D") return ColorFill1D;
+   if(tf == "4H") return ColorFill4H;
+   if(tf == "1H") return ColorFill1H;
+   if(tf == "15M") return ColorFill15M;
+   return clrGray;
+}
+
+//+------------------------------------------------------------------+
+//| Стрелка пробоя                                                   |
 //+------------------------------------------------------------------+
 void DrawBreakoutArrow(string name, double price, bool isUp, string text) {
-   if(ObjectFind(0, name) >= 0) return;  // уже есть
+   if(ObjectFind(0, name) >= 0) return;  // уже есть — не перерисовываем
 
    datetime t = TimeCurrent();
    ObjectCreate(0, name, OBJ_ARROW, 0, t, price);
@@ -237,7 +498,22 @@ void DrawBreakoutArrow(string name, double price, bool isUp, string text) {
 }
 
 //+------------------------------------------------------------------+
-//| Удаление всех объектов индикатора                                |
+//| Удаление линий зон и цены (НЕ стрелок пробоев)                    |
+//+------------------------------------------------------------------+
+void CleanupZoneObjects() {
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--) {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, PREFIX) != 0) continue;
+      // Не удаляем стрелки пробоев (BRK_) и бейдж (BADGE)
+      if(StringFind(name, "BRK_") >= 0) continue;
+      if(StringFind(name, "BADGE") >= 0) continue;
+      ObjectDelete(0, name);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Полная очистка (при деинициализации)                             |
 //+------------------------------------------------------------------+
 void CleanupObjects() {
    int total = ObjectsTotal(0, -1, -1);
@@ -250,15 +526,35 @@ void CleanupObjects() {
 }
 
 //+------------------------------------------------------------------+
-//| Вспомогательные: извлечение чисел и строк из JSON строки          |
+//| Извлечение числа после key (от начала text)                     |
 //+------------------------------------------------------------------+
 double ExtractDouble(string text, string key) {
    int pos = StringFind(text, key);
    if(pos < 0) return 0.0;
+   return ExtractDoubleFromPos(text, pos, key);
+}
+
+//+------------------------------------------------------------------+
+//| Извлечение числа после key, начиная с startPos                  |
+//| FIX: раньше вызывал ExtractDouble от начала — баг!               |
+//+------------------------------------------------------------------+
+double ExtractDoubleFromPos(string text, int startPos, string key) {
+   int pos = StringFind(text, key, startPos);
+   if(pos < 0) return 0.0;
 
    int valStart = pos + StringLen(key);
+
+   // Пропускаем пробелы после ключа (JSON: "price": 64997.8)
+   int textLen = StringLen(text);
+   while(valStart < textLen && StringSubstr(text, valStart, 1) == " ")
+      valStart++;
+
+   // Проверяем null
+   string nextChars = StringSubstr(text, valStart, 4);
+   if(nextChars == "null") return 0.0;
+
    string numStr = "";
-   for(int i = valStart; i < StringLen(text); i++) {
+   for(int i = valStart; i < textLen; i++) {
       string ch = StringSubstr(text, i, 1);
       if(ch == "-" || ch == "." || ch == "0" || ch == "1" || ch == "2" ||
          ch == "3" || ch == "4" || ch == "5" || ch == "6" || ch == "7" ||
@@ -270,35 +566,34 @@ double ExtractDouble(string text, string key) {
    }
 
    if(numStr == "") return 0.0;
-   double val = StringToDouble(numStr);
-   // null → 0
-   if(val < 0.0001 && StringFind(numStr, "null") >= 0) return 0.0;
-   return val;
+   return StringToDouble(numStr);
 }
 
-double ExtractDoubleFromPos(string text, int startPos, string key) {
-   int pos = StringFind(text, key, startPos);
-   if(pos < 0) return 0.0;
-   return ExtractDouble(text, key);
-}
-
+//+------------------------------------------------------------------+
+//| Извлечение строки после key                                      |
+//+------------------------------------------------------------------+
 string ExtractString(string text, string key) {
    int pos = StringFind(text, key);
    if(pos < 0) return "";
 
    int valStart = pos + StringLen(key);
-   // Пропускаем кавычки
-   while(valStart < StringLen(text) && StringSubstr(text, valStart, 1) == " ")
+   int textLen = StringLen(text);
+
+   // Пропускаем пробелы
+   while(valStart < textLen && StringSubstr(text, valStart, 1) == " ")
       valStart++;
-   if(StringSubstr(text, valStart, 1) == "\"") {
+
+   // Строка в кавычках
+   if(valStart < textLen && StringSubstr(text, valStart, 1) == "\"") {
       valStart++;
       int end = StringFind(text, "\"", valStart);
       if(end < 0) return "";
       return StringSubstr(text, valStart, end - valStart);
    }
-   // null/true/false/number без кавычек
+
+   // null/true/false без кавычек
    string val = "";
-   for(int i = valStart; i < StringLen(text); i++) {
+   for(int i = valStart; i < textLen; i++) {
       string ch = StringSubstr(text, i, 1);
       if(ch == "," || ch == "}" || ch == " ") break;
       val += ch;

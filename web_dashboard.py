@@ -210,7 +210,7 @@ def _format_symbol(symbol_id: str) -> str:
 
 ALL_AUTOSCAN_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT"]
 SYMBOL_LABELS = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "XAUTUSDT": "XAUT", "SOLUSDT": "SOL"}
-DEFAULT_AUTOSCAN_SYMBOLS = ["BTCUSDT", "XAUTUSDT"]
+DEFAULT_AUTOSCAN_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUTUSDT"]
 
 
 def _get_autoscan_symbols() -> list[str]:
@@ -1458,6 +1458,20 @@ def api_signals():
         result["breakout_events"] = events
     except Exception:
         result["breakout_events"] = []
+
+    # Файловый fallback для MT5 (если WebRequest не работает — err=4006)
+    # Пишет в MT5 Common\Files\ (доступно индикатору без WebRequest)
+    try:
+        import os, json as _json
+        # MT5 Common\Files path: C:\Users\<user>\AppData\Roaming\MetaQuotes\Terminal\Common\Files
+        common_dir = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal", "Common", "Files")
+        os.makedirs(common_dir, exist_ok=True)
+        for sym, data in result["symbols"].items():
+            fn = os.path.join(common_dir, f"signals_{sym}.json")
+            with open(fn, "w", encoding="utf-8") as f:
+                _json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
 
     return jsonify(result)
 
