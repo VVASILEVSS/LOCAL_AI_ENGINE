@@ -262,11 +262,8 @@ def split_structure(
     # Пример: BTC D1 → prev_high = max всех highs до BOS, prev_low = min всех lows.
     prev = None
     if prev_pivots:
-<<<<<<< HEAD
         # АБСОЛЮТНЫЕ экстремумы за весь период до BOS — зона = полная структурная ranged
         # НЕ зацикливаемся на ТФ, работаем по структуре, старший ТФ в приоритете.
-=======
->>>>>>> 3a9bfff ([LOCAL_AI_ENGINE] fix: zones use absolute extremes for prev_structure + hard parent constraint)
         prev_highs = [p for p in prev_pivots if p["type"] == "high"]
         prev_lows = [p for p in prev_pivots if p["type"] == "low"]
         prev_h = max(p["price"] for p in prev_highs) if prev_highs else current_price
