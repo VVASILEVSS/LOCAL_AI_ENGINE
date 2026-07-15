@@ -557,7 +557,7 @@ async def run_hourly_analysis(
 
             alert_text, new_breakouts = _build_level_alerts(
                 symbol_id=symbol_id,
-                tf_zones=tf_zones_clean if "tf_zones_clean" in dir() else tf_zones,
+                tf_zones=parsed.get("tf_zones", tf_zones) if isinstance(parsed, dict) else tf_zones,
                 live_price=float(live_price or last_closed_price or 0),
                 vol_ratio=vol_ratio_ltf,
                 atr=atr_ltf,
