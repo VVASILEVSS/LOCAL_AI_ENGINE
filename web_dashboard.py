@@ -1401,9 +1401,13 @@ def api_stop():
 # ═══════════════════════════════════════════════════════════════════════════
 
 async def main():
-    if not is_main_bot_running():
-        start_main_bot()
-        logging.info(f"Main bot started (PID {main_bot_process.pid})")
+    # DISABLED: auto-start main.py (@KXROBObot) to avoid TelegramConflictError.
+    # Two bots polling same token caused "AUTO ЗАПУСК 15М НЕ СРАБОТАЛ" — only one
+    # bot (dashboard, @my_hermes_lokal_ai_bot) should run. Enable manually via /startbot.
+    # if not is_main_bot_running():
+    #     start_main_bot()
+    #     logging.info(f"Main bot started (PID {main_bot_process.pid})")
+    logging.info("Auto-start main.py DISABLED — only dashboard bot will run")
 
     def run_flask():
         app.run(host="0.0.0.0", port=WEB_PORT, debug=False, use_reloader=False)
