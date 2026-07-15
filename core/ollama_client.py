@@ -332,6 +332,8 @@ State / history context:
 22. При споре между false_breakout и retest выбирай retest.
 23. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
 24. Младший пробой не означает старший пробой.
+25. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
+26. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
 """
 
 
@@ -960,7 +962,80 @@ def enforce_risk_rules(data: dict) -> dict:
     data["tf_zones"] = _normalize_tf_zones(data.get("tf_zones") or {})
 
     # -----------------------------
-    # 2a) Валидация матрёшки зон + ограничение D1
+    # 1b) Контаминация зон: если LLM скопировал D1 lower в младшие ТФ —
+    # заменить на zigzag_context zone для этого ТФ.
+    # Симптом: lower(child) == lower(parent) в пределах tolerance.
+    # Z сказал: ZigZag benchmark корректный (per-TF independent).
+    # -----------------------------
+    def _detect_contamination(tf_zones: dict, data: dict) -> dict:
+        if not isinstance(tf_zones, dict) or len(tf_zones) < 2:
+            return tf_zones
+
+        zz_ctx = data.get("zigzag_context") or {}
+        if not isinstance(zz_ctx, dict):
+            return tf_zones
+        zz_tfs = zz_ctx.get("timeframes") or {}
+        if not isinstance(zz_tfs, dict):
+            return tf_zones
+
+        # Иерархия: parent → child
+        nesting = [("1D", "4H"), ("4H", "1H"), ("1H", "15M"), ("15M", "5M")]
+        # 0.5% tolerance — зона считается "прилипшей" к parent lower
+        tol_pct = 0.005
+        price = data.get("price") or data.get("current_price") or 0.0
+        price_safe = price if price > 0 else 1.0
+
+        # Снапшот оригинальных lower ДО фиксов — иначе при последовательном
+        # исправлении H4 lower меняется, и пара (4H→1H) не детектирует H1.
+        original_lowers = {}
+        for tf_key, z in tf_zones.items():
+            if isinstance(z, dict):
+                original_lowers[tf_key] = z.get("lower")
+
+        fixed_count = 0
+        for parent_tf, child_tf in nesting:
+            parent = tf_zones.get(parent_tf)
+            child = tf_zones.get(child_tf)
+            if not isinstance(parent, dict) or not isinstance(child, dict):
+                continue
+            p_lower = original_lowers.get(parent_tf)
+            c_lower = original_lowers.get(child_tf)
+            if p_lower is None or c_lower is None:
+                continue
+
+            # Детектор контаминации: child lower ≈ parent lower (по оригиналам)
+            lower_diff = abs(p_lower - c_lower) / price_safe
+            if lower_diff < tol_pct:
+                # Контаминация! Ищем правильную зону в zigzag_context
+                zz_tf_data = None
+                for zz_key in (child_tf, child_tf.lower(), child_tf.replace("M", "m").replace("H", "h").replace("D", "d")):
+                    if zz_key in zz_tfs:
+                        zz_tf_data = zz_tfs[zz_key]
+                        break
+                if isinstance(zz_tf_data, dict):
+                    fb_lower = _safe_float(zz_tf_data.get("lower"))
+                    fb_upper = _safe_float(zz_tf_data.get("upper"))
+                    if fb_lower is not None and fb_upper is not None and fb_upper > fb_lower:
+                        logging.warning(
+                            "CONTAMINATION FIX: %s lower=%.2f == %s lower=%.2f (contamination) "
+                            "→ replacing with ZigZag zone [%.2f - %.2f]",
+                            child_tf, c_lower, parent_tf, p_lower, fb_lower, fb_upper,
+                        )
+                        child["lower"] = fb_lower
+                        child["upper"] = fb_upper
+                        child["source"] = "zigzag_anticontamination"
+                        if "range" in child:
+                            child["range"] = [fb_lower, fb_upper]
+                        fixed_count += 1
+
+        if fixed_count:
+            logging.info("CONTAMINATION: fixed %d zone(s) from ZigZag context", fixed_count)
+        return tf_zones
+
+    data["tf_zones"] = _detect_contamination(data["tf_zones"], data)
+
+    # -----------------------------
+    # 2) Валидация матрёшки зон + ограничение D1
     # -----------------------------
     def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
         """
