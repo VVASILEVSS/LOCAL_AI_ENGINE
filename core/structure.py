@@ -426,15 +426,12 @@ def analyze_tf_structure(
     elif swing_points:
         active_pivots = len(swing_points)
 
-    # ── T1: ЖЁСТКИЙ parent constraint (старший ТФ = приоритет) ──
-    # Старший ТФ задаёт абсолютные рамки: его low = пол для всех детей,
-    # его high = потолок. Без исключений, без 10% толеранса.
-    # "Старшая в приоритете должна быть" — зона работает по структуре,
-    # а не по ТФ, поэтому D1 low распространяется на H4/H1/M15/5M.
+    # ── T1: Parent constraint — ребёнок ВНУТРИ parent, но сохраняет свои границы ──
+    # При Variant E (ZigZag authoritative) каждый TF должен иметь СВОИ zone boundaries.
+    # Старший ТФ задаёт абсолютные рамки, но НЕ перезаписывает child boundaries.
     chain_broken = False
     if parent_zone is not None:
         p_low, p_high = parent_zone
-        # Логируем если ребёнок выходит за parent (информативно, не разрываем цепь)
         if zone_high > p_high:
             logging.info(
                 "TOPDOWN: %s zone_high %.1f clamped to parent %s %.1f",
@@ -445,9 +442,9 @@ def analyze_tf_structure(
                 "TOPDOWN: %s zone_low %.1f raised to parent %s %.1f",
                 tf, zone_low, parent_tf or "?", p_low,
             )
-        # Жёсткий clamp: ребёнок ВНУТРИ parent
+        # Clamp: ребёнок внутри parent, но сохраняет СВОИ значения если внутри.
         zone_high = min(zone_high, p_high)
-        zone_low = p_low  # parent low = пол для ВСЕХ детей (общий low)
+        zone_low = max(zone_low, p_low)
 
     # ── T3: Accumulation detection ──
     is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
