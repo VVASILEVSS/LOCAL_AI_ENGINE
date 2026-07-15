@@ -37,6 +37,10 @@ def _get_timeframes() -> list:
     return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
 
 
+# Phase 3 MT5: кэш последних результатов анализа для /api/signals (web_dashboard.py)
+_last_analysis_cache: dict[str, dict] = {}
+
+
 def _get_symbols() -> list:
     """Phase 3: читаем из БД, не хардкод."""
     syms = get_setting("symbols", ["BTCUSDT", "XAUTUSDT"])
@@ -527,6 +531,18 @@ async def run_hourly_analysis(
 
                 if parsed.get("price") in (None, "", "null"):
                     parsed["price"] = live_price or last_closed_price
+
+                # Phase 3 MT5: кэшируем результат для /api/signals
+                _last_analysis_cache[symbol_id] = {
+                    "tf_zones": tf_zones_clean,
+                    "live_price": float(live_price or last_closed_price or 0),
+                    "signal_status": parsed.get("signal_status", "unknown"),
+                    "signal_direction": parsed.get("signal_direction", ""),
+                    "phase": parsed.get("phase", ""),
+                    "metrics": {tf: {"vol_ratio": m.get("vol_ratio"), "atr": m.get("atr")}
+                                for tf, m in all_metrics.items()},
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
 
                 parsed = enforce_risk_rules(parsed)
 
