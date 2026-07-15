@@ -18,6 +18,7 @@ import sqlite3
 import subprocess
 import logging
 import time
+from datetime import datetime
 
 # Загрузка .env (DASHBOARD_LLM_* для облака)
 from dotenv import load_dotenv
@@ -1226,11 +1227,16 @@ async def cmd_version(message: Message) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 _autoscan_running = False
+# Phase 3 MT5: кэш последних результатов скана для /api/signals
+_last_scan_results: dict[str, dict] = {}
+_last_breakout_events: list[dict] = []
 
 
 async def _autoscan_sequential_cycle(bot: Bot):
     """Последовательный цикл: символы по очереди, 2 мин пауза между, затем пауза до интервала."""
     global _autoscan_running
+    global _last_scan_results
+    global _last_breakout_events
     if not DASHBOARD_LLM_API_KEY:
         logging.warning("autoscan: DASHBOARD_LLM_API_KEY not set")
         return
@@ -1276,6 +1282,14 @@ async def _autoscan_sequential_cycle(bot: Bot):
                 finally:
                     cfg.AUTO_SIGNAL_ONLY = old_auto
                     cfg.MY_CHAT_ID = old_my_chat
+
+                # Phase 3 MT5: кэшируем результат для /api/signals
+                try:
+                    from core.scheduler import _last_analysis_cache
+                    if _last_analysis_cache.get(symbol):
+                        _last_scan_results[symbol] = _last_analysis_cache[symbol]
+                except Exception:
+                    pass
 
                 # Пауза между символами
                 if i < len(symbols) - 1 and _dash_get_setting("autoscan_active", False):
@@ -1394,6 +1408,66 @@ def api_start():
 @app.route("/api/stop", methods=["POST"])
 def api_stop():
     return jsonify({"status": "stopped" if stop_main_bot() else "not running"})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Phase 3 MT5: /api/signals — зоны + пробои для MT5 индикатора/советника
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/signals")
+def api_signals():
+    """Отдаёт последние кэшированные зоны + пробои для MT5 индикатора.
+    MT5 индикатор вызывает WebRequest("GET", "http://localhost:5000/api/signals")
+    каждые N секунд и рисует horizontal lines зон + стрелки пробоев."""
+    import core.scheduler as sched
+    from core.db import get_pending_breakout_events
+
+    symbols = _get_autoscan_symbols()
+    result = {
+        "server_time": datetime.utcnow().isoformat() + "Z",
+        "symbols": {},
+    }
+
+    for sym in symbols:
+        cached = _last_scan_results.get(sym) or sched._last_analysis_cache.get(sym, {})
+        if not cached:
+            continue
+        tf_zones = cached.get("tf_zones", {})
+        zones_out = {}
+        for tf, z in tf_zones.items():
+            if isinstance(z, dict):
+                zones_out[tf] = {
+                    "upper": z.get("upper"),
+                    "lower": z.get("lower"),
+                }
+        result["symbols"][sym] = {
+            "price": cached.get("live_price", 0),
+            "signal_status": cached.get("signal_status", "unknown"),
+            "signal_direction": cached.get("signal_direction", ""),
+            "phase": cached.get("phase", ""),
+            "zones": zones_out,
+            "timestamp": cached.get("timestamp", ""),
+        }
+
+    # Pending breakout events (для стрелок пробоев на индикаторе)
+    try:
+        events = []
+        for sym in symbols:
+            for ev in get_pending_breakout_events(sym, max_age_minutes=60):
+                events.append(ev)
+        result["breakout_events"] = events
+    except Exception:
+        result["breakout_events"] = []
+
+    return jsonify(result)
+
+
+@app.route("/api/breakout_stats")
+def api_breakout_stats():
+    """Статистика пробоев по символам (для обучения volume thresholds)."""
+    from core.db import get_breakout_stats
+    symbols = _get_autoscan_symbols()
+    return jsonify({sym: get_breakout_stats(sym) for sym in symbols})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
