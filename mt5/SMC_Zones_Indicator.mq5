@@ -5,14 +5,14 @@
 //|                  Данные: http://localhost:5000/api/signals        |
 //+------------------------------------------------------------------+
 #property copyright "LOCAL_AI_ENGINE"
-#property version   "1.15"
+#property version   "1.16"
 #property indicator_chart_window
 #property indicator_plots 0
 
 // --- Входные параметры ---
-input string  ServerURL    = "http://127.0.0.1:5000/api/signals";  // URL API (127.0.0.1 надёжнее localhost в MT5)
+input string  ServerURL    = "http://127.0.0.1:5000/api/signals";  // URL API (127.0.0.1 = этот ПК; для MT5 на другом ПК: http://192.168.43.235:5000/api/signals)
 input string  TargetSymbol = "AUTO";                              // Символ (AUTO = по графику, или вручную: BTCUSDT, ETHUSDT, XAUTUSDT)
-input int     PollSeconds  = 15;                                     // Частота опроса (сек)
+input int     PollSeconds  = 300;                                    // Опрос API (сек). Бот сканит каждые 15мин → 300сек=5мин достаточно. Min=60, Max=3600
 input string  ShowTFs      = "15M,1H,4H,1D";                         // ТФ (uppercase как в API!)
 input color   ColorUpper   = clrRed;                                 // Цвет resistance
 input color   ColorLower   = clrGreen;                               // Цвет support
@@ -61,10 +61,14 @@ string ResolveSymbol() {
 //| Инициализация                                                    |
 //+------------------------------------------------------------------+
 int OnInit() {
-   EventSetTimer(PollSeconds);
+   // Clamping: 60..3600 сек (1 мин .. 1 час)
+   int poll = (int)PollSeconds;
+   if(poll < 60)       poll = 60;
+   else if(poll > 3600) poll = 3600;
+   EventSetTimer(poll);
    string resolved = ResolveSymbol();
-   Print("SMC Zones v1.15: старт. URL=", ServerURL, " Symbol=", TargetSymbol, "→", resolved,
-         " (chart=", Symbol(), ") ShowTFs=", ShowTFs);
+   Print("SMC Zones v1.16: старт. URL=", ServerURL, " Symbol=", TargetSymbol, "→", resolved,
+         " (chart=", Symbol(), ") ShowTFs=", ShowTFs, " Poll=", poll, "сек (input=", PollSeconds, ")");
    PollSignals();
    return INIT_SUCCEEDED;
 }
