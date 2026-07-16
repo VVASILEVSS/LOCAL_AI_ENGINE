@@ -72,6 +72,10 @@ class StructureAnalysis:
     # T1: Top-down metadata
     parent_tf: Optional[str] = None
     chain_broken: bool = False  # Reserved: всегда False (жёсткий parent constraint)
+    # Zone breakout (body close, NOT wick) — концепция Возного:
+    # BOS = close за границей, sweep = wick без close.
+    zone_breakout_up: bool = False
+    zone_breakout_down: bool = False
 
 
 def detect_bos(
@@ -286,56 +290,48 @@ def split_structure(
     # Curr structure
     curr_pivots = [p for p in swing_points if p["index"] >= bos_idx]
 
-    # Если после BOS слишком мало пивотов (< 1 каждого типа) —
-    # расширяем до включения 1-2 пивотов ДО BOS для осмысленной зоны
+    # ── НЕ фабрикуем curr_structure (концепция Возного). ──
+    # Если после BOS нет swing H ИЛИ L → суб-структура НЕ сформирована.
+    # curr остаётся "несформированной" (zone = BOS price, ждём суб-структуру).
+    # Раньше код добавлял пивоты ДО BOS → расширял зону назад → гигантская зона.
     curr_h_list = [p["price"] for p in curr_pivots if p["type"] == "high"]
     curr_l_list = [p["price"] for p in curr_pivots if p["type"] == "low"]
-    if (not curr_h_list or not curr_l_list) and swing_points:
-        # Добавляем пивоты перед BOS пока не получим оба типа
-        expanded = list(curr_pivots)
-        for p in reversed(swing_points):
-            if p["index"] < bos_idx:
-                expanded.insert(0, p)
-                if p["type"] == "high":
-                    curr_h_list.append(p["price"])
-                elif p["type"] == "low":
-                    curr_l_list.append(p["price"])
-                if curr_h_list and curr_l_list:
-                    break
-        curr_pivots = expanded
 
-    curr_h = max(curr_h_list) if curr_h_list else current_price
-    curr_l = min(curr_l_list) if curr_l_list else current_price
+    curr_h = max(curr_h_list) if curr_h_list else None
+    curr_l = min(curr_l_list) if curr_l_list else None
 
-    # BUG 1 FIX: Если BOS bullish и curr не обновила high —
-    # подтянуть swing high пробитый BOS + max swing high из последнего цикла до BOS.
-    # BOS price = пробитый swing high. Но часто последний реальный swing high
-    # был ДО пробитого (lower high pattern). Берём max из последних N=5 swing highs до BOS.
-    # НЕ берём max всех prev_pivots — там древние экстремумы (78080).
+    # ── BOS.price = пробитый уровень → становится границей новой зоны ──
+    # (концепция Возного). BOS bullish: broken swing high → support (curr_low).
+    # BOS bearish: broken swing low → resistance (curr_high).
+    # Если нет новых swing после BOS → зона = [BOS.price, BOS.price] (ждём суб-структуру).
     if bos:
         if bos.direction == "bullish":
-            broken_high = bos.price
-            prev_highs_before_bos = sorted(
-                [p for p in prev_pivots if p["type"] == "high"],
-                key=lambda p: p["index"],
-            )
-            # Берём max из последних 5 swing highs до BOS (свежий рыночный цикл)
-            recent_highs = prev_highs_before_bos[-5:] if len(prev_highs_before_bos) >= 5 else prev_highs_before_bos
-            max_recent_high = max(p["price"] for p in recent_highs) if recent_highs else broken_high
-            curr_h = max(curr_h, broken_high, max_recent_high)
+            # Пробили swing high → BOS.price = support (нижняя граница)
+            if curr_l is None:
+                curr_l = bos.price
         elif bos.direction == "bearish":
-            broken_low = bos.price
-            prev_lows_before_bos = sorted(
-                [p for p in prev_pivots if p["type"] == "low"],
-                key=lambda p: p["index"],
-            )
-            recent_lows = prev_lows_before_bos[-5:] if len(prev_lows_before_bos) >= 5 else prev_lows_before_bos
-            min_recent_low = min(p["price"] for p in recent_lows) if recent_lows else broken_low
-            curr_l = min(curr_l, broken_low, min_recent_low)
+            # Пробили swing low → BOS.price = resistance (верхняя граница)
+            if curr_h is None:
+                curr_h = bos.price
+    # Fallback если BOS нет
+    if curr_h is None:
+        curr_h = current_price
+    if curr_l is None:
+        curr_l = current_price
 
-    # Включаем current_price в range текущей структуры
-    h = max(curr_h, current_price)
-    l = min(curr_l, current_price)
+    # ── НЕ расширяем curr_struct назад в prev (концепция Возного). ──
+    # Если после BOS нет новых swing → curr остаётся узкой (BOS price).
+    # Раньше: curr_h = max(curr_h, broken_high, max_recent_high из prev) →
+    # расширяло зону до древних экстремумов → гигантская зона → price всегда inside.
+    # Теперь: curr_high = BOS.price если нет новых swing high после BOS.
+
+    # ── НЕ включаем current_price в zone boundaries (концепция Возного). ──
+    # Зона = swing H/L, а не текущая цена. Цена внутри зоны = накопление.
+    # Если current_price выше zone_high → это пробой, не расширение зоны.
+    # Раньше: h = max(curr_h, current_price) → цена становилась границей →
+    # зона всегда "inside" → no_signal вечно.
+    h = curr_h
+    l = curr_l
 
     if len(curr_pivots) >= 2:
         d = _structure_direction(curr_pivots[0], curr_pivots[-1], current_price)
@@ -405,20 +401,35 @@ def analyze_tf_structure(
         swing_points, bos, total_candles, current_price
     )
 
-    # Зона = range текущей И предыдущей структуры.
-    # prev_struct.high часто содержит значимый LH/HH который формирует
-    # верхнюю границу видимого range (например D1 high = 82850 из мая).
+    # ── ZONE = curr_structure ONLY (post-BOS range). ──
+    # Концепция В.Возного: зона = накопление после BOS, НЕ union с prev.
+    # prev_structure остаётся как контекст, но НЕ расширяет зону.
+    # После пробоя зоны → зона "замораживается" до появления суб-структуры
+    # (≥1 swing H + ≥1 swing L после пробоя).
     if curr_struct:
         zone_high = curr_struct.high
         zone_low = curr_struct.low
         swing_dir = curr_struct.direction
-        if prev_struct:
-            zone_high = max(zone_high, prev_struct.high)
-            zone_low = min(zone_low, prev_struct.low)
     else:
         zone_high = current_price
         zone_low = current_price
         swing_dir = "sideways"
+
+    # ── Zone breakout detection (body close, NOT wick) ──
+    # BOS vs Liquidity Sweep (Возный): BOS = close за границей,
+    # sweep = wick без close. false_breakout обрабатывается в scheduler.
+    # Логика: close за границей = пробой (независимо от предыдущей свечи).
+    # Раньше требовался переход (prev внутри, current снаружи) →
+    # если цена давно снаружи зоны → breakout никогда не срабатывал.
+    zone_breakout_up = False
+    zone_breakout_down = False
+    if closes and len(closes) >= 1:
+        last_close = closes[-1]
+        # Пробой = тело свечи закрылось за границей зоны
+        if last_close > zone_high:
+            zone_breakout_up = True
+        elif last_close < zone_low:
+            zone_breakout_down = True
 
     active_pivots = 0
     if bos and swing_points:
@@ -429,22 +440,36 @@ def analyze_tf_structure(
     # ── T1: Parent constraint — ребёнок ВНУТРИ parent, но сохраняет свои границы ──
     # При Variant E (ZigZag authoritative) каждый TF должен иметь СВОИ zone boundaries.
     # Старший ТФ задаёт абсолютные рамки, но НЕ перезаписывает child boundaries.
+    # Если clamp создаёт inverted zone (zone_low > zone_high) → НЕ клампим.
+    # Это значит child curr_structure полностью ВЫШЕ или НИЖЕ parent zone —
+    # parent пробит, child сохраняет свои границы (концепция Возного).
     chain_broken = False
     if parent_zone is not None:
         p_low, p_high = parent_zone
-        if zone_high > p_high:
-            logging.info(
-                "TOPDOWN: %s zone_high %.1f clamped to parent %s %.1f",
-                tf, zone_high, parent_tf or "?", p_high,
-            )
-        if zone_low < p_low:
-            logging.info(
-                "TOPDOWN: %s zone_low %.1f raised to parent %s %.1f",
-                tf, zone_low, parent_tf or "?", p_low,
-            )
-        # Clamp: ребёнок внутри parent, но сохраняет СВОИ значения если внутри.
-        zone_high = min(zone_high, p_high)
-        zone_low = max(zone_low, p_low)
+        # НЕ клампим если parent zone inverted (low >= high) — это значит
+        # у parent нет сформированной curr_structure (после BOS, ждём swing).
+        if p_high > p_low:
+            clamped_high = min(zone_high, p_high)
+            clamped_low = max(zone_low, p_low)
+            # Проверка: не создаёт ли clamp inverted zone?
+            if clamped_high > clamped_low:
+                if zone_high > p_high:
+                    logging.info(
+                        "TOPDOWN: %s zone_high %.1f clamped to parent %s %.1f",
+                        tf, zone_high, parent_tf or "?", p_high,
+                    )
+                if zone_low < p_low:
+                    logging.info(
+                        "TOPDOWN: %s zone_low %.1f raised to parent %s %.1f",
+                        tf, zone_low, parent_tf or "?", p_low,
+                    )
+                zone_high = clamped_high
+                zone_low = clamped_low
+            else:
+                logging.info(
+                    "TOPDOWN: %s clamp would invert zone [%.1f-%.1f] → parent %s [%.1f-%.1f] likely broken, keeping child bounds",
+                    tf, zone_low, zone_high, parent_tf or "?", p_low, p_high,
+                )
 
     # ── T3: Accumulation detection ──
     is_acc, acc_count = detect_accumulation(swing_points, zone_high, zone_low, tf=tf)
@@ -462,6 +487,8 @@ def analyze_tf_structure(
         accumulation_pivot_count=acc_count,
         parent_tf=parent_tf,
         chain_broken=chain_broken,
+        zone_breakout_up=zone_breakout_up,
+        zone_breakout_down=zone_breakout_down,
     )
 
     return result
@@ -600,8 +627,17 @@ def analyze_topdown(
 
         # Передаём zone как parent для следующего (младшего) ТФ.
         # Chain break убран — senior TF ВСЕГДА propagate вниз.
-        # Это обеспечивает общий low для всех ТФ (как в ручной разметке).
-        if analysis.zone_high is not None and analysis.zone_low is not None:
+        # Но НЕ передаём если parent zone пробита (breakout_up/down=True) —
+        # пробитый parent не должен clampить child (концепция Возного:
+        # parent пробит → child может строить свою зону свободно).
+        # Также НЕ передаём inverted zone (zone_low >= zone_high).
+        if (
+            analysis.zone_high is not None
+            and analysis.zone_low is not None
+            and analysis.zone_high > analysis.zone_low
+            and not analysis.zone_breakout_up
+            and not analysis.zone_breakout_down
+        ):
             parent_zone = (analysis.zone_low, analysis.zone_high)
             parent_tf_name = tf_lower
         else:
@@ -657,11 +693,16 @@ def format_structure_narrative(analysis: StructureAnalysis, price: float) -> str
         span_pct = (analysis.zone_high - analysis.zone_low) / price * 100
         zone_line = (
             f"  Zone = [{analysis.zone_low:.1f} - {analysis.zone_high:.1f}] "
-            f"(span {span_pct:.1f}%, полный структурный range)."
+            f"(span {span_pct:.1f}%, curr_structure после BOS)."
         )
         if analysis.parent_tf:
             zone_line += f" (parent {analysis.parent_tf.upper()} задал рамки)"
         lines.append(zone_line)
+        # ── Zone breakout info (концепция Возного) ──
+        if analysis.zone_breakout_up:
+            lines.append("  ⚡ ZONE ПРОБИТА ВВЕРХ (body close > zone_high). Ждём: ретест → BOS своего свинга = консервативный сигнал.")
+        elif analysis.zone_breakout_down:
+            lines.append("  ⚡ ZONE ПРОБИТА ВНИЗ (body close < zone_low). Ждём: ретест → BOS своего свинга = консервативный сигнал.")
 
     if analysis.is_accumulation:
         lines.append(

@@ -5,7 +5,7 @@
 //|                  Данные: http://localhost:5000/api/signals        |
 //+------------------------------------------------------------------+
 #property copyright "LOCAL_AI_ENGINE"
-#property version   "1.16"
+#property version   "1.17"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -27,6 +27,14 @@ input color   ColorFill1H  = clrSlateGray;                           // Зали
 input color   ColorFill15M = clrGray;                                // Заливка 15M
 input bool    AutoTextColor = true;                                  // Авто-цвет текста (белый на тёмном, тёмный на светлом)
 input color   TextColorManual = clrWhite;                             // Цвет текста (если AutoTextColor=false)
+input bool    EnableAlerts   = true;                                  // Включить алерты (звук + всплывающее окно)
+input bool    AlertOnBreakout = true;                                 // Алерт при пробое зоны (цена за upper/lower)
+input bool    AlertOnSignal  = true;                                 // Алерт при сигнале (aggressive_breakout / retest / reversal)
+input bool    AlertOnProximity = true;                                // Алерт при приближении цены к зоне (%)
+input double  ProximityPercent = 0.5;                                 // % близости цены к зоне для алерта (0.5%)
+input bool    AlertSoundOnly = false;                                 // Только звук (без всплывающего окна)
+input string  AlertSoundFile = "alert.wav";                           // Звуковой файл (alert.wav = стандартный)
+input bool    AlertPushNotif = false;                                 // Push-уведомление на мобильное (нужен MetaQuotes ID)
 
 // --- Глобальные ---
 string PREFIX = "SMC_";
@@ -36,6 +44,13 @@ datetime lastPoll = 0;
 string g_lastStateHash = "";      // хэш зон+цены+статуса
 string g_lastErrorKey = "";      // ключ последней ошибки (чтобы не спамить)
 int    g_pollCount = 0;           // счётчик поллов (для диагностики)
+
+// Alert-tracking: чтобы не повторять один алерт
+bool   g_alertedBreakoutR = false;  // уже алертили пробой resistance
+bool   g_alertedBreakoutS = false;  // уже алертили пробой support
+string g_alertedSignal    = "";     // последний сигнал-статус (для алерта)
+string g_alertedProximity = "";     // последний proximity-ключ (TF+side)
+string g_lastSigStatus    = "";     // для детекции смены сигнала
 
 //+------------------------------------------------------------------+
 //| Автоопределение символа графика → формат бота                    |
@@ -105,6 +120,102 @@ int OnCalculate(const int rates_total,
                 const long &volume[],
                 const int &spread[]) {
    return rates_total;
+}
+
+//+------------------------------------------------------------------+
+//| Алерт (звук + всплывающее окно + push)                           |
+//+------------------------------------------------------------------+
+void FireAlert(string message) {
+   if(!EnableAlerts) return;
+
+   string fullMsg = "🔔 SMC " + Symbol() + ": " + message;
+
+   if(AlertSoundOnly) {
+      PlaySound(AlertSoundFile);
+   } else {
+      Alert(fullMsg);   // Alert() = звук + всплывающее окно
+   }
+
+   if(AlertPushNotif) {
+      SendNotification(fullMsg);
+   }
+
+   Print("ALERT: ", message);
+}
+
+//+------------------------------------------------------------------+
+//| Проверка proximity (близость цены к уровню)                       |
+//+------------------------------------------------------------------+
+void CheckProximityAlerts(double price, string zonesBlock, string &tfs[], int tfCount) {
+   if(!EnableAlerts || !AlertOnProximity || price <= 0) return;
+
+   for(int i = 0; i < tfCount; i++) {
+      string tf = tfs[i];
+      StringTrimLeft(tf);
+      StringTrimRight(tf);
+      StringToUpper(tf);
+
+      string tfKey = "\"" + tf + "\":";
+      int tfPos = StringFind(zonesBlock, tfKey);
+      if(tfPos < 0) continue;
+
+      double upper = ExtractDoubleFromPos(zonesBlock, tfPos, "\"upper\":");
+      double lower = ExtractDoubleFromPos(zonesBlock, tfPos, "\"lower\":");
+
+      if(upper > 0) {
+         double dist = MathAbs(upper - price) / price * 100.0;
+         string proxKey = tf + "_R";
+         if(dist <= ProximityPercent && g_alertedProximity != proxKey) {
+            FireAlert("Цена " + DoubleToString(price, _Digits) +
+                     " в " + DoubleToString(dist, 2) + "% от resistance " +
+                     DoubleToString(upper, _Digits) + " (" + tf + ")");
+            g_alertedProximity = proxKey;
+         }
+      }
+
+      if(lower > 0) {
+         double dist = MathAbs(price - lower) / price * 100.0;
+         string proxKey = tf + "_S";
+         if(dist <= ProximityPercent && g_alertedProximity != proxKey) {
+            FireAlert("Цена " + DoubleToString(price, _Digits) +
+                     " в " + DoubleToString(dist, 2) + "% от support " +
+                     DoubleToString(lower, _Digits) + " (" + tf + ")");
+            g_alertedProximity = proxKey;
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Проверка сигнала (aggressive_breakout / retest / reversal)        |
+//+------------------------------------------------------------------+
+void CheckSignalAlert(string sigStatus, double price) {
+   if(!EnableAlerts || !AlertOnSignal) return;
+   if(sigStatus == "") return;
+
+   // Только actionable signals
+   bool isActionable = (sigStatus == "aggressive_breakout" ||
+                        sigStatus == "retest" ||
+                        sigStatus == "reversal" ||
+                        sigStatus == "false_breakout");
+
+   if(!isActionable) {
+      g_alertedSignal = sigStatus;
+      return;
+   }
+
+   // Алерт только при смене сигнала (не повторяем)
+   if(g_alertedSignal != sigStatus) {
+      string actionMsg = "";
+      if(sigStatus == "aggressive_breakout") actionMsg = "🚀 AGGRESSIVE BREAKOUT";
+      else if(sigStatus == "retest")         actionMsg = "🔄 RETEST";
+      else if(sigStatus == "reversal")       actionMsg = "⚡ REVERSAL";
+      else if(sigStatus == "false_breakout") actionMsg = "⚠️ FALSE BREAKOUT";
+
+      FireAlert(actionMsg + " | цена=" + DoubleToString(price, _Digits) +
+               " | status=" + sigStatus);
+      g_alertedSignal = sigStatus;
+   }
 }
 
 //+------------------------------------------------------------------+
@@ -281,6 +392,15 @@ void PollSignals() {
          zonesDrawn++;
          if(price > upper && price > 0) {
             DrawBreakoutArrow("BRK_R_" + tf, upper, true, "ПРОБОЙ R " + tf);
+            // Алерт при пробое resistance
+            if(EnableAlerts && AlertOnBreakout && !g_alertedBreakoutR) {
+               FireAlert("🔴 ПРОБОЙ resistance " + DoubleToString(upper, _Digits) +
+                        " (" + tf + ") | цена=" + DoubleToString(price, _Digits));
+               g_alertedBreakoutR = true;
+               g_alertedBreakoutS = false;  // сброс opposite
+            }
+         } else {
+            g_alertedBreakoutR = false;  // цена вернулась — сброс
          }
       }
 
@@ -290,6 +410,15 @@ void PollSignals() {
          zonesDrawn++;
          if(price < lower && price > 0) {
             DrawBreakoutArrow("BRK_S_" + tf, lower, false, "ПРОБОЙ S " + tf);
+            // Алерт при пробое support
+            if(EnableAlerts && AlertOnBreakout && !g_alertedBreakoutS) {
+               FireAlert("🟢 ПРОБОЙ support " + DoubleToString(lower, _Digits) +
+                        " (" + tf + ") | цена=" + DoubleToString(price, _Digits));
+               g_alertedBreakoutS = true;
+               g_alertedBreakoutR = false;  // сброс opposite
+            }
+         } else {
+            g_alertedBreakoutS = false;  // цена вернулась — сброс
          }
       }
    }
@@ -298,6 +427,10 @@ void PollSignals() {
    if(ShowLabel) {
       DrawInfoPanel(price, sym, sigStatus, sigDir, phase, zonesBlock, tfs, tfCount);
    }
+
+   // Алерты: proximity (близость к зоне) + signal (смена сигнала)
+   CheckProximityAlerts(price, zonesBlock, tfs, tfCount);
+   CheckSignalAlert(sigStatus, price);
 
    ChartRedraw();
 }

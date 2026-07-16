@@ -500,6 +500,8 @@ def run_benchmark(
                 "chain_broken": struct.chain_broken,
                 "zone_high": round(struct.zone_high, 1) if struct.zone_high else None,
                 "zone_low": round(struct.zone_low, 1) if struct.zone_low else None,
+                "zone_breakout_up": struct.zone_breakout_up,
+                "zone_breakout_down": struct.zone_breakout_down,
             }
 
         compact_result = {

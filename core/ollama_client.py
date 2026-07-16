@@ -612,6 +612,7 @@ def _extract_zigzag_levels_from_context(data: dict) -> list[float]:
             if not isinstance(tf_data, dict):
                 continue
 
+
             for key in ("upper", "lower", "current_price"):
                 v = _safe_float(tf_data.get(key))
                 if v is not None:
@@ -628,6 +629,46 @@ def _extract_zigzag_levels_from_context(data: dict) -> list[float]:
                                 levels.append(fv)
 
     return sorted(set(round(x, 6) for x in levels))
+
+
+def _extract_swing_levels(data: dict) -> tuple[list[float], list[float]]:
+    """
+    Извлекает РЕАЛЬНЫЕ swing highs / lows из zigzag curr_structure.
+    Возвращает (swing_highs, swing_lows) — отсортированные списки.
+    Источник: zigzag_context.timeframes.<TF>.structure.curr_structure.{high,low}
+    Это разворотные пивоты ZigZag (с протарговкой), а не границы зон.
+    """
+    swing_highs: list[float] = []
+    swing_lows: list[float] = []
+
+    zigzag = data.get("zigzag_context") or {}
+    if not isinstance(zigzag, dict):
+        return swing_highs, swing_lows
+
+    timeframes = zigzag.get("timeframes") or {}
+    if not isinstance(timeframes, dict):
+        return swing_highs, swing_lows
+
+    for tf_data in timeframes.values():
+        if not isinstance(tf_data, dict):
+            continue
+        structure = tf_data.get("structure") or {}
+        if not isinstance(structure, dict):
+            continue
+        curr = structure.get("curr_structure") or {}
+        if not isinstance(curr, dict):
+            continue
+        h = _safe_float(curr.get("high"))
+        l = _safe_float(curr.get("low"))
+        if h is not None:
+            swing_highs.append(h)
+        if l is not None:
+            swing_lows.append(l)
+
+    swing_highs = sorted(set(round(x, 6) for x in swing_highs))
+    swing_lows = sorted(set(round(x, 6) for x in swing_lows))
+    return swing_highs, swing_lows
+
 
 def enforce_risk_rules(data: dict) -> dict:
     if not isinstance(data, dict):
@@ -853,6 +894,9 @@ def enforce_risk_rules(data: dict) -> dict:
         prev_trend = str(src.get("prev_trend", "")).lower()
 
         if signal == "aggressive_breakout":
+            # Sync with backtest._detect_direction: check trend, not just signal
+            if "down" in trend or "down" in ltf or "down" in wave or "bear" in trend:
+                return "short"
             return "long"
         if signal == "reversal":
             return "short"
@@ -881,6 +925,16 @@ def enforce_risk_rules(data: dict) -> dict:
         return "long"
 
     def _pick_tp_levels(direction: str, entry_price: float | None, candidates: list[float]) -> tuple[float | None, float | None, float | None]:
+        """TF-каскад + фибо-совпадения.
+
+        Логика (top-down по TF-лесенке):
+          TP1 = граница M15 зоны (пробили зону входа)
+          TP2 = граница H1 зоны (следующий TF)
+          TP3 = граница H4/D1 зоны (старший TF)
+        По пути между TP берем ликвидность (swing-pools) и фибо-совпадения (1.0/1.2/1.618/2.618).
+        Кандидат в пределах ±0.5% от фибо-уровня → приоритет.
+        Суб-структурные swing (ZigZag pivots) тоже учитываются как промежуточные цели.
+        """
         if entry_price is None or not candidates:
             return None, None, None
 
@@ -888,12 +942,132 @@ def enforce_risk_rules(data: dict) -> dict:
         if direction not in ("long", "short"):
             return None, None, None
 
-        uniq = sorted(set(round(x, 6) for x in candidates if x is not None and abs(x - entry_price) > 1e-6))
-        if not uniq:
-            return None, None, None
+        is_long = direction == "long"
 
-        if direction == "long":
-            ordered = [x for x in uniq if x > entry_price]
+        # Минимальная дистанция TP от entry — чтобы RR был > 1.0
+        # (фильтр убирает "мизерные" цели вроде resistance pool в +1.5 от entry)
+        min_tp_distance = abs(entry_price) * 0.003 if entry_price else 0.0
+
+        # --- 1. TF-каскад: zigzag structure swing highs/lows (РЕАЛЬНЫЕ swing levels с протарговкой)
+        # БЕРЁМ structure.low/high из zigzag_context, НЕ tf_zones.lower/upper
+        # (tf_zones — границы зон, часто локальные min/max без протарговки, "fake lows")
+        # zigzag structure.low/high — реальные swing с подтверждением (плотность, отскок, закрытие выше)
+        tf_order = ["15m", "1h", "4h", "1D"]
+        tf_boundary_targets: list[float] = []
+        zigzag_ctx_src = data.get("zigzag_context") or {}
+        if isinstance(zigzag_ctx_src, dict):
+            zz_timeframes = zigzag_ctx_src.get("timeframes") or {}
+            if isinstance(zz_timeframes, dict):
+                for tf in tf_order:
+                    tf_data = zz_timeframes.get(tf)
+                    if not isinstance(tf_data, dict):
+                        continue
+                    structure = tf_data.get("structure") or {}
+                    if not isinstance(structure, dict):
+                        continue
+                    curr = structure.get("curr_structure") or {}
+                    if not isinstance(curr, dict):
+                        continue
+                    # для long — swing high (цель вверх), для short — swing low (цель вниз)
+                    boundary_key = "high" if is_long else "low"
+                    bv = _safe_float(curr.get(boundary_key))
+                    if bv is not None and abs(bv - entry_price) > 1e-6:
+                        # long: swing high выше entry; short: swing low ниже
+                        if (is_long and bv > entry_price) or (not is_long and bv < entry_price):
+                            tf_boundary_targets.append(bv)
+
+        # убираем дубликаты, сортируем по близости к entry
+        tf_boundary_targets = sorted(set(round(x, 6) for x in tf_boundary_targets),
+                                     key=lambda v: v - entry_price if is_long else entry_price - v)
+
+        # --- 2. Фибо extension от последнего структурного движения ---
+        # Базовое движение = swing curr_structure (high-low) старшего значимого TF (H4→H1→D1)
+        fibo_levels: list[float] = []
+        zigzag_ctx = data.get("zigzag_context") or {}
+        if isinstance(zigzag_ctx, dict):
+            timeframes = zigzag_ctx.get("timeframes") or {}
+            if isinstance(timeframes, dict):
+                # ищем структуру в порядке D1→H4→H1 (старший TF = наиболее значимая для целей)
+                for tf in ("1D", "4h", "1h"):
+                    tf_data = timeframes.get(tf)
+                    if not isinstance(tf_data, dict):
+                        continue
+                    structure = tf_data.get("structure") or {}
+                    if not isinstance(structure, dict):
+                        continue
+                    curr = structure.get("curr_structure") or {}
+                    if not isinstance(curr, dict):
+                        continue
+                    swing_high = _safe_float(curr.get("high"))
+                    swing_low = _safe_float(curr.get("low"))
+                    if swing_high is None or swing_low is None or swing_high == swing_low:
+                        continue
+                    # фибо extension: для long — от swing_low к swing_high, проекция вверх
+                    # extension_level = swing_high + (swing_high - swing_low) * ratio
+                    # для short — от swing_high к swing_low, проекция вниз
+                    swing_range = abs(swing_high - swing_low)
+                    for ratio in (1.0, 1.2, 1.618, 2.618):
+                        if is_long:
+                            fibo_price = swing_high + swing_range * ratio
+                        else:
+                            fibo_price = swing_low - swing_range * ratio
+                        if (is_long and fibo_price > entry_price) or (not is_long and fibo_price < entry_price):
+                            fibo_levels.append(round(fibo_price, 6))
+                    break  # только первый найденный TF с структурой
+
+        # --- 3. Суб-структурная ликвидность (intermediate targets) ---
+        # ZigZag pivots между TF-границами + liquidity_pools (если работают корректно)
+        liquidity_targets: list[float] = []
+        # ZigZag resistance/support из context (перекрыто в candidates, но явно достаём для логики)
+        if isinstance(zigzag_ctx, dict):
+            timeframes = zigzag_ctx.get("timeframes") or {}
+            if isinstance(timeframes, dict):
+                for tf in ("1h", "15m", "4h"):
+                    tf_data = timeframes.get(tf)
+                    if not isinstance(tf_data, dict):
+                        continue
+                    zones = tf_data.get("zones") or {}
+                    if not isinstance(zones, dict):
+                        continue
+                    key = "resistance" if is_long else "support"
+                    arr = zones.get(key) or []
+                    if isinstance(arr, list):
+                        for v in arr:
+                            fv = _safe_float(v)
+                            if fv is not None and abs(fv - entry_price) > 1e-6:
+                                if (is_long and fv > entry_price) or (not is_long and fv < entry_price):
+                                    liquidity_targets.append(fv)
+
+        # liquidity_pools (если есть)
+        liq = data.get("liquidity_pools") or {}
+        if isinstance(liq, dict):
+            pool_key = "resistance_pools" if is_long else "support_pools"
+            pools = liq.get(pool_key) or []
+            if isinstance(pools, list):
+                for p in pools:
+                    if isinstance(p, dict):
+                        lv = _safe_float(p.get("level") or p.get("price"))
+                        if lv is not None and abs(lv - entry_price) > 1e-6:
+                            if (is_long and lv > entry_price) or (not is_long and lv < entry_price):
+                                liquidity_targets.append(lv)
+
+        # --- 4. Сборка финальных TP с приоритетом фибо-совпадений ---
+        # Объединяем все: TF-границы (главные) + ликвидность (промежуточные)
+        all_targets = list(tf_boundary_targets) + list(liquidity_targets)
+        # Фильтр: отбрасываем цели ближе min_tp_distance от entry (RR > 1.0)
+        all_targets = [x for x in all_targets if x is not None and abs(x - entry_price) >= min_tp_distance]
+        all_targets = sorted(set(round(x, 6) for x in all_targets),
+                             key=lambda v: v - entry_price if is_long else entry_price - v)
+
+        if not all_targets and not fibo_levels:
+            # fallback: старая логика (ближайшие кандидаты)
+            uniq = sorted(set(round(x, 6) for x in candidates if x is not None and abs(x - entry_price) > 1e-6))
+            if not uniq:
+                return None, None, None
+            if is_long:
+                ordered = [x for x in uniq if x > entry_price]
+            else:
+                ordered = [x for x in reversed(uniq) if x < entry_price]
             if not ordered:
                 return None, None, None
             tp1 = ordered[0]
@@ -905,16 +1079,86 @@ def enforce_risk_rules(data: dict) -> dict:
                 tp3 = tp2 if tp2 != tp1 else None
             return tp1, tp2, tp3
 
-        ordered = [x for x in reversed(uniq) if x < entry_price]
-        if not ordered:
-            return None, None, None
-        tp1 = ordered[0]
-        tp2 = ordered[1] if len(ordered) > 1 else None
-        tp3 = ordered[2] if len(ordered) > 2 else None
-        if tp2 is None:
+        # --- 5. Приоритет фибо-совпадений ---
+        # Кандидат в пределах ±0.5% от фибо-уровня → приоритет
+        fibo_tolerance = 0.005  # 0.5%
+        fibo_matches: list[float] = []
+        for target in all_targets:
+            for fl in fibo_levels:
+                if fl > 0 and abs(target - fl) / fl <= fibo_tolerance:
+                    fibo_matches.append(target)
+                    break
+        fibo_matches = sorted(set(round(x, 6) for x in fibo_matches),
+                              key=lambda v: v - entry_price if is_long else entry_price - v)
+
+        # --- 6. Финальная сборка TP1/TP2/TP3 ---
+        # TF-лесенка: TP1 из M15, TP2 из H1, TP3 из H4/D1
+        # Если фибо-совпадение есть на уровне TF-границы — приоритет ему
+        # TF-границы в порядке M15→H1→H4→D1 (по одной на каждый TF)
+        tf_pick: list[float] = []
+        for v in tf_boundary_targets:
+            if v not in tf_pick and abs(v - entry_price) >= min_tp_distance:
+                tf_pick.append(v)
+
+        # Фибо-совпадения как промежуточные цели (между TF-границами)
+        fibo_pick: list[float] = []
+        for v in fibo_matches:
+            if v not in tf_pick and v not in fibo_pick and abs(v - entry_price) >= min_tp_distance:
+                fibo_pick.append(v)
+
+        # Лесенка: TP1 = ближайшая TF-граница (M15), затем фибо/ликвидность между, TP2 = H1, TP3 = H4/D1
+        # Берём: 1-я TF-граница → ближайшие промежуточные (фибо) → 2-я TF-граница → 3-я TF-граница
+        if len(tf_pick) >= 3:
+            tp1 = tf_pick[0]
+            tp2 = tf_pick[1]
+            tp3 = tf_pick[2]
+            # Если есть фибо-совпадение между TP1 и TP2 — вставляем как промежуточное (заменяет tp2)
+            for fm in fibo_pick:
+                if is_long and tp1 < fm < tp2:
+                    tp2 = fm
+                    break
+                if not is_long and tp1 > fm > tp2:
+                    tp2 = fm
+                    break
+        elif len(tf_pick) == 2:
+            tp1 = tf_pick[0]
+            tp2 = tf_pick[1]
+            # Добиваем из фибо-совпадений или ликвидности
+            tp3 = None
+            for fm in fibo_pick:
+                if fm not in (tp1, tp2) and ((is_long and fm > tp2) or (not is_long and fm < tp2)):
+                    tp3 = fm
+                    break
+            if tp3 is None:
+                # из all_targets
+                for v in all_targets:
+                    if v not in (tp1, tp2) and ((is_long and v > tp2) or (not is_long and v < tp2)):
+                        tp3 = v
+                        break
+        elif len(tf_pick) == 1:
+            tp1 = tf_pick[0]
+            tp2 = None
+            tp3 = None
+            for v in all_targets:
+                if v != tp1 and ((is_long and v > tp1) or (not is_long and v < tp1)):
+                    if tp2 is None:
+                        tp2 = v
+                    elif tp3 is None and v != tp2:
+                        tp3 = v
+                        break
+        else:
+            # Нет TF-границ — fallback на all_targets
+            tp1 = all_targets[0] if all_targets else None
+            tp2 = all_targets[1] if all_targets and len(all_targets) > 1 else None
+            tp3 = all_targets[2] if all_targets and len(all_targets) > 2 else None
+
+        if tp1 is None and fibo_levels:
+            tp1 = fibo_levels[0]
+        if tp2 is None and tp1 is not None:
             tp2 = tp1
-        if tp3 is None:
+        if tp3 is None and tp2 is not None:
             tp3 = tp2 if tp2 != tp1 else None
+
         return tp1, tp2, tp3
 
     def _calc_rr(entry_price: float | None, sl: float | None, tp1: float | None) -> float | None:
@@ -1606,7 +1850,7 @@ def enforce_risk_rules(data: dict) -> dict:
 
     if current_price is not None and candidates and data.get("signal_status") in ("aggressive_breakout", "retest", "reversal", "false_breakout"):
         tp1, tp2, tp3 = _pick_tp_levels(direction_hint, current_price, candidates)
-
+        # DEBUG: TP fill trace
         if direction_hint == "long":
             if tp1 is not None and tp1 > current_price and primary.get("tp1") is None:
                 primary["tp1"] = tp1
@@ -1623,14 +1867,30 @@ def enforce_risk_rules(data: dict) -> dict:
                 primary["tp3"] = tp3
 
         if primary.get("sl") is None:
+            # SWING-SL: берём ближайший zigzag structure swing high/low, не любой candidate
+            # zigzag structure.high/low = разворотные пивоты с протарговкой
+            swing_highs, swing_lows = _extract_swing_levels(data)
             if direction_hint == "long":
-                below = [x for x in candidates if x < current_price]
-                primary["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+                # long: SL ниже entry — ближайший swing low под entry
+                below = [x for x in swing_lows if x < current_price] if current_price is not None else []
+                if below:
+                    primary["sl"] = below[-1]  # ближайший к entry
+                else:
+                    # fallback: candidate swing low
+                    cand_below = [x for x in candidates if x < current_price] if current_price is not None else []
+                    primary["sl"] = cand_below[-1] if cand_below else (min(candidates) if candidates else None)
             else:
-                above = [x for x in candidates if x > current_price]
-                primary["sl"] = above[0] if above else (max(candidates) if candidates else None)
+                # short: SL выше entry — ближайший swing high над entry
+                above = [x for x in swing_highs if x > current_price] if current_price is not None else []
+                if above:
+                    primary["sl"] = above[0]  # ближайший к entry
+                else:
+                    # fallback: candidate swing high
+                    cand_above = [x for x in candidates if x > current_price] if current_price is not None else []
+                    primary["sl"] = cand_above[0] if cand_above else (max(candidates) if candidates else None)
 
         if direction_hint == "long":
+            # LONG: SL must be BELOW entry, TP must be ABOVE entry
             for k in ("tp1", "tp2", "tp3"):
                 tp_val = _safe_float(rm["primary"].get(k))
                 if tp_val is not None and current_price is not None and tp_val <= current_price:
@@ -1638,18 +1898,14 @@ def enforce_risk_rules(data: dict) -> dict:
 
             sl_val = _safe_float(rm["primary"].get("sl"))
             if sl_val is not None and current_price is not None and sl_val >= current_price:
-                below = [x for x in candidates if current_price is not None and x < current_price]
-                rm["primary"]["sl"] = below[-1] if below else (min(candidates) if candidates else None)
-            else:
-                for k in ("tp1", "tp2", "tp3"):
-                    tp_val = _safe_float(rm["primary"].get(k))
-                    if tp_val is not None and current_price is not None and tp_val >= current_price:
-                        rm["primary"][k] = None
-
-                sl_val = _safe_float(rm["primary"].get("sl"))
-                if sl_val is not None and current_price is not None and sl_val <= current_price:
-                    above = [x for x in candidates if current_price is not None and x > current_price]
-                    rm["primary"]["sl"] = above[0] if above else (max(candidates) if candidates else None)
+                # SL above entry (invalid for long) — recalculate from swing lows below price
+                swing_highs_s, swing_lows_s = _extract_swing_levels(data)
+                below = [x for x in swing_lows_s if x < current_price] if current_price is not None else []
+                if below:
+                    rm["primary"]["sl"] = below[-1]
+                else:
+                    cand_below = [x for x in candidates if x < current_price] if current_price is not None else []
+                    rm["primary"]["sl"] = cand_below[-1] if cand_below else (min(candidates) if candidates else None)
 
     # -----------------------------
     # 11) TP/SL для alternative
@@ -1680,12 +1936,24 @@ def enforce_risk_rules(data: dict) -> dict:
                 alternative["tp3"] = tp3
 
         if alternative.get("sl") is None:
+            # SWING-SL для alternative (та же логика что primary)
+            swing_highs_a, swing_lows_a = _extract_swing_levels(data)
             if alt_direction == "long":
-                below = [x for x in candidates if x < current_price]
-                alternative["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+                # long: SL ниже entry — ближайший swing low под entry
+                below = [x for x in swing_lows_a if x < current_price] if current_price is not None else []
+                if below:
+                    alternative["sl"] = below[-1]
+                else:
+                    cand_below = [x for x in candidates if x < current_price] if current_price is not None else []
+                    alternative["sl"] = cand_below[-1] if cand_below else (min(candidates) if candidates else None)
             else:
-                above = [x for x in candidates if x > current_price]
-                alternative["sl"] = above[0] if above else (max(candidates) if candidates else None)
+                # short: SL выше entry — ближайший swing high над entry
+                above = [x for x in swing_highs_a if x > current_price] if current_price is not None else []
+                if above:
+                    alternative["sl"] = above[0]
+                else:
+                    cand_above = [x for x in candidates if x > current_price] if current_price is not None else []
+                    alternative["sl"] = cand_above[0] if cand_above else (max(candidates) if candidates else None)
 
         if alt_direction == "long":
             for k in ("tp1", "tp2", "tp3"):
@@ -1695,8 +1963,13 @@ def enforce_risk_rules(data: dict) -> dict:
 
             sl_val = _safe_float(rm["alternative"].get("sl"))
             if sl_val is not None and current_price is not None and sl_val >= current_price:
-                below = [x for x in candidates if current_price is not None and x < current_price]
-                rm["alternative"]["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+                swing_highs_r, swing_lows_r = _extract_swing_levels(data)
+                below = [x for x in swing_lows_r if x < current_price] if current_price is not None else []
+                if below:
+                    rm["alternative"]["sl"] = below[-1]
+                else:
+                    cand_below = [x for x in candidates if x < current_price] if current_price is not None else []
+                    rm["alternative"]["sl"] = cand_below[-1] if cand_below else (min(candidates) if candidates else None)
         else:
             for k in ("tp1", "tp2", "tp3"):
                 tp_val = _safe_float(rm["alternative"].get(k))
@@ -2101,7 +2374,7 @@ def enforce_risk_rules(data: dict) -> dict:
     rm_final["primary"] = _normalize_risk_block(primary_final)
     rm_final["alternative"] = _normalize_risk_block(alternative_final)
     data["risk_management"] = rm_final
-    
+
     # -----------------------------
     # 14.1) Remove noisy placeholders
     # -----------------------------

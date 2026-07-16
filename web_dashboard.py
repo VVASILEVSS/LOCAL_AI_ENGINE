@@ -164,6 +164,30 @@ def get_stats():
     stats["last_signals"] = last
     ab = _query_db("SELECT prompt_variant, COUNT(*) as cnt, SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins FROM signal_log WHERE checked_at IS NOT NULL AND prompt_variant IS NOT NULL GROUP BY prompt_variant")
     stats["ab_variants"] = [{"variant": r["prompt_variant"] or "A", "total": r["cnt"], "wins": r["wins"] or 0} for r in ab]
+
+    # Win/Loss по символам и направлениям (для swing-SL статистики)
+    by_symbol = _query_db("""
+        SELECT symbol,
+            COUNT(*) as total,
+            SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN outcome = 'sl_hit' THEN 1 ELSE 0 END) as sl_hits
+        FROM signal_log WHERE checked_at IS NOT NULL AND signal_status = 'aggressive_breakout'
+        GROUP BY symbol
+    """)
+    stats["by_symbol"] = [{"symbol": r["symbol"], "total": r["total"], "wins": int(r["wins"] or 0),
+                            "sl_hits": int(r["sl_hits"] or 0)} for r in by_symbol]
+
+    by_direction = _query_db("""
+        SELECT direction,
+            COUNT(*) as total,
+            SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins,
+            SUM(CASE WHEN outcome = 'sl_hit' THEN 1 ELSE 0 END) as sl_hits
+        FROM signal_log WHERE checked_at IS NOT NULL AND signal_status = 'aggressive_breakout'
+        GROUP BY direction
+    """)
+    stats["by_direction"] = [{"direction": r["direction"], "total": r["total"], "wins": int(r["wins"] or 0),
+                               "sl_hits": int(r["sl_hits"] or 0)} for r in by_direction]
+
     return stats
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1147,6 +1171,16 @@ async def cmd_stats(message: Message) -> None:
         text += "🧪 *A/B:*\n"
         for v in s["ab_variants"]:
             text += f"  {v['variant']}: {v['wins']}/{v['total']}\n"
+    if s.get("by_symbol"):
+        text += "\n📊 *По символам (aggressive_breakout):*\n"
+        for r in s["by_symbol"]:
+            wr = round(r["wins"] / r["total"] * 100, 1) if r["total"] else 0
+            text += f"  {r['symbol']}: ✅{r['wins']} ❌{r['sl_hits']} / {r['total']} (WR {wr}%)\n"
+    if s.get("by_direction"):
+        text += "\n📈 *По направлению:*\n"
+        for r in s["by_direction"]:
+            wr = round(r["wins"] / r["total"] * 100, 1) if r["total"] else 0
+            text += f"  {r['direction']}: ✅{r['wins']} ❌{r['sl_hits']} / {r['total']} (WR {wr}%)\n"
     if s.get("last_signals"):
         text += "\n📋 *Сигналы:*\n"
         for sig in s["last_signals"][:5]:
@@ -1316,6 +1350,26 @@ async def _autoscan_sequential_cycle(bot: Bot):
                         if not _dash_get_setting("autoscan_active", False):
                             break
                         await asyncio.sleep(min(10, sleep_end - time.time()))
+
+            # Проверка исходов старых сигналов (старше CHECK_HORIZON_HOURS=4)
+            if _dash_get_setting("autoscan_active", False) and _autoscan_running:
+                try:
+                    from core.backtest import check_pending_forecasts
+                    # Собираем текущие цены для всех символов
+                    current_prices = {}
+                    for sym in symbols:
+                        try:
+                            tk = await fetch_ticker_safe(sym)
+                            if tk and tk.get("last"):
+                                current_prices[sym] = float(tk["last"])
+                        except Exception as e:
+                            logging.warning("Autoscan: fetch_ticker for backtest %s failed: %s", sym, e)
+                    if current_prices:
+                        checked = check_pending_forecasts(current_prices)
+                        if checked > 0:
+                            logging.info("Autoscan: checked %d pending forecasts (outcome assigned)", checked)
+                except Exception as e:
+                    logging.warning("Autoscan: check_pending_forecasts failed: %s", e)
 
             # Пауза после полного цикла
             if _dash_get_setting("autoscan_active", False) and _autoscan_running:
