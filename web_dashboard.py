@@ -1441,7 +1441,7 @@ def api_signals():
 
     symbols = _get_autoscan_symbols()
     result = {
-        "server_time": datetime.utcnow().isoformat() + "Z",
+        "server_time": datetime.now().isoformat() + "Z",
         "symbols": {},
     }
 
