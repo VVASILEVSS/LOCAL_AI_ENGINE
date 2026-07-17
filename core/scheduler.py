@@ -109,8 +109,8 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                 u = float(upper)
                 if u <= 0:
                     pass
-                elif tf_close_f > u:
-                    # ПРОБОЙ resistance вверх (close свечи за уровнем)
+                elif tf_close_f > u and live_price > u:
+                    # ПРОБОЙ resistance вверх (close свечи за уровнем И цена всё ещё выше)
                     vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
                     alerts.append(f"{icon} {label} {tf}: ПРОБОЙ resistance @​{u} ↑ (close {tf_close_f}, {vol_str})")
                     new_breakouts.append({
@@ -119,6 +119,9 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                         "breakout_dir": "up", "volume_ratio": tf_vol_f,
                     })
                     tf_breakouts[tf] = "up"
+                elif tf_close_f > u and live_price <= u:
+                    # ЛОЖНЫЙ ПРОБОЙ: close был за уровнем, но цена вернулась в зону
+                    alerts.append(f"{icon} {label} {tf}: ⚠️ ложный пробой resistance @{u} — цена вернулась ({live_price} < {u})")
                 elif abs(live_price - u) < approach_threshold:
                     # ПОДХОД К RESISTANCE (по live_price)
                     dist_pct = abs(live_price - u) / u * 100
@@ -132,8 +135,8 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                 l = float(lower)
                 if l <= 0:
                     pass
-                elif tf_close_f < l:
-                    # ПРОБОЙ support вниз (close свечи за уровнем)
+                elif tf_close_f < l and live_price < l:
+                    # ПРОБОЙ support вниз (close свечи за уровнем И цена всё ещё ниже)
                     vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
                     alerts.append(f"{icon} {label} {tf}: ПРОБОЙ support @​{l} ↓ (close {tf_close_f}, {vol_str})")
                     new_breakouts.append({
@@ -142,6 +145,9 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                         "breakout_dir": "down", "volume_ratio": tf_vol_f,
                     })
                     tf_breakouts[tf] = "down"
+                elif tf_close_f < l and live_price >= l:
+                    # ЛОЖНЫЙ ПРОБОЙ: close был за уровнем, но цена вернулась в зону
+                    alerts.append(f"{icon} {label} {tf}: ⚠️ ложный пробой support @{l} — цена вернулась ({live_price} > {l})")
                 elif abs(live_price - l) < approach_threshold:
                     # ПОДХОД К SUPPORT (по live_price)
                     dist_pct = abs(live_price - l) / l * 100
