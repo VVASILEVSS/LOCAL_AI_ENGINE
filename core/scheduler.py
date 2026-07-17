@@ -619,9 +619,11 @@ async def run_hourly_analysis(
 
                 # Phase 3 MT5: обновляем кэш ПОСЛЕ enforce_risk_rules —
                 # теперь risk_management содержит реальные SL/TP (после fix 6626f31)
+                # + tf_zones после nesting/drift/fallback (fix zone-nesting)
                 _last_analysis_cache[symbol_id].update({
                     "risk_management": parsed.get("risk_management", {}),
                     "entry_price": parsed.get("price"),
+                    "tf_zones": parsed.get("tf_zones", tf_zones_clean),
                 })
 
                 # P3-1: сохранить прогноз в backtest
