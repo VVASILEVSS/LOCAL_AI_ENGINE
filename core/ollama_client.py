@@ -335,6 +335,12 @@ State / history context:
 25. Младший пробой не означает старший пробой.
 26. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
 27. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
+28. FVG (Fair Value Gaps) — это УСИЛЕНИЕ сигнала, не самостоятельный сигнал. Правила учёта:
+    - Если price IN_ZONE несоответствием H4/D1 FVG (current_price_in_zone=true) — это подтверждение ликвидности, усиливает aggressive_breakout или retest.
+    - Незаполненный H4/D1 FVG рядом с entry (в пределах 1 ATR) — корректирует TP (берёт границу FVG как magnet) или SL (если FVG против позиции).
+    - H1 FVG (info) — НЕ влияет на signal_status, только context для signal_status_comment.
+    - M15 FVG не показан в контексте — игнорируй его полностью.
+    - Если signal_status=no_signal и нет других причин, FVG сам по себе НЕ переводит в aggressive_breakout. FVG усиливает уже подтверждённый структурой сигнал.
 """
 
 
