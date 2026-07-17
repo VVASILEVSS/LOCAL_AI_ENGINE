@@ -401,15 +401,21 @@ def analyze_tf_structure(
         swing_points, bos, total_candles, current_price
     )
 
-    # ── ZONE = curr_structure ONLY (post-BOS range). ──
-    # Концепция В.Возного: зона = накопление после BOS, НЕ union с prev.
-    # prev_structure остаётся как контекст, но НЕ расширяет зону.
-    # После пробоя зоны → зона "замораживается" до появления суб-структуры
-    # (≥1 swing H + ≥1 swing L после пробоя).
+    # ── ZONE = union(curr_structure, prev_structure) — структурный range. ──
+    # curr_struct = узкая post-BOS полоса (для BOS/breakout логики).
+    # zone = union(curr, prev) = полный структурный range [swing_low, swing_high]
+    # всей текущей структуры — обеспечивает иерархическое вложение
+    # (D1 ⊃ 4H ⊃ 1H ⊃ 15M). prev_struct.high/low содержит значимые LH/HH/LL,
+    # которые формируют границы видимого range (например D1 high=82850 из мая).
+    # NOTE: curr_struct остаётся узким для detect_bos/zone_breakout, но zone
+    # расширяется до крайних свингов структуры → nesting логика работает.
     if curr_struct:
         zone_high = curr_struct.high
         zone_low = curr_struct.low
         swing_dir = curr_struct.direction
+        if prev_struct:
+            zone_high = max(zone_high, prev_struct.high)
+            zone_low = min(zone_low, prev_struct.low)
     else:
         zone_high = current_price
         zone_low = current_price
