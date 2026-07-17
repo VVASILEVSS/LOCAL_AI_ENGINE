@@ -327,13 +327,14 @@ State / history context:
 17. Только JSON, без лишнего текста.
 18. Все числа — только number or null.
 19. Если диапазон устойчивый и без выхода за границы, это accumulation или no_signal.
-20. false_breakout только при выходе за границу с возвратом внутрь и подтверждением.
-21. Если есть реакция у уровня без явного выхода и возврата, не ставь false_breakout — используй retest, reversal или no_signal.
-22. При споре между false_breakout и retest выбирай retest.
-23. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
-24. Младший пробой не означает старший пробой.
-25. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
-26. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
+20. R:R must be > 1.0 for aggressive signals. If R:R < 1.0 — set signal_status = no_signal and explain in signal_status_comment. Aggressive entry with R:R < 1.0 is FORBIDDEN.
+21. false_breakout только при выходе за границу с возвратом внутрь и подтверждением.
+22. Если есть реакция у уровня без явного выхода и возврата, не ставь false_breakout — используй retest, reversal или no_signal.
+23. При споре между false_breakout и retest выбирай retest.
+24. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
+25. Младший пробой не означает старший пробой.
+26. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
+27. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
 """
 
 
@@ -2829,14 +2830,14 @@ def format_json_for_tg(data: dict) -> str:
     # TF-приоритет (user 17.07.2026): H4+D1=primary, H1=info, M15=excluded
     fvg_primary: list[str] = []
     fvg_info: list[str] = []
-    if isinstance(tfs_data := data.get("zigzag_context"), dict):
-        tfs_ctx = tfs_data.get("timeframes") or {}
-    else:
-        tfs_ctx = {}
+    tfs_ctx = {}
+    zctx = data.get("zigzag_context")
+    if isinstance(zctx, dict):
+        tfs_ctx = zctx.get("timeframes") or {}
     for tf, tf_data in tfs_ctx.items():
         if not isinstance(tf_data, dict):
             continue
-        # M15 исключён — путает (микро-гэпы, не结构性)
+        # M15 исключён — путает (микро-гэпы, не структурные)
         if tf in ("15m", "5m"):
             continue
         imb = tf_data.get("imbalances")
@@ -2876,6 +2877,10 @@ def format_json_for_tg(data: dict) -> str:
     if sig_comment:
         lines.append(sig_comment)
 
+    # Normalize entry to dict (LLM sometimes returns string)
+    if not isinstance(entry, dict):
+        entry = {}
+
     if has_signal:
         # Full risk management
         lines.append(f"⚡ {fmt(entry.get('aggressive'))} | 🛡️ {fmt(entry.get('conservative'))}")
@@ -2902,7 +2907,7 @@ def format_json_for_tg(data: dict) -> str:
             lines.append(f"🔄 BE @ TP1 {_format_num(ptp1)} → SL to entry")
     else:
         # No signal — status only, no Н/Д spam
-        status_val = fmt(entry.get("current_status"))
+        status_val = fmt(entry.get("current_status")) if isinstance(entry, dict) else "Н/Д"
         if status_val != "Н/Д":
             lines.append(f"📊 {status_val}")
         ec = clean(data.get("entry_conditions_comment", ""))
