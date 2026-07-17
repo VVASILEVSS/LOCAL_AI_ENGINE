@@ -1495,6 +1495,71 @@ def enforce_risk_rules(data: dict) -> dict:
     data["tf_zones"] = _validate_min_span(data["tf_zones"], data.get("price"))
 
     # -----------------------------
+    # 2c-bis) Zone-drift validation: если LLM зона значительно отличается
+    # от ZigZag зоны для того же ТФ — LLM галлюцинирует (особенно когда
+    # ZigZag зона пробита). Заменяем на ZigZag.
+    # -----------------------------
+    def _validate_zone_drift(tf_zones: dict, price: float | None) -> dict:
+        if not tf_zones or price is None or price <= 0:
+            return tf_zones
+        zz_ctx = data.get("zigzag_context") or {}
+        if not isinstance(zz_ctx, dict):
+            return tf_zones
+        zz_tfs = zz_ctx.get("timeframes") or {}
+        if not isinstance(zz_tfs, dict):
+            return tf_zones
+        # Дрифт: если LLM границы отклонились от ZigZag > 3% цены → мусор
+        # ИЛИ если span LLM > 3x ZigZag span → расширение, не структурная зона
+        drift_tol = 0.03
+        for tf_key in list(tf_zones.keys()):
+            z = tf_zones.get(tf_key)
+            if not isinstance(z, dict):
+                continue
+            llm_upper = _safe_float(z.get("upper"))
+            llm_lower = _safe_float(z.get("lower"))
+            if llm_upper is None or llm_lower is None:
+                continue
+            # Ищем ZigZag зону для этого ТФ
+            zz_tf_data = None
+            for zz_key in (tf_key, tf_key.lower(), tf_key.replace("M", "m").replace("H", "h").replace("D", "d")):
+                if zz_key in zz_tfs:
+                    zz_tf_data = zz_tfs[zz_key]
+                    break
+            if not isinstance(zz_tf_data, dict):
+                continue
+            zz_upper = _safe_float(zz_tf_data.get("upper"))
+            zz_lower = _safe_float(zz_tf_data.get("lower"))
+            if zz_upper is None or zz_lower is None or zz_upper <= zz_lower:
+                continue
+            # Проверяем дрифт обеих границ
+            upper_drift = abs(llm_upper - zz_upper) / price
+            lower_drift = abs(llm_lower - zz_lower) / price
+            # Проверяем ratio span (LLM расширил зону > 3x ZigZag)
+            llm_span = llm_upper - llm_lower
+            zz_span = zz_upper - zz_lower
+            span_ratio = llm_span / zz_span if zz_span > 0 else 0
+            drift_triggered = upper_drift > drift_tol or lower_drift > drift_tol
+            span_triggered = span_ratio > 3.0 and span_ratio > 0
+            if drift_triggered or span_triggered:
+                logging.warning(
+                    "ZONE DRIFT: %s LLM=[%.2f - %.2f] (span=%.2f%%) vs ZigZag=[%.2f - %.2f] (span=%.2f%%) "
+                    "(drift u=%.1f%% l=%.1f%%, ratio=%.1fx) → replacing with ZigZag",
+                    tf_key, llm_lower, llm_upper, llm_span / price * 100,
+                    zz_lower, zz_upper, zz_span / price * 100,
+                    upper_drift * 100, lower_drift * 100, span_ratio,
+                )
+                tf_zones[tf_key] = {
+                    "upper": zz_upper,
+                    "lower": zz_lower,
+                    "source": "zigzag_drift_fix",
+                }
+                if "range" in z:
+                    tf_zones[tf_key]["range"] = [zz_lower, zz_upper]
+        return tf_zones
+
+    data["tf_zones"] = _validate_zone_drift(data["tf_zones"], data.get("price"))
+
+    # -----------------------------
     # 2d) Fallback: если зона удалена (min-span/uniqueness) — подставить
     # ZigZag structure zone (реальные пивоты + BOS, не микроканал).
     # Это фиксит проблему когда LLM видит сжатие последних 5 свечей и ставит
