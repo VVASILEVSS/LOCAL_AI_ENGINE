@@ -57,6 +57,8 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                         tf_metrics: dict | None = None) -> tuple[str | None, list[dict]]:
     """
     Phase 3: KX-style alerts — подход к уровню + фиксация пробоя.
+    TF-лесенка (top-down SMC): пробой на младшем ТФ → цель = уровень старшего ТФ.
+    Пробой определяется по CLOSE свечи каждого ТФ (last_closed_price), не по live_price.
 
     Возвращает (alert_text, breakout_events_to_save).
     Alerts отправляются ВСЕГДА, минуя AUTO_SIGNAL_ONLY.
@@ -67,7 +69,6 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
     alerts: list[str] = []
     new_breakouts: list[dict] = []
 
-    # Динамический порог подхода: max(ATR*1.5, price*1.5%)
     price_float = float(live_price)
     atr_val = float(atr) if atr else price_float * 0.01
     approach_threshold = max(atr_val * 1.5, price_float * 0.015)
@@ -75,13 +76,16 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
     vol_ratio_f = float(vol_ratio) if vol_ratio else 0.0
     vol_confirmed = vol_ratio_f >= 1.0
 
-    # Приоритет TF: M15/H1 → немедленно, H4/D1 → старший
     tf_priority = {"15m": "⚡", "15M": "⚡", "1h": "⚡", "1H": "⚡",
                     "4h": "📊", "4H": "📊", "1D": "📊", "1d": "📊"}
     tf_order = ["15m", "15M", "1h", "1H", "4h", "4H", "1D", "1d"]
 
     sorted_tfs = sorted(tf_zones.items(),
                         key=lambda x: tf_order.index(x[0]) if x[0] in tf_order else 99)
+
+    # TF-лесенка: для каждого ТФ берём close свечи этого ТФ (не live_price).
+    # Пробой = закрытие свечи за уровнем (тело, не тень).
+    tf_breakouts: dict[str, str] = {}  # tf → "up"|"down"
 
     for tf, zone in sorted_tfs:
         if not isinstance(zone, dict):
@@ -91,25 +95,34 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
         icon = tf_priority.get(tf, "📍")
         label = format_symbol(symbol_id)
 
+        # close свечи этого ТФ (ключевая логика лесенки)
+        tfm = tf_metrics.get(tf, {}) if tf_metrics else {}
+        tf_close = tfm.get("last_closed_price")
+        tf_close_f = float(tf_close) if tf_close else price_float
+        tf_vol = tfm.get("vol_ratio", vol_ratio_f)
+        tf_vol_f = float(tf_vol) if tf_vol else vol_ratio_f
+        tf_vol_conf = tf_vol_f >= 1.0
+
         # --- RESISTANCE (upper) ---
         if upper is not None:
             try:
                 u = float(upper)
                 if u <= 0:
                     pass
-                elif live_price > u:
-                    # ПРОБОЙ resistance вверх
-                    vol_str = f"✅ объём {vol_ratio_f}x" if vol_confirmed else f"⚠️ объём {vol_ratio_f}x — возможен ложный"
-                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ resistance @\u200b{u} ↑ ({vol_str})")
+                elif tf_close_f > u:
+                    # ПРОБОЙ resistance вверх (close свечи за уровнем)
+                    vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
+                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ resistance @​{u} ↑ (close {tf_close_f}, {vol_str})")
                     new_breakouts.append({
                         "symbol": symbol_id, "timeframe": tf,
                         "level_type": "resistance", "level_price": u,
-                        "breakout_dir": "up", "volume_ratio": vol_ratio_f,
+                        "breakout_dir": "up", "volume_ratio": tf_vol_f,
                     })
+                    tf_breakouts[tf] = "up"
                 elif abs(live_price - u) < approach_threshold:
-                    # ПОДХОД К RESISTANCE
+                    # ПОДХОД К RESISTANCE (по live_price)
                     dist_pct = abs(live_price - u) / u * 100
-                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от resistance @\u200b{u}")
+                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от resistance @​{u}")
             except (TypeError, ValueError):
                 pass
 
@@ -119,29 +132,59 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
                 l = float(lower)
                 if l <= 0:
                     pass
-                elif live_price < l:
-                    # ПРОБОЙ support вниз
-                    vol_str = f"✅ объём {vol_ratio_f}x" if vol_confirmed else f"⚠️ объём {vol_ratio_f}x — возможен ложный"
-                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ support @\u200b{l} ↓ ({vol_str})")
+                elif tf_close_f < l:
+                    # ПРОБОЙ support вниз (close свечи за уровнем)
+                    vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
+                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ support @​{l} ↓ (close {tf_close_f}, {vol_str})")
                     new_breakouts.append({
                         "symbol": symbol_id, "timeframe": tf,
                         "level_type": "support", "level_price": l,
-                        "breakout_dir": "down", "volume_ratio": vol_ratio_f,
+                        "breakout_dir": "down", "volume_ratio": tf_vol_f,
                     })
+                    tf_breakouts[tf] = "down"
                 elif abs(live_price - l) < approach_threshold:
-                    # ПОДХОД К SUPPORT
+                    # ПОДХОД К SUPPORT (по live_price)
                     dist_pct = abs(live_price - l) / l * 100
-                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от support @\u200b{l}")
+                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от support @​{l}")
             except (TypeError, ValueError):
                 pass
 
     if not alerts:
         return None, new_breakouts
 
+    # TF-лесенка: M15 слом → цель H1, H1 слом → цель H4, и т.д.
+    tf_chain = ["15m", "15M", "1h", "1H", "4h", "4H", "1D", "1d"]
+    ladder_lines: list[str] = []
+    for i, tf in enumerate(tf_chain):
+        if tf not in tf_breakouts:
+            continue
+        direction = tf_breakouts[tf]
+        # Ищем следующий ТФ в цепочке для цели
+        next_tf = None
+        for j in range(i + 1, len(tf_chain)):
+            if tf_chain[j] in tf_zones:
+                next_tf = tf_chain[j]
+                break
+        if next_tf:
+            next_zone = tf_zones.get(next_tf, {})
+            if direction == "up":
+                target = next_zone.get("upper")
+                arrow = "↑"
+            else:
+                target = next_zone.get("lower")
+                arrow = "↓"
+            if target:
+                ladder_lines.append(
+                    f"🎯 {tf} слом {direction} → цель {next_tf} @{target} {arrow}"
+                )
+
     # Динамический заголовок: "ПРОБОЙ" только при реальном пробое, иначе "УРОВЕНЬ"
     has_breakout = len(new_breakouts) > 0
     header = "🔔 ПРОБОЙ" if has_breakout else "🔔 УРОВЕНЬ"
-    alert_text = f"{header} ({format_symbol(symbol_id)})\n" + "\n".join(alerts)
+    parts = ["\n".join(alerts)]
+    if ladder_lines:
+        parts.append("\n".join(ladder_lines))
+    alert_text = f"{header} ({format_symbol(symbol_id)})\n" + "\n".join(parts)
     return alert_text, new_breakouts
 
 
