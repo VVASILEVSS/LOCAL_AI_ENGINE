@@ -2825,6 +2825,34 @@ def format_json_for_tg(data: dict) -> str:
     else:
         lines.append("  • Нет")
 
+    # T15: FVG / Imbalance zones — compact, only unfilled or in current price zone
+    fvg_lines: list[str] = []
+    if isinstance(tfs_data := data.get("zigzag_context"), dict):
+        tfs_ctx = tfs_data.get("timeframes") or {}
+    else:
+        tfs_ctx = {}
+    for tf, tf_data in tfs_ctx.items():
+        if not isinstance(tf_data, dict):
+            continue
+        imb = tf_data.get("imbalances")
+        if not isinstance(imb, dict):
+            continue
+        for fvg in (imb.get("fvgs") or []):
+            if not isinstance(fvg, dict):
+                continue
+            # Только незаполненные или в зоне текущей цены
+            if not fvg.get("filled") or fvg.get("current_price_in_zone"):
+                status = "✅" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
+                in_zone = " ⚡" if fvg.get("current_price_in_zone") else ""
+                fvg_lines.append(
+                    f"  • {_zone_label(tf)}: FVG {fvg.get('type','?')} "
+                    f"[{_format_num(fvg.get('low'))}-{_format_num(fvg.get('high'))}] "
+                    f"atr={fvg.get('gap_size_atr','?')} {status}{in_zone}"
+                )
+    if fvg_lines:
+        lines.append("⚡ FVG:")
+        lines.extend(fvg_lines)
+
     # State
     if state_line:
         lines.append(state_line)
@@ -2931,7 +2959,32 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
             "ВАЖНО: Zone выше = структурный range после BOS, НЕ последние 5 свечей."
         )
 
-    # Confluence levels
+    # T15: FVG / Imbalance zones (liquidity концепт, не zone_structure)
+    fvg_lines: list[str] = []
+    for tf, data in tfs.items():
+        if not isinstance(data, dict):
+            continue
+        imb = data.get("imbalances")
+        if not isinstance(imb, dict):
+            continue
+        fvgs = imb.get("fvgs") or []
+        for fvg in fvgs:
+            if not isinstance(fvg, dict):
+                continue
+            # Показываем только незаполненные или в зоне текущей цены
+            if not fvg.get("filled") or fvg.get("current_price_in_zone"):
+                status = "FILLED" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
+                in_zone = "⚡IN_ZONE" if fvg.get("current_price_in_zone") else ""
+                fvg_lines.append(
+                    f"  • {tf}: FVG {fvg.get('type','?')} [{fvg.get('low','?')}-{fvg.get('high','?')}] "
+                    f"age={fvg.get('age_bars','?')} atr={fvg.get('gap_size_atr','?')} {status} {in_zone}".strip()
+                )
+    if fvg_lines:
+        lines.append("FVG (Fair Value Gaps):")
+        lines.extend(fvg_lines)
+        lines.append("ВАЖНО: FVG = liquidity зона (vacuum). Цена стремится вернуться и заполнить gap. Незаполненный FVG = уровень притяжения.")
+
+
     confluence = ctx.get("confluence_levels") or []
     if confluence:
         cf_str = ", ".join(

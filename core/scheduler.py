@@ -230,6 +230,8 @@ def _build_zigzag_context(symbol: str, timeframes: list[str]) -> dict:
                 # prev_structure.low = SSL (Sell-Side Liquidity, цель для sweep вниз).
                 # curr_structure = активная зона после BOS (где цена сейчас).
                 "structure": data.get("structure"),
+                # T15: FVG / Imbalance zones (liquidity концепт, не zone_structure)
+                "imbalances": data.get("imbalances", {}),
             }
 
         return {
@@ -563,6 +565,8 @@ async def run_hourly_analysis(
                 parsed["current_substructure"] = current_substructure
                 parsed["confluence_levels"] = zigzag_context.get("confluence_levels", [])
                 parsed["tf_span_map"] = zigzag_context.get("stack", {}).get("tf_span_map", {})
+                # T15: FVG/imbalance data for TG compact format
+                parsed["zigzag_context"] = zigzag_context
 
                 tf_zones_clean = {}
                 key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
