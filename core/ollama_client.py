@@ -1598,12 +1598,13 @@ def enforce_risk_rules(data: dict) -> dict:
                     }
 
     # -----------------------------
-    # 2d-bis) Zone nesting (ПОСЛЕ fallback): top-down D1 → 4H → 1H → 15M.
-    # Запускается после fallback, чтобы fallback не восстановил зоны которые
-    # нарушают nesting. Младшая зона должна быть ВНУТРИ старшей. Clip к
-    # границам parent; если clip невалид → удалить (зона пробита).
+    # 2d-bis) Zone nesting (SOFT, temporary): top-down D1 → 4H → 1H → 15M.
+    # TODO(Z): заменить на nesting_status флаг в structure.py (nested |
+    # parent_broken | no_parent). Пока — только warning лог, зоны НЕ
+    # удаляем и НЕ clip (clip/delete уничтожает валидную ZigZag структуру,
+    # что нарушает Variant E: ZigZag = authoritative source).
     # -----------------------------
-    def _enforce_zone_nesting(tf_zones: dict) -> dict:
+    def _log_zone_nesting(tf_zones: dict) -> dict:
         tf_order = ["1D", "4H", "1H", "15M", "5M"]
         for i, child_tf in enumerate(tf_order[1:], start=1):
             if child_tf not in tf_zones:
@@ -1627,28 +1628,17 @@ def enforce_risk_rules(data: dict) -> dict:
             p_lower = _safe_float(parent.get("lower"))
             if p_upper is None or p_lower is None or p_upper <= p_lower:
                 continue
-            new_upper = min(c_upper, p_upper)
-            new_lower = max(c_lower, p_lower)
-            if new_lower >= new_upper:
+            # SOFT: только лог, не трогаем зону
+            if c_lower < p_lower or c_upper > p_upper:
                 logging.warning(
-                    "ZONE NESTING: %s [%.2f - %.2f] broken by %s [%.2f - %.2f] "
-                    "(clip invalid) → removed (broken zone)",
+                    "ZONE NESTING (soft): %s [%.2f - %.2f] extends beyond %s [%.2f - %.2f] "
+                    "— parent_broken (zone kept as-is, awaiting nesting_status flag)",
                     child_tf, c_lower, c_upper,
                     parent_tf, p_lower, p_upper,
                 )
-                del tf_zones[child_tf]
-            elif new_upper != c_upper or new_lower != c_lower:
-                logging.warning(
-                    "ZONE NESTING: %s [%.2f - %.2f] clipped to %s [%.2f - %.2f]",
-                    child_tf, c_lower, c_upper,
-                    parent_tf, new_lower, new_upper,
-                )
-                tf_zones[child_tf]["upper"] = new_upper
-                tf_zones[child_tf]["lower"] = new_lower
-                tf_zones[child_tf]["source"] = "nesting_clip_" + parent_tf
         return tf_zones
 
-    data["tf_zones"] = _enforce_zone_nesting(data["tf_zones"])
+    data["tf_zones"] = _log_zone_nesting(data["tf_zones"])
 
     data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
     data["tf_span_map"] = {}
