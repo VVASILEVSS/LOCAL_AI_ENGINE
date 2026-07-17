@@ -5,7 +5,7 @@
 //|                  Данные: http://localhost:5000/api/signals        |
 //+------------------------------------------------------------------+
 #property copyright "LOCAL_AI_ENGINE"
-#property version   "1.17"
+#property version   "1.19"
 #property indicator_chart_window
 #property indicator_plots 0
 
@@ -82,7 +82,7 @@ int OnInit() {
    else if(poll > 3600) poll = 3600;
    EventSetTimer(poll);
    string resolved = ResolveSymbol();
-   Print("SMC Zones v1.16: старт. URL=", ServerURL, " Symbol=", TargetSymbol, "→", resolved,
+   Print("SMC Zones v1.19: старт. URL=", ServerURL, " Symbol=", TargetSymbol, "→", resolved,
          " (chart=", Symbol(), ") ShowTFs=", ShowTFs, " Poll=", poll, "сек (input=", PollSeconds, ")");
    PollSignals();
    return INIT_SUCCEEDED;
@@ -308,7 +308,12 @@ void PollSignals() {
       symBlock = StringSubstr(response, symPos, braceStart - symPos);
    }
 
-   double price = ExtractDouble(symBlock, "\"price\":");
+   // Цена: реальная цена графика MT5 (SymbolInfoDouble) вместо запаздывающей цены из JSON.
+   // JSON price = цена на момент скана бота (15+ мин назад), что приводит к пропуску пробоев.
+   double jsonPrice = ExtractDouble(symBlock, "\"price\":");
+   double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+   if(price <= 0) price = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+   if(price <= 0) price = jsonPrice;  // fallback на JSON price если MT5 цена недоступна
    string sigStatus = ExtractString(symBlock, "\"signal_status\":");
    string sigDir = ExtractString(symBlock, "\"signal_direction\":");
    string phase = ExtractString(symBlock, "\"phase\":");
