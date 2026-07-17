@@ -364,6 +364,13 @@ def run_benchmark(
 
         swing_points = _find_real_pivots(pivot_highs_arr, pivot_lows_arr, depth=depth, min_atr_distance=min_atr_dist)
 
+        # ── FVG / Imbalance detection (T15, Hermes) ──
+        # Отдельный блок, не смешивается с zone_structure (Z согласовал).
+        from core.imbalance_detector import get_active_imbalances
+        imbalance_data = get_active_imbalances(
+            df, tf=tf_norm, current_price=current_price,
+        )
+
         tf_raw[tf] = {
             "swing_points": swing_points,
             "current_price": current_price,
@@ -376,6 +383,7 @@ def run_benchmark(
             "highs": highs,
             "lows": lows,
             "df_len": len(df),
+            "imbalances": imbalance_data,  # FVG + body-imbalance
         }
 
     # ── Phase 2: Top-down structural analysis (T2) ──
@@ -518,6 +526,7 @@ def run_benchmark(
             "pivot_count": pivot_count,
             "levels": zones,
             "structure": structure_info,
+            "imbalances": raw.get("imbalances", {}),  # T15: FVG + body-imbalance
             "summary": f"{tf} {market_mode} near {'resistance' if price_position >= 0.8 else 'support' if price_position <= 0.2 else 'range'}",
         }
 
@@ -544,6 +553,7 @@ def run_benchmark(
             "zones": zones,
             "structure": structure_info,
             "structure_narrative": structure_narrative,
+            "imbalances": raw.get("imbalances", {}),  # T15: FVG + body-imbalance
             "meta": {
                 "regime": regime,
                 "instrument_multiplier": instr_mult,
