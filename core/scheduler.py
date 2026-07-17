@@ -41,6 +41,10 @@ def _get_timeframes() -> list:
 # Phase 3 MT5: кэш последних результатов анализа для /api/signals (web_dashboard.py)
 _last_analysis_cache: dict[str, dict] = {}
 
+# Anti-spam: кэш последних отправленных level alerts (по символу)
+# Отправляем алерт только если содержание изменилось (новое событие).
+_last_level_alert_cache: dict[str, str] = {}
+
 
 def _get_symbols() -> list:
     """Phase 3: читаем из БД, не хардкод."""
@@ -631,12 +635,18 @@ async def run_hourly_analysis(
             msg_text = format_json_for_tg(parsed)
 
             # ── Отправка в TG ─────────────────────────────────────────────
-            # 1. Если есть level alerts — отправляем ВСЕГДА (мимо AUTO_SIGNAL_ONLY)
+            # 1. Level alerts — отправляем при ИЗМЕНЕНИИ (anti-spam: раз на событие)
             if alert_text:
-                try:
-                    await bot.send_message(MY_CHAT_ID, alert_text)
-                except Exception as e:
-                    logger.warning("level alert send failed: %s", e)
+                # Дедупликация: отправляем только если содержание изменилось
+                prev_alert = _last_level_alert_cache.get(symbol_id, "")
+                if alert_text != prev_alert:
+                    try:
+                        await bot.send_message(MY_CHAT_ID, alert_text)
+                        _last_level_alert_cache[symbol_id] = alert_text
+                    except Exception as e:
+                        logger.warning("level alert send failed: %s", e)
+                else:
+                    logger.debug(f"🔇 Алерт {symbol_id} не изменился — пропускаем (anti-spam)")
 
             # 2. LLM сигнал — по фильтру AUTO_SIGNAL_ONLY
             if send_to_tg:
