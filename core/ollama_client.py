@@ -2787,60 +2787,91 @@ def format_json_for_tg(data: dict) -> str:
 
     lines = []
 
-    lines.append(f"💰 Цена: {_format_num(price)}")
-    lines.append(f"🧭 Prev trend: {prev_trend.capitalize()}")
-    lines.append(f"🧭 Current substructure: {clean(current_substructure)}")
-    lines.append(f"🌍 HTF структура: {clean(data.get('htf_structure', 'unknown')).capitalize()}")
-    lines.append(clean(data.get("htf_structure_comment", "")))
-    lines.append(f"📈 Тренд: {clean(data.get('trend_structure', 'unknown')).capitalize()}")
-    lines.append(clean(data.get("trend_structure_comment", "")))
-    lines.append(f"🧩 LTF структура: {clean(data.get('ltf_structure', 'unknown')).capitalize()}")
-    lines.append(clean(data.get("ltf_structure_comment", "")))
-    lines.append(f"🧩 Накопление/распределение: {clean(data.get('accumulation_state', 'unknown')).capitalize()}")
-    lines.append(clean(data.get("accumulation_state_comment", "")))
-    lines.append(f"🌊 Волновая фаза: {clean(data.get('wave_phase', 'unclear')).replace('_', ' ').capitalize()}")
-    lines.append(clean(data.get("wave_phase_comment", "")))
-    lines.append(f"⚠️ ABC риск: {clean(data.get('abc_risk', 'unknown')).replace('_', ' ').capitalize()}")
-    lines.append(clean(data.get("abc_risk_comment", "")))
-    lines.append(f"📏 Зоны: R={_format_num(key_zones.get('resistance'))} | S={_format_num(key_zones.get('support'))}")
-    lines.append(clean(data.get("key_zones_comment", "")))
+    # Compact header: price + prev + sub + HTF in one line
+    htf_str = clean(data.get('htf_structure', 'unknown')).capitalize()
+    lines.append(f"💰 {_format_num(price)} | 🧭 Prev: {prev_trend.capitalize()} | Sub: {clean(current_substructure)} | 🌍 {htf_str}")
+    for c in [clean(data.get("htf_structure_comment", ""))]:
+        if c:
+            lines.append(c)
 
-    lines.append("📦 ЗОНЫ ПО ТФ:")
+    # Trend + LTF in one line
+    trend_str = clean(data.get('trend_structure', 'unknown')).capitalize()
+    ltf_str = clean(data.get('ltf_structure', 'unknown')).capitalize()
+    lines.append(f"📈 {trend_str} | 🧩 LTF: {ltf_str}")
+    for c in [clean(data.get("trend_structure_comment", "")), clean(data.get("ltf_structure_comment", ""))]:
+        if c:
+            lines.append(c)
+
+    # Accum + Wave + ABC in one line
+    accum_str = clean(data.get("accumulation_state", "unknown")).capitalize()
+    wave_str = clean(data.get("wave_phase", "unclear")).replace('_', ' ').capitalize()
+    abc_str = clean(data.get("abc_risk", "unknown")).replace('_', ' ').capitalize()
+    lines.append(f"🧩 Accum: {accum_str} | 🌊 {wave_str} | ⚠️ ABC: {abc_str}")
+    for c in [clean(data.get("accumulation_state_comment", "")), clean(data.get("wave_phase_comment", "")), clean(data.get("abc_risk_comment", ""))]:
+        if c:
+            lines.append(c)
+
+    # Key zones
+    lines.append(f"📏 R={_format_num(key_zones.get('resistance'))} | S={_format_num(key_zones.get('support'))}")
+    kz_comment = clean(data.get("key_zones_comment", ""))
+    if kz_comment:
+        lines.append(kz_comment)
+
+    # TF Zones (keep — SMC nesting visibility)
+    lines.append("📦 Зоны:")
     if tf_block:
         for x in tf_block:
             lines.append("  " + x)
     else:
         lines.append("  • Нет")
 
-    lines.append("📐 Confluence:")
-    if confluence_text:
-        for x in confluence_text:
-            lines.append("  " + x)
-    else:
-        lines.append("  • Нет")
-
-    lines.append("📏 TF span map:")
-    if tf_span_text:
-        for x in tf_span_text:
-            lines.append("  " + x)
-    else:
-        lines.append("  • Нет")
-
+    # State
     if state_line:
         lines.append(state_line)
 
-    lines.append(f"🚦 Сигнал: {clean(signal_status).replace('_', ' ').capitalize()}")
-    lines.append(clean(data.get("signal_status_comment", "")))
-    lines.append(f"⚡ Агрессивный: {fmt(entry.get('aggressive'))}")
-    lines.append(f"🛡️ Консервативный: {fmt(entry.get('conservative'))}")
-    lines.append(f"📊 Статус: {fmt(entry.get('current_status'))}")
-    lines.append(clean(data.get("entry_conditions_comment", "")))
-    lines.append(f"⚖️ Основной риск: SL={_format_num(psl)} | TP1={_format_num(ptp1)} | TP2={_format_num(ptp2)} | TP3={_format_num(ptp3)} | R:R={_format_num(prr)}")
-    lines.append(clean(data.get("risk_management_comment", "")))
-    lines.append(f"⚖️ Альтернатива: SL={_format_num(asl)} | TP1={_format_num(atp1)} | TP2={_format_num(atp2)} | TP3={_format_num(atp3)} | R:R={_format_num(arr)}")
-    lines.append(clean(data.get("scenario_status_comment", "")))
-    lines.append(f"📝 Факты: {clean(data.get('fact_feedback', ''))}")
-    lines.append(f"🎯 Уверенность: {clean(data.get('confidence', 'low')).capitalize()} | {clean(data.get('confidence_reason', ''))}")
+    # Signal: compact when no signal, full risk mgmt + BE when signal
+    has_signal = psl is not None or asl is not None
+    lines.append(f"🚦 {clean(signal_status).replace('_', ' ').capitalize()}")
+    sig_comment = clean(data.get("signal_status_comment", ""))
+    if sig_comment:
+        lines.append(sig_comment)
+
+    if has_signal:
+        # Full risk management
+        lines.append(f"⚡ {fmt(entry.get('aggressive'))} | 🛡️ {fmt(entry.get('conservative'))}")
+        status_val = fmt(entry.get("current_status"))
+        if status_val != "Н/Д":
+            lines.append(f"📊 {status_val}")
+        ec = clean(data.get("entry_conditions_comment", ""))
+        if ec:
+            lines.append(ec)
+        # Primary risk (only if SL exists)
+        if psl is not None:
+            lines.append(f"⚖️ SL={_format_num(psl)} | TP1={_format_num(ptp1)} | TP2={_format_num(ptp2)} | TP3={_format_num(ptp3)} | R:R={_format_num(prr)}")
+            rc = clean(data.get("risk_management_comment", ""))
+            if rc:
+                lines.append(rc)
+        # Alternative (only if SL exists)
+        if asl is not None:
+            lines.append(f"🔄 Alt: SL={_format_num(asl)} | TP1={_format_num(atp1)} | TP2={_format_num(atp2)} | R:R={_format_num(arr)}")
+            sc = clean(data.get("scenario_status_comment", ""))
+            if sc:
+                lines.append(sc)
+        # Trade management: BE at TP1
+        if ptp1 is not None and psl is not None:
+            lines.append(f"🔄 BE @ TP1 {_format_num(ptp1)} → SL to entry")
+    else:
+        # No signal — status only, no Н/Д spam
+        status_val = fmt(entry.get("current_status"))
+        if status_val != "Н/Д":
+            lines.append(f"📊 {status_val}")
+        ec = clean(data.get("entry_conditions_comment", ""))
+        if ec:
+            lines.append(ec)
+
+    # Facts + Confidence (always)
+    lines.append(f"📝 {clean(data.get('fact_feedback', ''))}")
+    lines.append(f"🎯 {clean(data.get('confidence', 'low')).capitalize()} | {clean(data.get('confidence_reason', ''))}")
 
     # убрать пустые строки и подряд идущие пустые строки
     filtered = []
