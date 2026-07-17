@@ -1517,6 +1517,8 @@ def api_signals():
             "signal_direction": cached.get("signal_direction", ""),
             "phase": cached.get("phase", ""),
             "zones": zones_out,
+            "risk_management": cached.get("risk_management", {}),
+            "entry_price": cached.get("entry_price"),
             "timestamp": cached.get("timestamp", ""),
         }
 

@@ -561,6 +561,13 @@ async def run_hourly_analysis(
 
                 parsed = enforce_risk_rules(parsed)
 
+                # Phase 3 MT5: обновляем кэш ПОСЛЕ enforce_risk_rules —
+                # теперь risk_management содержит реальные SL/TP (после fix 6626f31)
+                _last_analysis_cache[symbol_id].update({
+                    "risk_management": parsed.get("risk_management", {}),
+                    "entry_price": parsed.get("price"),
+                })
+
                 # P3-1: сохранить прогноз в backtest
                 try:
                     save_signal_log(parsed, symbol_id, timeframes, prompt_variant=PROMPT_VARIANT)
