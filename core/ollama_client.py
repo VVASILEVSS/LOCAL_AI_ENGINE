@@ -2837,15 +2837,12 @@ def format_json_for_tg(data: dict) -> str:
     for tf, tf_data in tfs_ctx.items():
         if not isinstance(tf_data, dict):
             continue
-        # M15 исключён — путает (микро-гэпы, не структурные)
-        if tf in ("15m", "5m"):
-            continue
-        imb = tf_data.get("imbalances")
-        if not isinstance(imb, dict):
-            continue
         # M15/5M исключены — путают (микро-гэпы, не структурные). tf.lower() для case-insensitive match.
         tf_l = tf.lower()
         if tf_l in ("15m", "5m"):
+            continue
+        imb = tf_data.get("imbalances")
+        if not isinstance(imb, dict):
             continue
         for fvg in (imb.get("fvgs") or []):
             if not isinstance(fvg, dict):
