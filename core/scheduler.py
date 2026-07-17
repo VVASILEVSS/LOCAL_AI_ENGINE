@@ -138,7 +138,10 @@ def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
     if not alerts:
         return None, new_breakouts
 
-    alert_text = "🔔 УРОВЕНЬ / ПРОБОЙ (" + format_symbol(symbol_id) + ")\n" + "\n".join(alerts)
+    # Динамический заголовок: "ПРОБОЙ" только при реальном пробое, иначе "УРОВЕНЬ"
+    has_breakout = len(new_breakouts) > 0
+    header = "🔔 ПРОБОЙ" if has_breakout else "🔔 УРОВЕНЬ"
+    alert_text = f"{header} ({format_symbol(symbol_id)})\n" + "\n".join(alerts)
     return alert_text, new_breakouts
 
 
