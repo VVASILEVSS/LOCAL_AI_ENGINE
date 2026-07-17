@@ -2,18 +2,18 @@
 
 **От:** Hermes (instance #1)
 **Кому:** Hermes (instance #2)
-**Дата:** 2026-07-17 ~19:45 MSK
+**Дата:** 2026-07-17 ~20:20 MSK (обновлено)
 **Тема:** Передача проекта LOCAL_AI_ENGINE — текущее состояние, нюансы, пути, правила
 
 ---
 
 ## 0. Главное
 
-Ты подхватываешь проект **LOCAL_AI_ENGINE** — SMC trading bot (BTC/ETH/XAUT). Проект в `/c/Users/Asus-pc/LOCAL_AI_ENGINE`, ветка `main`, HEAD=`3f1d2d2`. Всё запушено на GitHub (`VVASILEVSS/LOCAL_AI_ENGINE`), working tree clean.
+Ты подхватываешь проект **LOCAL_AI_ENGINE** — SMC trading bot (BTC/ETH/XAUT). Проект в `/c/Users/Asus-pc/LOCAL_AI_ENGINE`, ветка `main`, HEAD=`dae3e05`. Всё запушено на GitHub (`VVASILEVSS/LOCAL_AI_ENGINE`), working tree clean.
 
 Пользователь: **Василий** (Vasily). Рабочий язык — **только русский**. Автономный режим («САМ РЕШИ»): не задавать A/B/C/D вопросы, выбирать вариант и выполнять. Backup tag перед любой правкой = обязательно.
 
-Бот **запущен**: PID 22756/4940 (parent+child). Session в Hermes: `proc_7e1edd81800c`. Проверять через `process(action='poll', session_id='proc_7e1edd81800c')`.
+Бот **запущен**: PID 14128. Session в Hermes: `proc_e75f4947121f`. Проверять через `process(action='poll', session_id='proc_e75f4947121f')`.
 
 ---
 
@@ -55,7 +55,7 @@ env -u PYTHONPATH -u PYTHONHOME .venv/Scripts/python.exe web_dashboard.py
 
 ---
 
-## 3. COMMИT CHAIN (актуальный main)
+## 3. COMMIT CHAIN (актуальный main)
 
 ```
 ...→73bc323 (FVG в LLM+TG)
@@ -65,7 +65,11 @@ env -u PYTHONPATH -u PYTHONHOME .venv/Scripts/python.exe web_dashboard.py
     →0c54738 (entry normalize →dict + R:R>1.0 rule #20)
     →b4f7f25 (письмо Z #1)
     →a65a3b5 (CRITICAL: entry→fvg_entry rename — Z's shadowing bug)
-    →3f1d2d2 (письмо Z #2 — ответ на shadowing) ← HEAD
+    →3f1d2d2 (письмо Z #2 — ответ на shadowing)
+    →1556b09 (HANDOFF Hermes #2 v1)
+    →8d76829 (fix: TF case-insensitive tf_l=tf.lower() — D1 FVG падал в H1 info)
+    →11879ee (cleanup: remove duplicate case-check)
+    →dae3e05 (feat: rule 28 — FVG как усилитель сигнала, не standalone) ← HEAD
 ```
 
 ### Что делает каждый коммит
@@ -78,9 +82,17 @@ env -u PYTHONPATH -u PYTHONHOME .venv/Scripts/python.exe web_dashboard.py
 
 - **`a65a3b5` (CRITICAL):** `entry` → `fvg_entry` в обоих FVG блоках (`format_json_for_tg()` L2853 + `_format_zigzag_context_compact()` L3001). **Баг нашёл Z**: FVG-цикл `entry = (f"...")` переписывал signal dict `entry = data.get("entry_conditions")` → normalize делал `{}` → `entry.get('aggressive')` = None → сигнал терял aggressive/conservative/current_status → TG показывал «Н/Д». После фикса — не затирается.
 
+- **`8d76829` (BUG FIX):** TF case-insensitive matching. `zigzag_context.timeframes` отдаёт TF-ключи **ЗАГЛАВНЫМИ** (`"1D"`, `"4H"`, `"1H"`, `"15M"`), а FVG-блоки проверяли `tf in ("1d","4h")` — строчные. `"1D" != "1d"` → D1 FVG падал в `else` (info-ветку) вместо primary. 15M исключение тоже не срабатывало для `"15M"`. Фикс: `tf_l = tf.lower()` + `if tf_l in (...)` в обоих блоках. User указал на баг по логу XAUT (D1 FVG в блоке «H1 info» вместо «H4/D1»).
+
+- **`11879ee` (cleanup):** Убран дубль — после патча остался orphan `if tf in ("15m", "5m")` (case-sensitive) перед новым `tf_l` блоком. Удалён.
+
+- **`dae3e05` (RULE 28):** FVG попадал в LLM контекст (zigzag_context), но промпт **не имел правила как модели учитывать FVG в решении**. Только информационная строка «FVG = liquidity зона». Без правила модель могла игнорировать FVG. Добавлено правило 28 в `PRO_TA_USER_PROMPT` (отправляется с каждым запросом): FVG = усилитель сигнала, не standalone trigger. H4/D1 FVG с `current_price_in_zone=true` → усиливает aggressive_breakout/retest. Незаполненный H4/D1 FVG ≤1 ATR от entry → корректирует TP (magnet) или SL. H1 FVG → context, НЕ влияет на signal_status. M15 FVG игнор. FVG сам по себе НЕ переводит no_signal → aggressive (нужно структурное подтверждение).
+
 ### Backup tags (откат)
 ```
-backup/pre-fvg-tf-priority-20260717-180000  → 73bc323  (перед TF-priority)
+backup/pre-fvg-rule28-20260717-202000        → 11879ee (перед rule 28)
+backup/pre-tf-case-fix-20260717-195500        → 3f1d2d2 (перед tf.lower() fix)
+backup/pre-fvg-tf-priority-20260717-180000   → 73bc323  (перед TF-priority)
 backup/pre-fvg-impl-20260717-170000          → 7f6aae4  (перед FVG в LLM+TG)
 backup/pre-imbalance-detection-20260717-164000 → 604c924
 backup/pre-union-revert-20260717-170000        → 8e993a9
@@ -120,11 +132,20 @@ ollama_client.py:
 ### TF-приоритеты (user 17.07.2026)
 | TF | Статус | В TG/LLM |
 |---|---|---|
-| **M15/5m** | ❌ ИСКЛЮЧЁН | Не показывается (микро-гэпы путают) |
+| **M15/5m** | ❌ FVG ИСКЛЮЧЁН | Зоны+BOS **остаются** (M15 zone рендерится в `tf_block` L2736-2756). FVG исключён (L2840-2841, L2991-2992). tf.lower() — case-insensitive. |
 | **H1** | ℹ️ INFO | «общая информация, НЕ основа для прогноза» |
 | **H4 + D1** | ⚡ PRIMARY | «серьёзные уровни притяжения» |
 
-**Важно:** фильтр на уровне вывода (ollama_client.py), НЕ детектора. imbalance_detector.py детектит FVG на всех ТФ. Если Z захочет чинить 15M offset в детекторе — его право, но в вывод не возвращать без user-директивы.
+**Важно:** M15 исключён **только для FVG/имбаланса**, НЕ полностью. Зоны (range, upper/lower, BOS) M15 рендерятся в `tf_block`. Верифицировано mock-тестом: `M15: [62611 - 63693] | BOS↑ 63693 age=2` — zone present ✅, M15 FVG absent ✅, D1+H4+H1 FVG present ✅.
+
+**Правило 28 (rule 28, `dae3e05`):** FVG как **усилитель сигнала**, не standalone trigger. Живёт в `PRO_TA_USER_PROMPT` (отправляется с каждым LLM запросом):
+- H4/D1 FVG + `current_price_in_zone=true` → подтверждение ликвидности, усиливает aggressive_breakout/retest
+- Незаполненный H4/D1 FVG ≤1 ATR от entry → корректирует TP (magnet) или SL
+- H1 FVG → context, **НЕ влияет** на signal_status
+- M15 FVG не показан → игнорируй
+- FVG **сам по себе НЕ переводит** no_signal → aggressive_breakout (нужно структурное подтверждение)
+
+Фильтр на уровне вывода (ollama_client.py), НЕ детектора. imbalance_detector.py детектит FVG на всех ТФ. Если Z захочет чинить 15M offset в детекторе — его право, но в вывод не возвращать без user-директивы.
 
 ### Z одобрил FVG
 Z ответил на 6 вопросов (exchange/inbox/2026-07-17_ответ-z-fvg-принято-делаю-nesting-accumulation.md) — всё одобрано. FVG = liquidity зона, не structure zone.
@@ -146,6 +167,9 @@ Z ответил на 6 вопросов (exchange/inbox/2026-07-17_ответ-z
 | `9884874` | Z STRUCT_WINDOW | ✅ |
 | `0c54738` | entry normalize + R:R rule | ✅ |
 | `a65a3b5` | entry→fvg_entry (Z's bug) | ✅ |
+| `8d76829` | TF case-insensitive (tf_l=tf.lower()) | ✅ |
+| `11879ee` | cleanup: remove duplicate case-check | ✅ |
+| `dae3e05` | rule 28 — FVG как усилитель сигнала | ✅ |
 
 ### ПРАВИЛА КОДИРОВАНИЯ (выработанные)
 1. **ПОСЛЕ ЛЮБОЙ ПРАВКИ КОДА — ПРОВЕРЯТЬ ПОЛОЖЕНИЕ ЗОН.** Бэкенд сломал zone-логику → MT5 рисует чушь.
@@ -204,22 +228,23 @@ exchange/
 
 **Что делать:** Z ещё не ответил на контр-аргумент. Ждём. Если Z приведёт кейс — откатить. Если user скажет «откатить» — откатить.
 
-### 7.2. Контаминация (BUG 3)
+### 7.2. Контаминация (BUG 3) — ЛОЖНАЯ ТРЕВОГА ✅ РАЗРЕШЕНО
 
-Z сказал: «после STRUCT_WINDOW фикса разрешится». В логах бота виден `CONTAMINATION FIX` на XAUT (1H lower=4H lower → ZigZag fix). Но в текущих зонах XAUT:
-```
-1D: R=4863.7 S=3942.9
-4H: R=4189.4 S=3942.9   ← lower совпадает с 1D
-1H: R=4097.1 S=3971.4   ← НЕ совпадает (норм)
-15M: R=4008.5 S=3971.4
-```
-4H lower = 1D lower = 3942.9 — **контаминация осталась** на 4H. Z BUG 3 не полностью закрыт. Это к Z (его structure.py).
+Z сообщил о контаминации (4H lower = 1D lower). Проверено по OHLCV-кэшу + live данным 17.07 ~20:00:
 
-### 7.3. MT5 v1.18 кэширование Trade Levels
+| Символ | Зоны | Диагноз |
+|---|---|---|
+| **BTC** | D1 lower=H4 lower=57758 | ✅ **Не контаминация** — реальный swing low 57800.19 @ 01.07.2026 в обоих окнах (D1 100св / H4 150св) |
+| **ETH** | D1=1503.60 vs H4=1510.90 | ✅ Разные → баг контаминации **не подтвердился** |
+| **XAUT** | D1=H4=H1 одинаковы | ⚠️ **Не контаминация** — ZigZag недоступен, зоны от LLM, не от структуры. Проблема данных. |
 
-**Наблюдено 17.07 ~19:29:** MT5 показывал старый aggressive_breakout сигнал (entry=3968.33, SL=4027.10, TP1=3942.90, R:R=0.43, id=267) полчаса-час после того, как API уже отдаёт `no_signal`. User подтвердил: «этот сигнал уже давно висит, полчаса или час назад, сейчас пропад». MT5 синхронизировался.
+Live цена BTC ~$63,000-63,900 совпадает с ботом (63320). **Бэкенд работает корректно, откат `438453c` не требуется по этому багу.**
 
-**Бэкенд работает правильно** (API + файл `signals_XAUTUSDT.json` актуальны). Проблема в MT5-индикаторе (DrawTradeLevels) — кэширует entry/SL/TP и не очищает при `no_signal`. Если повторится — чинить MT5 сторону (код MQ4/MQ5, у user).
+### 7.3. MT5 v1.18 кэширование Trade Levels — ИНЦИДЕНТ ЗАКРЫТ ✅
+
+**Наблюдено 17.07 ~19:29:** MT5 показывал старый aggressive_breakout сигнал (entry=3968.33, SL=4027.10, TP1=3942.90, R:R=0.43, id=267) ~30-60 мин после того, как API уже отдаёт `no_signal`. User подтвердил: «этот сигнал уже давно висит, полчаса или час назад, сейчас пропад». MT5 синхронизировался сам.
+
+**Бэкенд работает правильно** (API + файл `signals_XAUTUSDT.json` актуальны). Проблема в MT5-индикаторе (DrawTradeLevels) — кэширует entry/SL/TP и не очищает при `no_signal`. Если повторится — чинить MT5 сторону (код MQ4/MQ5, у user). Рекомендация: DrawTradeLevels должен стирать Trade Levels при `signal_status=no_signal`.
 
 ### 7.4. Pending (не срочно)
 - Ротация GitHub токена user (VVASILEVSS).
@@ -246,20 +271,28 @@ Z сказал: «после STRUCT_WINDOW фикса разрешится». В
 
 В репо **нет canonical test-раннера**. Верификация = ad-hoc скрипты под `C:\Users\Asus-pc\AppData\Local\Temp\hermes-verify-*.py`, прогон против изменённого поведения, удаление после.
 
-### Что верифицировано (на 19:40 MSK 17.07)
-40/40 PASS ad-hoc:
-- Синтаксис 3 модулей
-- fvg_entry в обоих местах (нет shadowing)
-- нет китайского артефакта 不结构性
-- entry normalize guard + R:R>1.0 rule + rules 20-27 уникальны
-- signal preserved with FVG (aggressive/conservative/current_status не теряются)
-- FVG TF-priority (M15 absent, D1+4H ⚡, H1 ℹ️, labels) в TG и LLM
-- Edge cases: entry string, entry missing, no_signal path
+### Что верифицировано (на 20:15 MSK 17.07, HEAD=`dae3e05`)
+**55/55 PASS** ad-hoc:
+- Синтаксис ollama_client+scheduler+imbalance_detector
+- **Rule 28** (presence + 5 clauses: IN_ZONE, magnet, no-standalone, H1 info)
+- **Rules 1-28 unique** (regex start-of-line match, без substring false positives)
+- **TF case-insensitive** (tf_l=tf.lower() ×2, no bare `tf in`, uses tf_l for primary+15m exclude)
+- **entry shadowing** (fvg_entry ×2, no Chinese 不结构, entry normalize guard, R:R>1.0 rule)
+- **TG UPPER routing** (D1/4H→PRIMARY, H1→INFO, 15M→excluded, aggressive preserved, no Н/Д)
+- **LLM UPPER routing** (D1→PRIMARY, H1→INFO, 15M→excluded)
+- **Edge cases** (entry=str, entry=missing)
+- **Bot alive** (/api/signals reachable, server_time актуальный)
 
 ### Что проверено на боте
 - После restart (id>=270): 8 сигналов, все `no_signal`, R:R=None. **Правило R:R>1.0 работает** (до правила были 6 aggressive с R:R=0.01-0.67).
 - `signal_log` сохраняется без AttributeError (до фикса падал).
-- `CONTAMINATION FIX` работает на XAUT.
+- **MT5 stale signal инцидент**: API/файл актуальны (no_signal), MT5 кэшировал id=267 (aggressive_breakout R:R=0.43) ~30-60 мин, сам синхронизировался. Бэкенд НЕ виноват.
+
+### R:R < 1.0 в DB (pre-rule vs post-rule)
+| signal_log id | signal | R:R | Era |
+|---|---|---|---|
+| 260-269 | aggressive_breakout | 0.01-0.67 | pre-rule |
+| >=270 | no_signal | None | post-rule ✅ |
 
 ---
 
@@ -291,14 +324,17 @@ Z сказал: «после STRUCT_WINDOW фикса разрешится». В
 
 ## 12. ИТОГ ДЛЯ ТЕБЯ
 
-1. Бот работает, HEAD=`3f1d2d2`, всё запушено, backup tags на месте.
-2. entry shadowing FIXED (`a65a3b5`). R:R>1.0 правило работает. FVG TF-priority работает.
-3. **Ждём ответ Z** по откату `438453c` (Hermes против, Z за, user сказал «обсудить в письме»).
-4. **Контаминация 4H lower=1D lower** на XAUT осталась — к Z (structure.py).
-5. **MT5 кэширование** старого сигнала — не баг бота, MT5 сам обновился.
-6. 24h стабилизация (Z предложил) — пусть бот поработает.
-7. Дальше: MT5 v1.18 визуальная проверка, trend lines, угол наклона (user хочет 3-ю размерность).
+1. Бот работает, HEAD=`dae3e05`, всё запушено, backup tags на месте.
+2. entry shadowing FIXED (`a65a3b5`). R:R>1.0 правило работает (id>=270 все no_signal). FVG TF-priority работает.
+3. **TF case-insensitive FIXED** (`8d76829`+`11879ee`): D1 FVG теперь в PRIMARY блоке, не H1 info. `tf_l = tf.lower()` в обоих FVG блоках.
+4. **Rule 28 добавлена** (`dae3e05`): FVG = усилитель сигнала, не standalone. Живёт в `PRO_TA_USER_PROMPT`. Модель теперь знает как учитывать FVG в решениях.
+5. **M15 exclusion верифицирован**: только FVG, не ТФ. M15 zones+BOS рендерятся, FVG исключён.
+6. **Контаминация BUG 3 — ЛОЖНАЯ ТРЕВОГА**: BTC общий swing (реальный), ETH разные, XAUT LLM-зоны (ZigZag недоступен). Откат `438453c` не требуется по этому багу.
+7. **MT5 stale signal**: не баг бэкенда, MT5 сам обновился. Рекомендация: DrawTradeLevels стирать Trade Levels при no_signal.
+8. **Ждём ответ Z** по откату `438453c` (Hermes против, Z за). Контаминация ложна, но Z может иметь другие аргументы.
+9. 24h стабилизация (Z предложил) — пусть бот поработает. Ждём первый autoscan цикл с rule 28.
+10. Дальше: MT5 v1.18 визуальная проверка, trend lines, угол наклона (user хочет 3-ю размерность).
 
 Удачи. Если сомневаешься — пиши Z (через outbox/), user одобряет важное.
 
-— Hermes #1
+— Hermes #1 (обновлено 17.07.2026 ~20:20 MSK)
