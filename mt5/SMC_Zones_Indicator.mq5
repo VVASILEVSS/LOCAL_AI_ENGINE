@@ -36,6 +36,16 @@ input bool    AlertSoundOnly = false;                                 // Тол�
 input string  AlertSoundFile = "alert.wav";                           // Звуковой файл (alert.wav = стандартный)
 input bool    AlertPushNotif = false;                                 // Push-уведомление на мобильное (нужен MetaQuotes ID)
 
+// --- Торговые уровни (SL/TP/Entry) — v1.18 ---
+input string  TRADE_GRP = "--- Торговые уровни ---";
+input bool    ShowTradeLevels = true;                                  // Показать SL/TP/Entry из бота
+input color   ColorSL     = clrCrimson;                                // Цвет Stop Loss
+input color   ColorTP1    = clrLime;                                   // Цвет TP1
+input color   ColorTP2    = clrLightGreen;                             // Цвет TP2
+input color   ColorTP3    = clrDarkGreen;                             // Цвет TP3
+input color   ColorEntry  = clrDodgerBlue;                             // Цвет Entry
+input int     TradeLineWidth = 2;                                      // Толщина линий SL/TP/Entry
+
 // --- Глобальные ---
 string PREFIX = "SMC_";
 datetime lastPoll = 0;
@@ -51,6 +61,7 @@ bool   g_alertedBreakoutS = false;  // уже алертили пробой supp
 string g_alertedSignal    = "";     // последний сигнал-статус (для алерта)
 string g_alertedProximity = "";     // последний proximity-ключ (TF+side)
 string g_lastSigStatus    = "";     // для детекции смены сигнала
+string g_lastTradeHash    = "";     // для логирования смены SL/TP/Entry
 
 //+------------------------------------------------------------------+
 //| Автоопределение символа графика → формат бота                    |
@@ -309,7 +320,8 @@ void PollSignals() {
    }
 
    // Цена: реальная цена графика MT5 (SymbolInfoDouble) вместо запаздывающей цены из JSON.
-   // JSON price = цена на момент скана бота (15+ мин назад), что приводит к пропуску пробоев.
+   // JSON price — на момент скана бота (15+ мин назад), к моменту poll цена уже могла вернуться.
+   // Используем chart price для корректного определения пробоя зон.
    double jsonPrice = ExtractDouble(symBlock, "\"price\":");
    double price = SymbolInfoDouble(Symbol(), SYMBOL_BID);
    if(price <= 0) price = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
@@ -431,6 +443,11 @@ void PollSignals() {
    // Инфо-панель (разворачиваемая)
    if(ShowLabel) {
       DrawInfoPanel(price, sym, sigStatus, sigDir, phase, zonesBlock, tfs, tfCount);
+   }
+
+   // Торговые уровни: SL/TP1/TP2/TP3/Entry из risk_management
+   if(ShowTradeLevels) {
+      DrawTradeLevels(symBlock, sym);
    }
 
    // Алерты: proximity (близость к зоне) + signal (смена сигнала)
@@ -572,6 +589,66 @@ color GetTextColor() {
    int brightness = (r + g + b) / 3;
    if(brightness < 128) return clrWhite;   // тёмный фон → белый текст
    return clrBlack;                        // светлый фон → тёмный текст
+}
+
+//+------------------------------------------------------------------+
+//| Рисование торговых уровней SL/TP/Entry из risk_management         |
+//| JSON: "risk_management":{"primary":{"sl":1933,"tp1":1850.6,...}}  |
+//|       "entry_price":1858                                          |
+//+------------------------------------------------------------------+
+void DrawTradeLevels(string symBlock, string sym) {
+   // Находим блок risk_management
+   string rmKey = "\"risk_management\":";
+   int rmPos = StringFind(symBlock, rmKey);
+   if(rmPos < 0) return;
+
+   // Находим блок "primary"
+   string primaryKey = "\"primary\":";
+   int primaryPos = StringFind(symBlock, primaryKey, rmPos);
+   if(primaryPos < 0) return;
+
+   // Извлекаем sl, tp1, tp2, tp3 из primary
+   double sl  = ExtractDoubleFromPos(symBlock, primaryPos, "\"sl\":");
+   double tp1 = ExtractDoubleFromPos(symBlock, primaryPos, "\"tp1\":");
+   double tp2 = ExtractDoubleFromPos(symBlock, primaryPos, "\"tp2\":");
+   double tp3 = ExtractDoubleFromPos(symBlock, primaryPos, "\"tp3\":");
+
+   // entry_price (на верхнем уровне символа)
+   double entry = ExtractDouble(symBlock, "\"entry_price\":");
+
+   // Рисуем линии
+   if(entry > 0) {
+      DrawHLine(PREFIX + "ENTRY", entry, ColorEntry, STYLE_DOT, TradeLineWidth,
+                "Entry " + sym + ": " + DoubleToString(entry, _Digits));
+   }
+   if(sl > 0) {
+      DrawHLine(PREFIX + "SL", sl, ColorSL, STYLE_DASH, TradeLineWidth,
+                "SL " + sym + ": " + DoubleToString(sl, _Digits) +
+                "  (SL%=" + DoubleToString(MathAbs(sl - entry) / entry * 100.0, 2) + "%)");
+   }
+   if(tp1 > 0) {
+      DrawHLine(PREFIX + "TP1", tp1, ColorTP1, STYLE_SOLID, TradeLineWidth,
+                "TP1 " + sym + ": " + DoubleToString(tp1, _Digits));
+   }
+   if(tp2 > 0) {
+      DrawHLine(PREFIX + "TP2", tp2, ColorTP2, STYLE_SOLID, TradeLineWidth,
+                "TP2 " + sym + ": " + DoubleToString(tp2, _Digits));
+   }
+   if(tp3 > 0) {
+      DrawHLine(PREFIX + "TP3", tp3, ColorTP3, STYLE_SOLID, TradeLineWidth,
+                "TP3 " + sym + ": " + DoubleToString(tp3, _Digits));
+   }
+
+   // Лог при первом появлении или смене SL
+   string tradeHash = DoubleToString(sl, 2) + "|" + DoubleToString(tp1, 2) + "|" + DoubleToString(entry, 2);
+   if(tradeHash != g_lastTradeHash) {
+      Print("SMC Trade Levels: entry=", DoubleToString(entry, _Digits),
+            " SL=", DoubleToString(sl, _Digits),
+            " TP1=", DoubleToString(tp1, _Digits),
+            " TP2=", DoubleToString(tp2, _Digits),
+            " TP3=", DoubleToString(tp3, _Digits));
+      g_lastTradeHash = tradeHash;
+   }
 }
 
 //+------------------------------------------------------------------+
