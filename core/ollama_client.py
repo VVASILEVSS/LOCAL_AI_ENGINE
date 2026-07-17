@@ -2826,13 +2826,18 @@ def format_json_for_tg(data: dict) -> str:
         lines.append("  • Нет")
 
     # T15: FVG / Imbalance zones — compact, only unfilled or in current price zone
-    fvg_lines: list[str] = []
+    # TF-приоритет (user 17.07.2026): H4+D1=primary, H1=info, M15=excluded
+    fvg_primary: list[str] = []
+    fvg_info: list[str] = []
     if isinstance(tfs_data := data.get("zigzag_context"), dict):
         tfs_ctx = tfs_data.get("timeframes") or {}
     else:
         tfs_ctx = {}
     for tf, tf_data in tfs_ctx.items():
         if not isinstance(tf_data, dict):
+            continue
+        # M15 исключён — путает (микро-гэпы, не结构性)
+        if tf in ("15m", "5m"):
             continue
         imb = tf_data.get("imbalances")
         if not isinstance(imb, dict):
@@ -2844,14 +2849,21 @@ def format_json_for_tg(data: dict) -> str:
             if not fvg.get("filled") or fvg.get("current_price_in_zone"):
                 status = "✅" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
                 in_zone = " ⚡" if fvg.get("current_price_in_zone") else ""
-                fvg_lines.append(
+                entry = (
                     f"  • {_zone_label(tf)}: FVG {fvg.get('type','?')} "
                     f"[{_format_num(fvg.get('low'))}-{_format_num(fvg.get('high'))}] "
                     f"atr={fvg.get('gap_size_atr','?')} {status}{in_zone}"
                 )
-    if fvg_lines:
-        lines.append("⚡ FVG:")
-        lines.extend(fvg_lines)
+                if tf in ("1d", "4h"):
+                    fvg_primary.append(entry)
+                else:  # 1h — info
+                    fvg_info.append(entry)
+    if fvg_primary:
+        lines.append("⚡ FVG [H4/D1]:")
+        lines.extend(fvg_primary)
+    if fvg_info:
+        lines.append("ℹ️ FVG [H1 info]:")
+        lines.extend(fvg_info)
 
     # State
     if state_line:
@@ -2960,12 +2972,18 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
         )
 
     # T15: FVG / Imbalance zones (liquidity концепт, не zone_structure)
+    # TF-приоритет (user 17.07.2026): H4+D1=primary, H1=info, M15=excluded
     fvg_lines: list[str] = []
+    fvg_primary: list[str] = []
+    fvg_info: list[str] = []
     for tf, data in tfs.items():
         if not isinstance(data, dict):
             continue
         imb = data.get("imbalances")
         if not isinstance(imb, dict):
+            continue
+        # M15 исключён — путает (микро-гэпы, не结构性)
+        if tf in ("15m", "5m"):
             continue
         fvgs = imb.get("fvgs") or []
         for fvg in fvgs:
@@ -2975,14 +2993,22 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
             if not fvg.get("filled") or fvg.get("current_price_in_zone"):
                 status = "FILLED" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
                 in_zone = "⚡IN_ZONE" if fvg.get("current_price_in_zone") else ""
-                fvg_lines.append(
+                entry = (
                     f"  • {tf}: FVG {fvg.get('type','?')} [{fvg.get('low','?')}-{fvg.get('high','?')}] "
                     f"age={fvg.get('age_bars','?')} atr={fvg.get('gap_size_atr','?')} {status} {in_zone}".strip()
                 )
-    if fvg_lines:
-        lines.append("FVG (Fair Value Gaps):")
-        lines.extend(fvg_lines)
-        lines.append("ВАЖНО: FVG = liquidity зона (vacuum). Цена стремится вернуться и заполнить gap. Незаполненный FVG = уровень притяжения.")
+                if tf in ("1d", "4h"):
+                    fvg_primary.append(entry)
+                else:  # 1h — info
+                    fvg_info.append(entry)
+    if fvg_primary:
+        lines.append("FVG (Fair Value Gaps) — PRIMARY [H4, D1]:")
+        lines.extend(fvg_primary)
+    if fvg_info:
+        lines.append("FVG — INFO [H1] (общая информация, НЕ основа для прогноза):")
+        lines.extend(fvg_info)
+    if fvg_primary or fvg_info:
+        lines.append("ВАЖНО: FVG = liquidity зона (vacuum). H4/D1 — серьёзные уровни притяжения. H1 — контекст, не торговый сигнал. M15 исключён.")
 
 
     confluence = ctx.get("confluence_levels") or []
