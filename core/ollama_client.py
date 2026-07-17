@@ -2850,15 +2850,15 @@ def format_json_for_tg(data: dict) -> str:
             if not fvg.get("filled") or fvg.get("current_price_in_zone"):
                 status = "✅" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
                 in_zone = " ⚡" if fvg.get("current_price_in_zone") else ""
-                entry = (
+                fvg_entry = (
                     f"  • {_zone_label(tf)}: FVG {fvg.get('type','?')} "
                     f"[{_format_num(fvg.get('low'))}-{_format_num(fvg.get('high'))}] "
                     f"atr={fvg.get('gap_size_atr','?')} {status}{in_zone}"
                 )
                 if tf in ("1d", "4h"):
-                    fvg_primary.append(entry)
+                    fvg_primary.append(fvg_entry)
                 else:  # 1h — info
-                    fvg_info.append(entry)
+                    fvg_info.append(fvg_entry)
     if fvg_primary:
         lines.append("⚡ FVG [H4/D1]:")
         lines.extend(fvg_primary)
@@ -2987,7 +2987,7 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
         imb = data.get("imbalances")
         if not isinstance(imb, dict):
             continue
-        # M15 исключён — путает (микро-гэпы, не结构性)
+        # M15 исключён — путает (микро-гэпы, не структурные)
         if tf in ("15m", "5m"):
             continue
         fvgs = imb.get("fvgs") or []
@@ -2998,14 +2998,14 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
             if not fvg.get("filled") or fvg.get("current_price_in_zone"):
                 status = "FILLED" if fvg.get("filled") else f"fill={int((fvg.get('fill_pct') or 0) * 100)}%"
                 in_zone = "⚡IN_ZONE" if fvg.get("current_price_in_zone") else ""
-                entry = (
+                fvg_entry = (
                     f"  • {tf}: FVG {fvg.get('type','?')} [{fvg.get('low','?')}-{fvg.get('high','?')}] "
                     f"age={fvg.get('age_bars','?')} atr={fvg.get('gap_size_atr','?')} {status} {in_zone}".strip()
                 )
                 if tf in ("1d", "4h"):
-                    fvg_primary.append(entry)
+                    fvg_primary.append(fvg_entry)
                 else:  # 1h — info
-                    fvg_info.append(entry)
+                    fvg_info.append(fvg_entry)
     if fvg_primary:
         lines.append("FVG (Fair Value Gaps) — PRIMARY [H4, D1]:")
         lines.extend(fvg_primary)
