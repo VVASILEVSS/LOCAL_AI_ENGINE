@@ -76,6 +76,11 @@ class StructureAnalysis:
     # BOS = close за границей, sweep = wick без close.
     zone_breakout_up: bool = False
     zone_breakout_down: bool = False
+    # Nesting status relative to parent TF.
+    # "nested" = child zone fully inside parent (normal).
+    # "parent_broken" = child zone extends beyond parent bounds.
+    # "no_parent" = senior-most TF, no parent to compare.
+    nesting_status: str = "no_parent"
 
 
 def detect_bos(
@@ -513,29 +518,39 @@ def detect_accumulation(
     zone_low: float,
     tf: str = "",
 ) -> Tuple[bool, int]:
-    """Накопление = последние min_pivots пивотов не обновляют zone bounds.
+    """Накопление по чередованию H/L (концепция Возного).
 
-    Если N последних пивотов не пробивают zone_high (для high-пивотов)
-    и не пробивают zone_low (для low-пивотов) → накопление.
+    Чередование swing H и L = тренд формируется (не накопление).
+    Если есть run 2+ пивотов одного типа подряд = тренд не сформирован
+    = накопление / боковик.
 
     Returns:
-        (is_accumulation, count_of_consecutive_non_updating_pivots)
+        (is_accumulation, max_consecutive_same_type_in_tail)
     """
     if not swing_points:
         return False, 0
 
     min_piv = _ACCUM_MIN_PIVOTS.get(tf.lower(), 3)
 
-    # Считаем сколько последних пивотов подряд не обновляют zone
-    count = 0
-    for p in reversed(swing_points):
-        if p["type"] == "high" and p["price"] > zone_high:
-            break  # Новый HH — не накопление
-        if p["type"] == "low" and p["price"] < zone_low:
-            break  # Новый LL — не накопление
-        count += 1
+    # Проверяем последние N пивотов на чередование.
+    # Тренд: H, L, H, L (все переходы → max_run = 1 → не накопление)
+    # Накопление: H, H, L или L, L, H (run 2+ одного типа → накопление)
+    tail = swing_points[-min_piv:] if len(swing_points) >= min_piv else swing_points
 
-    return count >= min_piv, count
+    if len(tail) < 2:
+        return True, len(tail)  # Мало пивотов → считаем накоплением
+
+    max_run = 1
+    current_run = 1
+    for i in range(1, len(tail)):
+        if tail[i]["type"] == tail[i - 1]["type"]:
+            current_run += 1
+            max_run = max(max_run, current_run)
+        else:
+            current_run = 1
+
+    is_acc = max_run >= 2
+    return is_acc, max_run
 
 
 # ── T2: Top-down orchestrator ──
@@ -628,6 +643,21 @@ def analyze_topdown(
                     "side": "below",
                 })
         analysis.targets = targets
+
+        # ── Nesting status: проверяем child zone vs parent ──
+        if parent_zone is not None and parent_tf_name:
+            p_low, p_high = parent_zone
+            c_low = analysis.zone_low
+            c_high = analysis.zone_high
+            if c_low is not None and c_high is not None:
+                if c_low >= p_low and c_high <= p_high:
+                    analysis.nesting_status = "nested"
+                else:
+                    analysis.nesting_status = "parent_broken"
+                    logging.info(
+                        "NESTING: %s [%.1f-%.1f] extends beyond %s [%.1f-%.1f] → parent_broken",
+                        tf, c_low, c_high, parent_tf_name, p_low, p_high,
+                    )
 
         results[tf_lower] = analysis
 

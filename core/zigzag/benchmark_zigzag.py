@@ -502,6 +502,7 @@ def run_benchmark(
                 "zone_low": round(struct.zone_low, 1) if struct.zone_low else None,
                 "zone_breakout_up": struct.zone_breakout_up,
                 "zone_breakout_down": struct.zone_breakout_down,
+                "nesting_status": struct.nesting_status,
                 "atr": round(float(atr), 2),
             }
 
