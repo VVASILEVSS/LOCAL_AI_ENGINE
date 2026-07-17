@@ -895,6 +895,11 @@ def enforce_risk_rules(data: dict) -> dict:
 
         if signal == "aggressive_breakout":
             # Sync with backtest._detect_direction: check trend, not just signal
+            # Но current_substructure приоритетнее trend (breakout_up против тренда = реальный сигнал)
+            if "breakout_down" in sub:
+                return "short"
+            if "breakout_up" in sub:
+                return "long"
             if "down" in trend or "down" in ltf or "down" in wave or "bear" in trend:
                 return "short"
             return "long"
@@ -1229,12 +1234,14 @@ def enforce_risk_rules(data: dict) -> dict:
         price = data.get("price") or data.get("current_price") or 0.0
         price_safe = price if price > 0 else 1.0
 
-        # Снапшот оригинальных lower ДО фиксов — иначе при последовательном
-        # исправлении H4 lower меняется, и пара (4H→1H) не детектирует H1.
+        # Снапшот оригинальных lower/upper ДО фиксов — иначе при последовательном
+        # исправлении H4 меняется, и пара (4H→1H) не детектирует H1.
         original_lowers = {}
+        original_uppers = {}
         for tf_key, z in tf_zones.items():
             if isinstance(z, dict):
                 original_lowers[tf_key] = z.get("lower")
+                original_uppers[tf_key] = z.get("upper")
 
         fixed_count = 0
         for parent_tf, child_tf in nesting:
@@ -1244,33 +1251,61 @@ def enforce_risk_rules(data: dict) -> dict:
                 continue
             p_lower = original_lowers.get(parent_tf)
             c_lower = original_lowers.get(child_tf)
-            if p_lower is None or c_lower is None:
+            p_upper = original_uppers.get(parent_tf)
+            c_upper = original_uppers.get(child_tf)
+
+            # Детектор контаминации: child lower ИЛИ upper ≈ parent (по оригиналам)
+            lower_contaminated = (
+                p_lower is not None and c_lower is not None
+                and abs(p_lower - c_lower) / price_safe < tol_pct
+            )
+            upper_contaminated = (
+                p_upper is not None and c_upper is not None
+                and abs(p_upper - c_upper) / price_safe < tol_pct
+            )
+
+            if not (lower_contaminated or upper_contaminated):
                 continue
 
-            # Детектор контаминации: child lower ≈ parent lower (по оригиналам)
-            lower_diff = abs(p_lower - c_lower) / price_safe
-            if lower_diff < tol_pct:
-                # Контаминация! Ищем правильную зону в zigzag_context
-                zz_tf_data = None
-                for zz_key in (child_tf, child_tf.lower(), child_tf.replace("M", "m").replace("H", "h").replace("D", "d")):
-                    if zz_key in zz_tfs:
-                        zz_tf_data = zz_tfs[zz_key]
-                        break
-                if isinstance(zz_tf_data, dict):
-                    fb_lower = _safe_float(zz_tf_data.get("lower"))
-                    fb_upper = _safe_float(zz_tf_data.get("upper"))
-                    if fb_lower is not None and fb_upper is not None and fb_upper > fb_lower:
-                        logging.warning(
-                            "CONTAMINATION FIX: %s lower=%.2f == %s lower=%.2f (contamination) "
-                            "→ replacing with ZigZag zone [%.2f - %.2f]",
-                            child_tf, c_lower, parent_tf, p_lower, fb_lower, fb_upper,
-                        )
-                        child["lower"] = fb_lower
-                        child["upper"] = fb_upper
-                        child["source"] = "zigzag_anticontamination"
-                        if "range" in child:
-                            child["range"] = [fb_lower, fb_upper]
-                        fixed_count += 1
+            # Контаминация! Ищем правильную зону в zigzag_context
+            zz_tf_data = None
+            for zz_key in (child_tf, child_tf.lower(), child_tf.replace("M", "m").replace("H", "h").replace("D", "d")):
+                if zz_key in zz_tfs:
+                    zz_tf_data = zz_tfs[zz_key]
+                    break
+            if not isinstance(zz_tf_data, dict):
+                continue
+
+            fb_lower = _safe_float(zz_tf_data.get("lower"))
+            fb_upper = _safe_float(zz_tf_data.get("upper"))
+            if fb_lower is None or fb_upper is None or fb_upper <= fb_lower:
+                continue
+
+            changed = False
+            if lower_contaminated:
+                # Фиксим только если LLM lower отличается от ZigZag lower.
+                # Если совпадает → LLM права, это не контаминация.
+                if fb_lower is not None and abs(c_lower - fb_lower) / price_safe > tol_pct:
+                    logging.warning(
+                        "CONTAMINATION FIX (lower): %s lower=%.2f == %s lower=%.2f → ZigZag %.2f",
+                        child_tf, c_lower, parent_tf, p_lower, fb_lower,
+                    )
+                    child["lower"] = fb_lower
+                    changed = True
+            if upper_contaminated:
+                # Аналогично: фиксим только если LLM upper отличается от ZigZag upper.
+                if fb_upper is not None and abs(c_upper - fb_upper) / price_safe > tol_pct:
+                    logging.warning(
+                        "CONTAMINATION FIX (upper): %s upper=%.2f == %s upper=%.2f → ZigZag %.2f",
+                        child_tf, c_upper, parent_tf, p_upper, fb_upper,
+                    )
+                    child["upper"] = fb_upper
+                    changed = True
+            if changed:
+                child["source"] = "zigzag_anticontamination"
+                if "range" in child:
+                    child["range"] = [fb_lower, fb_upper]
+                fixed_count += 1
 
         if fixed_count:
             logging.info("CONTAMINATION: fixed %d zone(s) from ZigZag context", fixed_count)
@@ -1866,12 +1901,92 @@ def enforce_risk_rules(data: dict) -> dict:
             if tp3 is not None and tp3 < current_price and tp3 not in (primary.get("tp1"), primary.get("tp2")) and primary.get("tp3") is None:
                 primary["tp3"] = tp3
 
-        if primary.get("sl") is None:
+        if primary.get("sl") is None or (
+            current_price is not None
+            and _safe_float(primary.get("sl")) is not None
+            and abs(current_price - _safe_float(primary.get("sl"))) / max(current_price, 1e-9) < 0.005  # SL < 0.5% = слишком близко
+        ):
             # SWING-SL: берём ближайший zigzag structure swing high/low, не любой candidate
             # zigzag structure.high/low = разворотные пивоты с протарговкой
             swing_highs, swing_lows = _extract_swing_levels(data)
-            if direction_hint == "long":
-                # long: SL ниже entry — ближайший swing low под entry
+
+            # ── AGGRESSIVE_BREAKOUT: SL = противоположная граница зоны пробоя ──
+            # По Возному: aggressive = пробой границы, SL = край зоны (противоположная граница)
+            # zone_breakout_up=True → long, SL = zone_low (противоположная)
+            # zone_breakout_down=True → short, SL = zone_high (противоположная)
+            breakout_sl = None
+            if signal_status == "aggressive_breakout":
+                zz_ctx_sl = data.get("zigzag_context") or {}
+                if isinstance(zz_ctx_sl, dict):
+                    zz_tfs_sl = zz_ctx_sl.get("timeframes") or {}
+                    # Ищем ТФ где есть breakout (от M15 вверх — младший = сигнал)
+                    for tf_key in ("15m", "1h", "4h", "1D"):
+                        tfd = zz_tfs_sl.get(tf_key)
+                        if not isinstance(tfd, dict):
+                            continue
+                        struct = tfd.get("structure") or {}
+                        if not isinstance(struct, dict):
+                            continue
+                        bu = struct.get("zone_breakout_up")
+                        bd = struct.get("zone_breakout_down")
+                        curr = struct.get("curr_structure") or {}
+                        if not isinstance(curr, dict):
+                            continue
+                        z_low = _safe_float(curr.get("low"))
+                        z_high = _safe_float(curr.get("high"))
+                        if bu and z_low is not None and z_low < current_price:
+                            breakout_sl = z_low  # long: SL = zone_low
+                            logging.info(
+                                "SL (breakout zone): %s long, TF=%s, zone=[%.2f-%.2f], SL=zone_low=%.2f",
+                                "primary", tf_key, z_low, z_high, breakout_sl,
+                            )
+                            break
+                        if bd and z_high is not None and z_high > current_price:
+                            breakout_sl = z_high  # short: SL = zone_high
+                            logging.info(
+                                "SL (breakout zone): %s short, TF=%s, zone=[%.2f-%.2f], SL=zone_high=%.2f",
+                                "primary", tf_key, z_low, z_high, breakout_sl,
+                            )
+                            break
+
+            if breakout_sl is not None:
+                # Для aggressive_breakout: SL = MAX(зона, ближайший swing старшего ТФ)
+                # Зона = минимальный SL (край зоны пробоя по Возному)
+                # Swing H1/H4 = структурный SL (если дальше от entry — реальный уровень)
+                # ОГРАНИЧЕНИЕ: swing в пределах 8% от entry (1D swing = слишком далеко, 19%)
+                max_sl_distance = abs(current_price) * 0.08 if current_price is not None else float('inf')
+                if direction_hint == "long":
+                    # long: SL ниже entry. Берём swing low ПОД entry который СТРОГО дальше от entry чем zone_low
+                    below = [x for x in swing_lows if x < current_price] if current_price is not None else []
+                    # zone_low = минимальный SL. Ищем swing low СТРОГО дальше zone_low (структурный H1/H4)
+                    # но не дальше 8% от entry (1D swing слишком далеко → RR < 1.0)
+                    farther_below = [x for x in below if x < breakout_sl and (current_price - x) <= max_sl_distance]
+                    if farther_below:
+                        # берём ближайший к entry из тех что СТРОГО дальше zone_low (но ниже = дальше от entry)
+                        primary["sl"] = farther_below[-1]
+                        logging.info(
+                            "SL (breakout zone + swing): long, zone_low=%.2f, swing=%.2f (структурный дальше)",
+                            breakout_sl, farther_below[-1],
+                        )
+                    else:
+                        primary["sl"] = breakout_sl
+                else:
+                    # short: SL выше entry. Берём swing high НАД entry который СТРОГО дальше от entry чем zone_high
+                    above = [x for x in swing_highs if x > current_price] if current_price is not None else []
+                    # zone_high = минимальный SL. Ищем swing high СТРОГО дальше zone_high (структурный H1/H4)
+                    # но не дальше 8% от entry (1D swing слишком далеко → RR < 1.0)
+                    farther_above = [x for x in above if x > breakout_sl and (x - current_price) <= max_sl_distance]
+                    if farther_above:
+                        # берём ближайший к entry из тех что СТРОГО дальше zone_high
+                        primary["sl"] = farther_above[0]
+                        logging.info(
+                            "SL (breakout zone + swing): short, zone_high=%.2f, swing=%.2f (структурный дальше)",
+                            breakout_sl, farther_above[0],
+                        )
+                    else:
+                        primary["sl"] = breakout_sl
+            elif direction_hint == "long":
+                # long: SL ниже entry — ближайший swing low под entry (H1/H4 приоритет, не M15)
                 below = [x for x in swing_lows if x < current_price] if current_price is not None else []
                 if below:
                     primary["sl"] = below[-1]  # ближайший к entry
@@ -2211,7 +2326,11 @@ def enforce_risk_rules(data: dict) -> dict:
             rr = _safe_float(block.get("rr"))
 
             # RR < 1.0 — risk > reward, signal is unrealistic
-            if rr is not None and rr < 1.0:
+            # ИСКЛЮЧЕНИЕ: aggressive_breakout — агрессивный вход = высокий риск по определению,
+            # SL = структурный уровень (край зоны / swing H1), TP1 = противоположная граница зоны.
+            # RR может быть < 1.0 (короткий TP, далекий SL) — это нормально для агрессивного входа.
+            # Не обнуляем SL — пусть user видит реальный структурный уровень.
+            if rr is not None and rr < 1.0 and signal_status != "aggressive_breakout":
                 block["sl"] = None
                 block["tp1"] = None
                 block["tp2"] = None
