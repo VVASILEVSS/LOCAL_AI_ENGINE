@@ -318,14 +318,24 @@ def _autoscan_button_label() -> str:
 
 
 def _effective_autoscan_interval() -> int:
-    """Базовый autoscan_interval с weekend-удвоением (сб/вс = x2)."""
-    raw = _dash_get_setting("autoscan_interval", 30)
+    """Эффективный autoscan интервал с учётом рыночных часов.
+    Рабочее окно: пн 08:00 – пт 23:59 (крипто 24/7, но движения живые).
+    Вне окна (сб/вс + пн до 08:00): 60 мин фикс — рынок спящий.
+    В окне: базовый autoscan_interval из settings (10–15 мин, дефолт 15)."""
+    raw = _dash_get_setting("autoscan_interval", 15)
     try:
         base = int(raw)
     except (ValueError, TypeError):
-        base = 30
-    if datetime.now().weekday() >= 5:  # 5=сб, 6=вс
-        return base * 2
+        base = 15
+    now = datetime.now()
+    wd = now.weekday()  # 0=пн, 5=сб, 6=вс
+    # Сб/вс → вне окна
+    if wd >= 5:
+        return 60
+    # Пн до 08:00 → вне окна
+    if wd == 0 and now.hour < 8:
+        return 60
+    # Пн 08:00+ … Пт 23:59 → рабочее окно
     return base
 
 
@@ -1015,7 +1025,7 @@ async def callbacks_handler(callback: CallbackQuery) -> None:
                 await callback.answer("❌ Нет выбранных тикеров", show_alert=True)
                 return
             _start_autoscan(callback.bot)
-            iv = _dash_get_setting("autoscan_interval", 30)
+            iv = _dash_get_setting("autoscan_interval", 15)
             labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
             text = (
                 f"▶ Автоскан запущен\n\n"
@@ -1067,7 +1077,7 @@ async def callbacks_handler(callback: CallbackQuery) -> None:
 
     elif callback.data == "iv_minus":
         if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
-        iv = _dash_get_setting("autoscan_interval", 30)
+        iv = _dash_get_setting("autoscan_interval", 15)
         iv = max(5, iv - 5)
         _dash_set_setting("autoscan_interval", iv)
         selected = _get_autoscan_symbols()
@@ -1080,7 +1090,7 @@ async def callbacks_handler(callback: CallbackQuery) -> None:
 
     elif callback.data == "iv_plus":
         if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
-        iv = _dash_get_setting("autoscan_interval", 30)
+        iv = _dash_get_setting("autoscan_interval", 15)
         iv = min(240, iv + 5)
         _dash_set_setting("autoscan_interval", iv)
         selected = _get_autoscan_symbols()
@@ -1095,11 +1105,17 @@ async def callbacks_handler(callback: CallbackQuery) -> None:
         if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
         selected = _get_autoscan_symbols()
         labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
-        base_iv = _dash_get_setting("autoscan_interval", 30)
+        base_iv = _dash_get_setting("autoscan_interval", 15)
         eff_iv = _effective_autoscan_interval()
-        is_weekend = datetime.now().weekday() >= 5
-        wm_note = f"\n\n💤 _Weekend-mode: базовый {base_iv} мин × 2 = {eff_iv} мин (рынок спящий)_" if is_weekend else ""
-        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\nТекущий интервал: {eff_iv} мин.{wm_note}\n\n◀ / ▶ для изменения"
+        now = datetime.now()
+        wd = now.weekday()
+        in_window = not (wd >= 5 or (wd == 0 and now.hour < 8))
+        mode_note = (
+            f"\n\n🟢 *Рабочее окно* (пн 08:00–пт 23:59): интервал = {base_iv} мин (базовый)"
+            if in_window else
+            f"\n\n💤 *Вне окна* (сб/вс + пн до 08:00): интервал = 60 мин фикс (рынок спящий)"
+        )
+        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\nТекущий интервал: {eff_iv} мин.{mode_note}\n\n◀ / ▶ для изменения базового (10–15 мин в рабочем окне)"
         await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
 
     elif callback.data == "back_to_main":
@@ -1137,7 +1153,7 @@ async def cmd_autoscan(message: Message) -> None:
         except ValueError:
             pass
     active = _dash_get_setting("autoscan_active", False)
-    iv = _dash_get_setting("autoscan_interval", 30)
+    iv = _dash_get_setting("autoscan_interval", 15)
     syms = _get_autoscan_symbols()
     labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
     await message.answer(
@@ -1158,7 +1174,7 @@ async def cmd_status(message: Message) -> None:
     status = "🟢 Running" if running else "🔴 Stopped"
     cloud_status = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
     autoscan = _dash_get_setting("autoscan_active", False)
-    autoscan_iv = _dash_get_setting("autoscan_interval", 30)
+    autoscan_iv = _dash_get_setting("autoscan_interval", 15)
     autoscan_syms = _get_autoscan_symbols()
     autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
     text = (
@@ -1298,11 +1314,11 @@ async def _autoscan_sequential_cycle(bot: Bot):
     _autoscan_running = True
 
     symbols = _get_autoscan_symbols()
-    interval_raw = _dash_get_setting("autoscan_interval", 30)
+    interval_raw = _dash_get_setting("autoscan_interval", 15)
     try:
         interval = int(interval_raw)
     except (ValueError, TypeError):
-        interval = 30
+        interval = 15
     inter_symbol_pause = 120  # 2 минуты между символами
 
     import core.config as cfg
@@ -1389,11 +1405,11 @@ async def _autoscan_sequential_cycle(bot: Bot):
             # Пауза после полного цикла
             if _dash_get_setting("autoscan_active", False) and _autoscan_running:
                 elapsed = time.time() - cycle_start
-                # Weekend-mode: интервал x2 на сб/вс (рынок спящий)
-                effective_interval = interval * (2 if datetime.now().weekday() >= 5 else 1)
+                # Market-hours: рабочее окно (пн 08:00–пт 23:59) = base; вне окна = 60 фикс
+                effective_interval = _effective_autoscan_interval()
                 remaining = (effective_interval * 60) - elapsed
                 if remaining > 0:
-                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s (base={interval}min, effective={effective_interval}min)")
+                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s (effective={effective_interval}min)")
                     sleep_end = time.time() + remaining
                     while time.time() < sleep_end and _autoscan_running:
                         if not _dash_get_setting("autoscan_active", False):

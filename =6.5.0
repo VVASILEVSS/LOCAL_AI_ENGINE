@@ -1,0 +1,9 @@
+Resolved 2 packages in 1.70s
+Downloading pyside6-essentials (74.0MiB)
+Downloading shiboken6 (1.2MiB)
+ Downloaded shiboken6
+ Downloaded pyside6-essentials
+Prepared 2 packages in 3m 12s
+Installed 2 packages in 5.52s
+ + pyside6-essentials==6.11.1
+ + shiboken6==6.11.1
