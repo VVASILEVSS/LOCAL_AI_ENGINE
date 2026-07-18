@@ -428,7 +428,7 @@ def analyze_tf_structure(
     # N адаптивный по ТФ: старшие TF = меньше swings (1D=3),
     # младшие TF = больше swings (15M=6) для преодоления шума.
     # Решает: curr-only = 0.17% (микро), union = 43% (макро).
-    _TF_SWING_N = {"5m": 8, "15m": 6, "1h": 5, "4h": 4, "1d": 3}
+    _TF_SWING_N = {"5m": 8, "15m": 6, "1h": 6, "4h": 4, "1d": 3}
     _LAST_SWINGS_MIN = _TF_SWING_N.get(tf, 4)
     if curr_struct and len(swing_points) >= 2:
         recent = swing_points[-_LAST_SWINGS_MIN:]

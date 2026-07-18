@@ -60,12 +60,6 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
   "global_structure_comment": "Коррекция внутри нисходящего тренда",
   "key_zones": { "resistance": 64245.0, "support": 63640.0 },
   "key_zones_comment": "Resistance 4H, Support 4H",
-  "tf_zones": {
-    "15m": { "range": [63820.0, 63950.0], "bos_price": 63950.0, "bos_dir": "up", "bos_age": 8 },
-    "1h": { "range": [63750.0, 64100.0], "bos_price": 64100.0, "bos_dir": "up", "bos_age": 12 },
-    "4h": { "range": [63640.0, 64245.0], "bos_price": 64245.0, "bos_dir": "up", "bos_age": 5 },
-    "1D": { "range": [61929.0, 64680.0], "bos_price": 64680.0, "bos_dir": "up", "bos_age": 20 }
-  },
   "tf_zones_comment": "Цена внутри всех зон, пробоя нет",
   "tf_span_map": { "15m": 130.0, "1h": 350.0, "4h": 605.0, "1D": 2751.0 },
   "confluence_levels": [
@@ -116,12 +110,6 @@ PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер
   "global_structure_comment": "Восходящий тренд подтверждён",
   "key_zones": { "resistance": 65000.0, "support": 64245.0 },
   "key_zones_comment": "Бывший resistance стал support",
-  "tf_zones": {
-    "15m": { "range": [64200.0, 64400.0], "bos_price": 64400.0, "bos_dir": "up", "bos_age": 2 },
-    "1h": { "range": [64100.0, 64500.0], "bos_price": 64500.0, "bos_dir": "up", "bos_age": 4 },
-    "4h": { "range": [64245.0, 65000.0], "bos_price": 64245.0, "bos_dir": "up", "bos_age": 1 },
-    "1D": { "range": [63640.0, 66000.0], "bos_price": 66000.0, "bos_dir": "up", "bos_age": 15 }
-  },
   "tf_zones_comment": "4H resistance 64245 пробит, стал support",
   "tf_span_map": { "15m": 200.0, "1h": 400.0, "4h": 755.0, "1D": 2360.0 },
   "confluence_levels": [
@@ -247,11 +235,6 @@ State / history context:
   "key_zones": {{ "resistance": <number|null>, "support": <number|null> }},
   "key_zones_comment": "краткий комментарий",
 
-  "tf_zones": {{
-    "<ТФ>": {{ "range": [<low>, <high>], "bos_price": <number|null>, "bos_dir": "up|down|null", "bos_age": <int|null> }}
-  }},
-  "tf_zones_comment": "краткий комментарий",
-
   "tf_span_map": {{ "<ТФ>": <number|null> }},
   "confluence_levels": [
     {{
@@ -312,10 +295,7 @@ State / history context:
    - balance = боковик / сжатие
    - correction = коррекция
 7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
-8. tf_zones и key_zones — НЕ пересчитывай, НЕ усредняй, НЕ выдумывай. Зоны предвычислены структурно (ZigZag: крайние свинги prev_structure до BOS). Верни ровно те зоны, что пришли в контексте (prev_ctx.tf_zones), в том же формате. Если в контексте {{range: [low, high], bos_price, bos_dir, bos_age}} — верни {{range, bos_price, bos_dir, bos_age}} как есть. Если {{upper, lower}} — верни {{upper, lower}} как есть. ОБЯЗАТЕЛЬНО верни зону для КАЖДОГО таймфрейма в tf_zones. Пропуск ТФ НЕ допускается.
-8a. tf_zones.range = [zone_low, zone_high] — range предыдущей структуры до BOS. bos_price = пробитый структурный уровень (broken_level), НЕ точка детекции, НЕ close свечи. bos_dir = "up" (bullish BOS) | "down" (bearish BOS). bos_age = сколько свечей назад произошёл BOS (старость пробоя).
-8b. НЕ копируй одну зону на все ТФ. D1, H4, H1, M15 — РАЗНЫЕ зоны с РАЗНЫМИ range/bos. Старший ТФ шире, младший уже. D1 ⊃ 4H ⊃ 1H ⊃ 15M.
-8c. Зона для каждого ТФ = range от последнего слома структуры (BOS) до текущего момента. bos_price — уровень пробоя, bos_age — свежесть пробоя. Молодой BOS (bos_age < 5) = свежий пробой, цена ещё не ушла далеко. Старый BOS (bos_age > 20) = зона устарела, возможен новый BOS.
+8. [Variant E Phase 1] tf_zones — НЕ возвращай в JSON. Зоны теперь authoritative из ZigZag structure (structure.py), передаются напрямую. В JSON возвращай ТОЛЬКО tf_zones_comment — краткий комментарий о зонах (пробой/внутри/протест), ориентируясь на zigzag_context из контекста промпта.
 9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
 10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
 11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
@@ -333,8 +313,7 @@ State / history context:
 23. При споре между false_breakout и retest выбирай retest.
 24. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
 25. Младший пробой не означает старший пробой.
-26. CRITICAL — ZONE CONTAMINATION PROHIBITED: NEVER copy zone boundaries (lower or upper) from a higher TF into a lower TF. Each TF has its OWN range from its OWN zigzag structure. If D1 lower = 57758, then H4 lower must NOT be 57758 unless H4 structure genuinely has that pivot. The ZigZag context in the prompt gives you the correct per-TF zones — USE THEM. Copying D1 lower into H4/H1/M15 is a critical error.
-27. Before outputting tf_zones, verify: for each TF, lower and upper must match the zigzag_context timeframes data for that TF. If they don't match — use the zigzag_context values.
+26. [Variant E] Зоны tf_zones авторитетны из ZigZag structure — НЕ выдумывай и не пересчитывай их. tf_zones_comment ориентируйся на zigzag_context.
 28. FVG (Fair Value Gaps) — это УСИЛЕНИЕ сигнала, не самостоятельный сигнал. Правила учёта:
     - Если price IN_ZONE несоответствием H4/D1 FVG (current_price_in_zone=true) — это подтверждение ликвидности, усиливает aggressive_breakout или retest.
     - Незаполненный H4/D1 FVG рядом с entry (в пределах 1 ATR) — корректирует TP (берёт границу FVG как magnet) или SL (если FVG против позиции).

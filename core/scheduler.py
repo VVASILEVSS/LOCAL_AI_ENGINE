@@ -571,36 +571,28 @@ async def run_hourly_analysis(
                 tf_zones_clean = {}
                 key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
 
-                # Сначала записываем зоны из metrics (auto_chart), затем LLM-зоны
-                # перезаписывают их — LLM имеет приоритет
+                # ── Variant E Phase 1: zones from zigzag_context (structure.py) ──
+                # ZigZag structure = authoritative source for tf_zones.
+                # LLM больше НЕ возвращает tf_zones (schema убран).
+                # Порядок: zigzag_context > metrics (auto_chart) fallback.
+                zz_tfs = zigzag_context.get("timeframes") or {}
+                for tf_key in ("1D", "4H", "1H", "15M", "5M"):
+                    zz_tf = zz_tfs.get(tf_key) or zz_tfs.get(tf_key.lower())
+                    if isinstance(zz_tf, dict):
+                        zz_upper = zz_tf.get("upper")
+                        zz_lower = zz_tf.get("lower")
+                        if zz_upper is not None and zz_lower is not None:
+                            tf_zones_clean[tf_key] = {
+                                "upper": float(zz_upper),
+                                "lower": float(zz_lower),
+                                "source": "zigzag_structure",
+                            }
+
+                # Fallback: если zigzag_context не дал зону для TF — берём из metrics
                 for k, v in tf_zones.items():
                     norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
-                    tf_zones_clean[norm_k] = v
-
-                llm_zones = parsed.get("tf_zones") or {}
-                if isinstance(llm_zones, dict):
-                    for k, v in llm_zones.items():
-                        norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
-                        # LLM-зона перезаписывает metrics-зону только если она не пустая
-                        if isinstance(v, dict):
-                            upper = v.get("upper")
-                            lower = v.get("lower")
-                            # FIX: LLM возвращает "range": [low, high] вместо upper/lower
-                            if upper is None and lower is None and "range" in v:
-                                rng = v["range"]
-                                if isinstance(rng, list) and len(rng) >= 2:
-                                    lower = rng[0]
-                                    upper = rng[1]
-                            if upper is not None or lower is not None:
-                                # Нормализуем: upper = max, lower = min
-                                if upper is not None and lower is not None:
-                                    orig_upper, orig_lower = float(upper), float(lower)
-                                    upper = max(orig_upper, orig_lower)
-                                    lower = min(orig_upper, orig_lower)
-                                v_norm = dict(v)
-                                v_norm["upper"] = upper
-                                v_norm["lower"] = lower
-                                tf_zones_clean[norm_k] = v_norm
+                    if norm_k not in tf_zones_clean:
+                        tf_zones_clean[norm_k] = v
 
                 parsed["tf_zones"] = tf_zones_clean
 
