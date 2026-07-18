@@ -421,6 +421,22 @@ def analyze_tf_structure(
         zone_low = current_price
         swing_dir = "sideways"
 
+    # ── Variant D: minimum zone = last 4 swings (1 complete swing cycle) ──
+    # Если curr_struct микро (BOS только что, < 2 свинга после BOS),
+    # расширяем зону до последних 4 свингов из STRUCT_WINDOW.
+    # Если curr_struct уже достаточно широкий — max(curr, last4) = curr (no change).
+    # 4 свинга = ~1 полный цикл H-L-H-L = то что трейдер видит на графике.
+    # Решает проблему: curr-only = 0.17% (микро), union = 43% (макро).
+    _LAST_SWINGS_MIN = 4
+    if curr_struct and len(swing_points) >= 2:
+        recent = swing_points[-_LAST_SWINGS_MIN:]
+        recent_highs = [p["price"] for p in recent if p["type"] == "high"]
+        recent_lows = [p["price"] for p in recent if p["type"] == "low"]
+        if recent_highs:
+            zone_high = max(zone_high, max(recent_highs))
+        if recent_lows:
+            zone_low = min(zone_low, min(recent_lows))
+
     # ── Zone breakout detection (body close, NOT wick) ──
     # BOS vs Liquidity Sweep (Возный): BOS = close за границей,
     # sweep = wick без close. false_breakout обрабатывается в scheduler.
