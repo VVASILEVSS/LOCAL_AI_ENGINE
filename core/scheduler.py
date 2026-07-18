@@ -576,6 +576,7 @@ async def run_hourly_analysis(
                 # LLM больше НЕ возвращает tf_zones (schema убран).
                 # Порядок: zigzag_context > metrics (auto_chart) fallback.
                 zz_tfs = zigzag_context.get("timeframes") or {}
+                logger.info("VARIANT-E-DBG: zz_tfs keys=%s", list(zz_tfs.keys()))
                 for tf_key in ("1D", "4H", "1H", "15M", "5M"):
                     zz_tf = zz_tfs.get(tf_key) or zz_tfs.get(tf_key.lower())
                     if isinstance(zz_tf, dict):
@@ -587,6 +588,11 @@ async def run_hourly_analysis(
                                 "lower": float(zz_lower),
                                 "source": "zigzag_structure",
                             }
+                            logger.info("VARIANT-E-DBG: %s from zigzag_context [%.1f - %.1f]", tf_key, zz_lower, zz_upper)
+                        else:
+                            logger.info("VARIANT-E-DBG: %s upper/lower missing (upper=%s, lower=%s)", tf_key, zz_upper, zz_lower)
+                    else:
+                        logger.info("VARIANT-E-DBG: %s not found in zz_tfs (tried %s, %s)", tf_key, tf_key, tf_key.lower())
 
                 # Fallback: если zigzag_context не дал зону для TF — берём из metrics
                 for k, v in tf_zones.items():
