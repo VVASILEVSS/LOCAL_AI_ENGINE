@@ -1,0 +1,216 @@
+/home/z/my-project/LOCAL_AI_ENGINE/TZ/ТЗ state_tracker.txt:76:### 2.5 `normalize_zones(tf_zones: dict) -> dict`
+/home/z/my-project/LOCAL_AI_ENGINE/TZ/ТЗ state_tracker.txt:105:### 3.1 `get_active_reference_tf(tf_zones: dict, price: float) -> str`
+/home/z/my-project/LOCAL_AI_ENGINE/TZ/ТЗ state_tracker.txt:144:    "tf_zones": {...},
+/home/z/my-project/LOCAL_AI_ENGINE/TZ/15.05.2026 мини ТЗ.txt:143:- хранить предыдущие `tf_zones`, `key_zones`, `signal_status`, `scenario_status`;
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_full-cycle-verification.md:57:- [x] **5.3** `liquidity_pools` для `enforce_risk_rules` — PASS. `scheduler.py:342-358` + `ollama_client.py:1026-1044`.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_full-cycle-verification.md:76:## БЛОК 8: enforce_risk_rules
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_full-cycle-verification.md:102:- [ ] **11.1** `format_json_for_tg()` NaN — **NEEDS_TEST**. `ollama_client.py:1787-1940`. `_format_num()` не обрабатывает NaN явно (возвращает "nan" вместо "Н/Д"). Через `_safe_float()` NaN unlikely в pipeline. None → "Н/Д" ✅, пустые блоки скрываются ✅, tf_zones дедупликация ✅, confluence[:8] ✅.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_full-cycle-verification.md:109:- [x] **12.2** `save_signal_log()` после `enforce_risk_rules()` и `normalize_analysis()` — PASS. `scheduler.py:424-428`.
+/home/z/my-project/LOCAL_AI_ENGINE/core/liquidity_magnet/liquidity_magnet.py:534:    zones_by_tf: Dict[str, Dict[str, Any]],
+/home/z/my-project/LOCAL_AI_ENGINE/core/liquidity_magnet/liquidity_magnet.py:554:    for tf, z in zones_by_tf.items():
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_запуск-результат.md:51:📦 ЗОНЫ ПО ТФ:
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_запуск-результат.md:117:2. **Зоны: R=Н/Д | S=Н/Д** — LLM не вывел key_zones. Бот передал зоны в metrics, но LLM не включил их в JSON. **Не критично** — tf_zones отображаются корректно.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_запуск-результат.md:118:3. **State: unknown** — первый анализ, `load_state()` вернул None → `compare_state(None, current)` должен вернуть "saved", но показывает "unknown". Возможно LLM не передал tf_zones в current для state_tracker. **Нужно проверить**.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p2-3-self-consistency-двойной-прогон.md:67:| `enforce_risk_rules` не трогать | Вызывается 1 раз на финальном результате ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p2-3-self-consistency-двойной-прогон.md:158:| `enforce_risk_rules` (P2-4) | Super Z `613d061` | Не изменён ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:63:  "tf_zones": {
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:69:  "tf_zones_comment": "Цена внутри всех зон, пробоя нет",
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:119:  "tf_zones": {
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:125:  "tf_zones_comment": "4H resistance 64245 пробит, стал support",
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:250:  "tf_zones": {{
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:253:  "tf_zones_comment": "краткий комментарий",
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:315:8. tf_zones и key_zones не пересчитывай — бери из контекста.
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:387:        # Нормализация tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:388:        if isinstance(data.get("tf_zones"), dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:390:            for k, v in data["tf_zones"].items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:399:            data["tf_zones"] = normalized
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:601:def enforce_risk_rules(data: dict) -> dict:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:645:    def _normalize_tf_zones(tf_zones) -> dict:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:646:        if not isinstance(tf_zones, dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:652:        for tf, z in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:736:    def _sorted_tf_order(tf_zones: dict) -> list[tuple[str, dict]]:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:739:        if isinstance(tf_zones, dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:740:            for tf, z in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:871:    data["tf_zones"] = _normalize_tf_zones(data.get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:876:    def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:884:        if not tf_zones or price is None:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:885:            return tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:891:        d1 = tf_zones.get("1D")
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:904:            parent = tf_zones.get(parent_tf)
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:905:            child = tf_zones.get(child_tf)
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:924:        return tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:926:    data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1072:    for z in data["tf_zones"].values():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1162:    if isinstance(data.get("tf_zones"), dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1163:        merged_tf_zones = {}
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1164:        for tf, z in data["tf_zones"].items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1172:            merged_tf_zones[tf_key] = {"upper": upper, "lower": lower}
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1175:        data["tf_zones"] = merged_tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1180:    sorted_zones = _sorted_tf_order(data["tf_zones"])
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1847:def format_json_for_tg(data: dict) -> str:
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1870:    tf_zones = data.get("tf_zones") or {}
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1890:    for tf, z in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:1959:    lines.append("📦 ЗОНЫ ПО ТФ:")
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:2050:async def analyze_multi_images(
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:2202:    # Пробрасываем liquidity_pools из prev_analysis в data для enforce_risk_rules
+/home/z/my-project/LOCAL_AI_ENGINE/core/ollama_client.py:2206:    final = enforce_risk_rules(final)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_полный-цикл-прогноз-btc.md:15:  → parse_llm_json → enforce_risk_rules → финальный JSON-сигнал
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_полный-цикл-прогноз-btc.md:68:  "tf_zones": {
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_полный-цикл-прогноз-btc.md:118:✅ **enforce_risk_rules** нормализовал риск-менеджмент
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p1-p2-реализация-и-цикл.md:38:_state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p1-p2-реализация-и-цикл.md:39:_state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p1-p2-реализация-и-цикл.md:85:**В цикле:** 4 графика (15m + 1h + 4h + 1d), LLM вернул `tf_zones` с ключами `["1D", "4H", "1H", "15M"]` — **15m присутствует** ✅.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p1-p2-реализация-и-цикл.md:124:| tf_zones | 1D, 4H, 1H, **15M** ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_p1-p2-реализация-и-цикл.md:128:| LLM tf_zones keys | `['1D', '4H', '1H', '15M']` — 15m ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_план-улучшения-сигналов.md:93:1. В `scheduler.py` — после получения `tf_zones` вызывать `update_and_save_state(symbol, tf, current_state)`
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_план-улучшения-сигналов.md:173:**Решение:** Добавить `validate_signal(data)` в `enforce_risk_rules`:
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_гермес-ответ-super-z.md:20:| P0-5 | `enforce_risk_rules` — `_zone_label()` добавлена, `SIGNAL_PRIORITY` dict | ✅ (код не смотрел детально, но commit msg и письмо согласованы) |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_гермес-ответ-super-z.md:30:- **A1 (дубль `enforce_risk_rules`)** — реально пропустил. Ты пофиксил до моего аудита. У меня в аудите написано «нет иерархии сигналов» (P0-5), но дубль вызова я не заметил. Мой косяк — смотрел `ollama_client.py`, а не `scheduler.py` в этом месте.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_гермес-ответ-super-z.md:72:- Оба v1-патча (`enforce_risk_rules` дубль, `ref_tf .lower()`) — в v2.1 **не актуальны** (в `ollama_client.py` v1 нет дубля, `.lower()` уже применён)
+/home/z/my-project/LOCAL_AI_ENGINE/core/handlers.py:178:        tf_zones = {tf: all_metrics[tf]["zone"] for tf in timeframes}
+/home/z/my-project/LOCAL_AI_ENGINE/core/handlers.py:251:            "tf_zones": tf_zones,
+/home/z/my-project/LOCAL_AI_ENGINE/core/handlers.py:263:        # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
+/home/z/my-project/LOCAL_AI_ENGINE/core/handlers.py:264:        # tf_zones, D1 cap, nesting, confluence — всё валидировано.
+/home/z/my-project/LOCAL_AI_ENGINE/core/handlers.py:265:        # НЕ перезаписываем tf_zones сырыми данными после валидации.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:28:### Уровни (tf_zones) — идентичны
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:71:| tf_zones 4h | [63500, 62377] (LLM) → [82828, 64918] (metrics, баг) | [1848.8, 1712.5] (LLM, корректно) |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:76:**Важно:** Уровни BTC были перезаписаны metrics-зонами (баг tf_zones priority, исправлен в `0cb8eef`). У ETH после фикса уровни корректные — LLM-зоны отображаются как есть.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:93:- ✅ tf_zones: 4/4 ТФ идентичны
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:124:**Решение:** Добавить fallback в `enforce_risk_rules` — если LLM не вывел key_zones, взять из confluence_levels (первый resistance + первый support).
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_сравнение-уровней-рекомендации.md:127:**Проблема:** tf_span_map 4h: 1366.3 (run 1) vs 1376.3 (run 2). Это вычисляется из tf_zones, которые идентичны → span должен быть одинаковым.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_допил-верификация.md:23:- Теперь ABC risk обрабатывается только в `enforce_risk_rules()` — единое место (DRY)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:14:| 2. `compare_state` формат совместимости | ✅ Формат `{"price", "tf_zones"}` совместим |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:53:    curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:54:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:62:_state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:63:_state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:66:### Проверка формата `tf_zones`
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:70:| `scheduler.py` `tf_zones[tf] = zone` (line 243) | `{"upper": ..., "lower": ...}` (из `auto_chart.py`) | `_normalize_zone_pair` ожидает `upper`/`lower` ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:71:| `load_state()` (previous) | `{"tf_zones": {"15M": {"upper": ..., "lower": ...}}}` (сохранённый LLM response) | `normalize_zones` → `_normalize_tf_key` → `M15`/`H1`/`H4`/`D1` ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:76:previous (LLM) tf_zones keys: ['15M', '1H', '4H', '1D']
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:77:current (scheduler) tf_zones keys: ['15m', '1h', '4h', '1D']
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:107:**Вердикт:** Формат `{"price": live_price, "tf_zones": tf_zones}` **полностью совместим** с `compare_state`. Ключи `upper`/`lower` совпадают. Нормализация TF ключей унифицирует `15m` → `M15` и `15M` → `M15`. `load_state()` возвращает предыдущий LLM response с тем же форматом `tf_zones`.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:118:tf_zones keys: ['15M', '1H', '4H', '1D'] ✅ (нормализованы)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:134:tf_zones keys: ['15M', '1H', '4H', '1D'] ✅
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:150:| `tf_zones` | ключи → uppercase, `MIN`→`M` | `15M/1H/4H/1D` | `15M/1H/4H/1D` |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:151:| `tf_zones.*.{upper,lower}` | `_safe_float` | ✅ | ✅ |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:167:3. **`update_and_save_state` (line 381)** — вызывается ПОСЛЕ LLM с `current=parsed` (LLM response). Сохраняет `parsed` + `state_diff` + `state_context`. На следующем цикле `load_state()` вернёт этот payload — `compare_state` найдёт `tf_zones` в нём.
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_верификация-p1-p2-регрессия.md:178:| `compare_state` формат | ✅ `{"price", "tf_zones"}` совместим |
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:107:def normalize_zones(tf_zones: dict[str, Any]) -> dict[str, dict[str, Optional[float]]]:
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:109:    if not isinstance(tf_zones, dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:112:    for tf, zone in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:150:def _levels_from_zones(tf_zones: dict[str, Any]) -> list[float]:
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:152:    if not isinstance(tf_zones, dict):
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:155:    for zone in tf_zones.values():
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:171:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:191:    curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:192:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:201:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:202:    curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:253:    prev_zones = normalize_zones(prev_state.get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:280:def get_active_reference_tf(tf_zones: dict[str, Any], price: float | None) -> str:
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:281:    zones = normalize_zones(tf_zones or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:312:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:313:    curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:366:    curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/core/state_tracker.py:367:    prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_super-z-отчёт-гермесу.md:20:| **P0-5** | Нет иерархии сигналов (модель выдаёт contradictory) | Добавлен блок "8.1 Иерархия сигналов" в `enforce_risk_rules()` | `SIGNAL_PRIORITY` dict: aggressive_breakout(0) > retest(1) > reversal(2) > false_breakout(3) > accumulation(4) > no_signal(5). При конфликте `current_substructure` vs `signal_status` — приоритет у substructure |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_super-z-отчёт-гермесу.md:44:| **A1** | Дублированный вызов `enforce_risk_rules(parsed)` | В `core/scheduler.py` функция вызывалась дважды подряд (раньше, в более старой версии). Это приводило к двойной нормализации — поля вроде `signal_status` перезаписывались, а комментарии дублировались. Был пофиксен до твоего аудита, но ты не упомянул эту проблему в истории. |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_облачная-llm-интеграция.md:84:- `enforce_risk_rules()` — нормализация риск-менеджмента
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_облачная-llm-интеграция.md:149:| 6 | ollama_client.py imports | imports without error, has analyze_multi_images, parse_llm_json, enforce_risk_rules, imports LLMError, imports llm_generate | 6/6 PASS |
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-12_облачная-llm-интеграция.md:165:✅ `parse_llm_json()` и `enforce_risk_rules()` не тронуты — весь парсинг остался прежним.
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:21:from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce_risk_rules
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:106:def _build_prev_trend_and_substructure(m_htf: dict, m_ltf: dict, tf_zones: dict) -> tuple[str, str]:
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:237:            tf_zones = {}
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:242:                tf_zones[tf] = zone
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:252:            if h1_reference and "15m" in tf_zones:
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:253:                m15_zone = tf_zones["15m"]
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:277:                            tf_zones["15m"] = {
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:284:            prev_trend, current_substructure = _build_prev_trend_and_substructure(m_htf, m_ltf, tf_zones)
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:323:                    heatmap_data = hm  # структура для enforce_risk_rules
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:353:            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:354:            _state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:360:                "tf_zones": tf_zones,
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:399:                tf_zones_clean = {}
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:404:                for k, v in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:406:                    tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:408:                llm_zones = parsed.get("tf_zones") or {}
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:417:                                tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:419:                parsed["tf_zones"] = tf_zones_clean
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:424:                parsed = enforce_risk_rules(parsed)
+/home/z/my-project/LOCAL_AI_ENGINE/core/scheduler.py:445:            ltf_zone = tf_zones.get(timeframes[-1], {})
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/outbox/2026-07-13_отчёт-облако-vs-локальная.md:32:2. Не выводит price, key_zones, tf_zones, confluence в JSON
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_допил-после-верификации.md:39:- Оставить ABC sync ТОЛЬКО в `enforce_risk_rules()` (ollama_client.py) — это центральная post-processing функция, все данные проходят через неё
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_допил-после-верификации.md:41:- Убедиться что `enforce_risk_rules` покрывает все кейсы из scheduler.py (сравни логику)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_задание-двойной-llm-прогон.md:62:- `enforce_risk_rules` — Super Z уже добавил P2-4 (SL/TP validation)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_задание-p3-2-zigzag-p3-4-ab-test.md:33:- `enforce_risk_rules` — Super Z P2-4
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:14:`scheduler → metrics → zigzag → heatmap → state → LLM → enforce_risk_rules → normalize → backtest → TG`
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:64:- [ ] **5.3** `liquidity_pools` для `enforce_risk_rules` — корректно извлекаются `resistance_pools` и `support_pools` из `hm["levels"]` (kind == "resistance"/"support")
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:102:### БЛОК 8: enforce_risk_rules — post-processing
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:154:  - tf_zones дедуплицируются по (lower, upper)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:162:- [ ] **12.2** `save_signal_log()` вызывается ПОСЛЕ `enforce_risk_rules()` и ПОСЛЕ `normalize_analysis()` — порядок в scheduler.py строки 424-428
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:169:- [ ] **13.1** Indentation bug в `enforce_risk_rules` — проверь что нет смешанных пробелов/табов в блоках 2.1-2.3 (строки ~893-993). Раньше была проблема с вложенным `if`
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-12_полный-цикл-проверки.md:171:- [ ] **13.3** `enforce_risk_rules` вызывается из `scheduler.py` на данные УЖЕ прошедшие `normalize_analysis()` — нет ли двойного применения ABC risk ( Scheduler строки 201-213 + ollama_client строки 1143-1161)
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-13_запуск-бота-и-оценка.md:27:3. Для каждого символа: 4 графика → LLM вызов (2 раза для self-consistency) → enforce_risk_rules → TG сообщение
+/home/z/my-project/LOCAL_AI_ENGINE/exchange/inbox/2026-07-13_запуск-бота-и-оценка.md:76:   - tf_zones: D1 диапазон шире чем 15M
+/home/z/my-project/LOCAL_AI_ENGINE/README.md:107:enforce_risk_rules (иерархия сигналов, state)
+/home/z/my-project/LOCAL_AI_ENGINE/worklog.md:60:3. "1D/4H" hybrid key from tf_context string leaked into tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/worklog.md:63:1. Validate nesting in enforce_risk_rules: if H1 lower < H4 lower, expand H4 lower
+/home/z/my-project/LOCAL_AI_ENGINE/worklog.md:70:Task: Баг 2 — "1D/4H" в tf_zones
+/home/z/my-project/LOCAL_AI_ENGINE/worklog.md:72:tf_context string from metrics leaks into tf_zones as "1D/4H" key.
+/home/z/my-project/LOCAL_AI_ENGINE/docs/hermes/CONTEXT.md:101:- `enforce_risk_rules` (~line 1463) — P2-4 SL/TP validation (Super Z)
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/12.05.2026.txt:53:## 4) Что мы исправляли в `enforce_risk_rules(...)`
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/12.05.2026.txt:69:### A. `tf_zones` всё ещё могут быть кривыми
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/12.05.2026.txt:91:- полная функция `enforce_risk_rules(...)`
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/12.05.2026.txt:94:- патч для нормализации `tf_zones`
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/12.05.2026.txt:101:1. **почистить генерацию `tf_zones` в ист  чнике**
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/11.05.2026.txt:234:- `ЗОНЫ ПО ТФ`
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/13.05.2026.txt:79:- собрать и стабилизировать крупную часть `enforce_risk_rules()`;
+/home/z/my-project/LOCAL_AI_ENGINE/docs/сводки/13.05.2026.txt:125:- постобработку `enforce_risk_rules()`.
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AGENT_PROMPT.md:77:5. Иерархия сигналов в enforce_risk_rules
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AGENT_SKILL.md:52:5. **No signal hierarchy**: Wyckoff ТЗ P0.1 requires hierarchy — model can output `false_breakout` + `accumulation` + `impulse` simultaneously. Fix: priority list in `enforce_risk_rules`.
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AGENT_SKILL.md:91:- Normalizes `tf_zones`, `key_zones`, `tf_span_map`, `confluence_levels`, `risk_management`
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AGENT_SKILL.md:97:`enforce_risk_rules` post-processes the LLM JSON to:
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AUDIT_REVIEW.md:74:| Risk-rules enforcement | ✅ | `enforce_risk_rules` в ollama_client |
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AUDIT_REVIEW.md:110:2. **Промышленный JSON-схема промпт** (`PRO_TA_USER_PROMPT`) — 40+ полей с строгой типизацией, иерархией risk_management (primary/alternative), confluence_levels, tf_zones. Это level senior-разработки для LLM-инженерии.
+/home/z/my-project/LOCAL_AI_ENGINE/docs/AI_AUDIT_REVIEW.md:223:5. **Иерархическая нормализация сигналов (из ТЗ)** — в `enforce_risk_rules` добавить priority:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:75:  "tf_zones": {{
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:78:  "tf_zones_comment": "краткий комментарий на русском",
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:124:10. tf_zones: использ��й предвычисленные данные из контекста. Запрещено пересчитывать, усреднять или выдумывать upper/lower.
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:174:        if "tf_zones" in data and isinstance(data["tf_zones"], dict):
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:176:            for k, v in data["tf_zones"].items():
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:178:            data["tf_zones"] = normalized
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:190:def enforce_risk_rules(data: dict) -> dict:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:218:def format_json_for_tg(data: dict) -> str:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:253:    def ordered_tf_zones(tf_zones: dict) -> list[Tuple[str, dict]]:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:256:        for tf, z in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:268:    tf_zones = data.get("tf_zones") or {}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:275:    zones_block = "📦 ЗОНЫ ПО ТФ:\n"
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:276:    ordered = ordered_tf_zones(tf_zones)
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:320:async def analyze_multi_images(
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/ollama_client.py:385:        parsed = enforce_risk_rules(parsed)
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:177:        tf_zones = {tf: all_metrics[tf]["zone"] for tf in timeframes}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:231:            "tf_zones": tf_zones,
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:238:        if isinstance(parsed_result, dict) and "tf_zones" in parsed_result:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:239:            tf_zones_clean = {}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:242:            llm_zones = parsed_result.get("tf_zones") or {}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:246:                    tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:248:            for k, v in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:250:                tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/handlers.py:252:            parsed_result["tf_zones"] = tf_zones_clean
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:152:            tf_zones = {tf: all_metrics[tf]["zone"] for tf in timeframes}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:172:                "tf_zones": tf_zones,
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:179:            if isinstance(parsed, dict) and "tf_zones" in parsed:
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:180:                tf_zones_clean = {}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:183:                llm_zones = parsed.get("tf_zones") or {}
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:187:                        tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:189:                for k, v in tf_zones.items():
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:191:                    tf_zones_clean[norm_k] = v
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:193:                parsed["tf_zones"] = tf_zones_clean
+/home/z/my-project/LOCAL_AI_ENGINE/archive/zigzag_backup_20260511_202610/scheduler.py:203:            ltf_zone = tf_zones.get(timeframes[-1], {})
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:315:async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: Bot) -> None:
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:333:            tf_zones = {tf: all_metrics[tf]["zone"] for tf in timeframes}
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:395:                "tf_zones": tf_zones,
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:414:            # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:415:            # tf_zones, D1 cap, nesting, confluence — всё валидировано.
+/home/z/my-project/LOCAL_AI_ENGINE/web_dashboard.py:416:            # НЕ перезаписываем tf_zones сырыми данными после валидации.

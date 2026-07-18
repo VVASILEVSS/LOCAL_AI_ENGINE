@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.tradingview.com/script/ne2ZDkeE-Liquidity-Magnet-Zones-forexobroker",
+    "name": "Liquidity Magnet Zones [forexobroker] - TradingView",
+    "snippet": "Every zone gets a Magnetic Strength Score from 0 to 100 based on four factors — making it instantly clear which levels are high-priority targets ...\nEach zone receives a Magnetic Strength Score calculated from 4 weighted factors. Zones are tracked through a lifecycle: FRESH → TESTED → SWEPT",
+    "host_name": "www.tradingview.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/topics/pinescript-indicators?o=asc&s=stars",
+    "name": "pinescript-indicators · GitHub Topics",
+    "snippet": "This Github repository is for storing the source code of the indicators that I have designed in TradingView and written in the PineScript language. indicator ...",
+    "host_name": "github.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.scribd.com/document/1003295599/The-Liquidity-Magnet-Cheat-Sheet",
+    "name": "The Liquidity Magnet Cheat Sheet | PDF - Scribd",
+    "snippet": "The 'Liquidity Magnet' Cheat Sheet outlines how to avoid trades that go against liquidity zones, which act as magnets for price movement.",
+    "host_name": "www.scribd.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/dtCtEIPC-Liquidity-Magnet-FEELS",
+    "name": "Liquidity Magnet [FEELS] — Indicator by FeelsStrategy - TradingView",
+    "snippet": "Liquidity Magnet is a composite probability scoring system for liquidity zones — ... Open-source script. In true TradingView spirit, the creator ...\nLiquidity Magnet is a composite probability scoring system for liquidity zones — the price levels where resting orders cluster around swing ...",
+    "host_name": "www.tradingview.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.markittick.com/indicators.html",
+    "name": "Pine Script Indicators | MarkitTick",
+    "snippet": "Pine Script indicator identifies market inducement (IDM) liquidity targets by tracking pivot points and monitoring price sweeps to trigger entry, stop loss,",
+    "host_name": "www.markittick.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/pinescript/comments/1tzk25z/i_built_a_free_tradingview_indicator_that_scores",
+    "name": "I built a free TradingView indicator that scores where liquidity actually stacks up - Reddit",
+    "snippet": "TradingView has designed their own scripting language called Pine Script. Creating custom indicators in Pine Script … a free TradingView ...",
+    "host_name": "www.reddit.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://medium.com/@betashorts1998/5-advanced-pine-script-techniques-that-will-take-your-trading-to-the-next-level-dfe1908f009a",
+    "name": "5 Advanced Pine Script Techniques That Will Take Your Trading to the Next Level - Medium",
+    "snippet": "Liquidity gaps happen when institutions place large orders, This function tracks hidden liquidity shifts, Works on Forex, stocks, and crypto ...\nThis function tracks hidden liquidity shifts, helping you identify where price is likely to react sharply. Works on Forex, stocks, and crypto ...",
+    "host_name": "medium.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://phenlabs.com/library",
+    "name": "Free Tools - PhenLabs",
+    "snippet": "Liquidity Void Zone Detector Version: PineScript™v6 Description The Liquidity Void Zone Detector is a sophisticated technical indicator designed to identify ...\nLiquidity Trap Zones Version: PineScript™ v6 Description The goal of the Liquidity Trap Zones indicator is to try and help traders identify areas where ...",
+    "host_name": "phenlabs.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/7wUzaia6-Liquidity-Magnet-Compass-forexobroker",
+    "name": "Liquidity Magnet Compass [forexobroker] - TradingView",
+    "snippet": "Liquidity Magnet Compass maps every swing high and swing low on the chart as a liquidity zone where stop orders tend to cluster -- Buy-Side ...",
+    "host_name": "www.tradingview.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://github.com/razorbladekisses/Tradingview-Indicators",
+    "name": "A collections of Tradingview indicators and strategies built in Pinescript V5 - GitHub",
+    "snippet": "Institutional Supply & Demand Zones. This indicator aims to identify price levels where institutional investors have positioned their buy or sell orders. These ...",
+    "host_name": "github.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

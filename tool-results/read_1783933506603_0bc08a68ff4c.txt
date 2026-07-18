@@ -1,0 +1,2002 @@
+     1→import io
+     2→import base64
+     3→import json
+     4→import re
+     5→import time
+     6→import asyncio
+     7→import httpx
+     8→from PIL import Image
+     9→import logging
+    10→from collections import Counter
+    11→from typing import List, Optional, Dict, Any, Tuple
+    12→
+    13→from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY, PROMPT_VARIANT
+    14→from core.ollama_service import generate as llm_generate, LLMError
+    15→
+    16→logger = logging.getLogger(__name__)
+    17→LLM_QUEUE_LOCK = asyncio.Lock()
+    18→
+    19→PRO_TA_SYSTEM_PROMPT = """Ты — алгоритмический трейдер. Работай СТРОГО ПО ФАКТУ.
+    20→
+    21→ЖЁСТКИЕ ПРАВИЛА:
+    22→- Запрещены сценарии, предположения, "возможно", "надеюсь".
+    23→- Каждое поле JSON отделяй запятой.
+    24→- После каждого строкового значения обязателен разделитель.
+    25→- Не пропускай запятые между полями.
+    26→- Не выдумывай данные, уровни, новости, объёмы или индикаторы.
+    27→- Анализируй только закрытые свечи.
+    28→- Если данных недостаточно, прямо укажи это.
+    29→- Приоритет у старших таймфреймов.
+    30→- Фибо используй только как контекст коррекции, не для SL/TP и не для сигналов.
+    31→- Не смешивай вход и выход: вход = триггер, выход = SL/TP.
+    32→- Работай только по подтверждённому пробою и объёму.
+    33→- Импульс не считать трендом без закрепления и подтверждения объёмом.
+    34→- Определи, не находится ли рынок в зоне завершения импульса (риск конца 5-й волны и ABC).
+    35→- Если цена между ключевыми уровнями и без подтверждения — no_signal или accumulation.
+    36→- false_breakout ставь только если есть явный выход за границу зоны, возврат внутрь и объёмное подтверждение. Если есть только реакция у уровня без явного выхода — используй retest, reversal или no_signal.
+    37→
+    38→ПРИМЕРЫ ОТВЕТОВ (few-shot):
+    39→
+    40→ПРИМЕР 1 — no_signal (цена между уровнями, без подтверждения):
+    41→{
+    42→  "price": 63895.5,
+    43→  "current_price": 63895.5,
+    44→  "last_closed_price": 63869.0,
+    45→  "prev_trend": "down",
+    46→  "current_substructure": "balance",
+    47→  "htf_structure": "correction",
+    48→  "htf_structure_comment": "1D: SMA cross bear, цена ниже SMA200",
+    49→  "trend_structure": "down",
+    50→  "trend_structure_comment": "4H: нисходящая структура, SMA cross bear",
+    51→  "ltf_structure": "balance",
+    52→  "ltf_structure_comment": "15m: цена внутри зоны, без пробоя",
+    53→  "accumulation_state": "none",
+    54→  "accumulation_state_comment": "Явного накопления нет",
+    55→  "wave_phase": "correction_up",
+    56→  "wave_phase_comment": "Откат вверх внутри нисходящего тренда, риск ABC вниз",
+    57→  "abc_risk": "abc_risk_down",
+    58→  "abc_risk_comment": "Коррекция вверх может быть волной B → ожидается C вниз",
+    59→  "global_structure": "correction",
+    60→  "global_structure_comment": "Коррекция внутри нисходящего тренда",
+    61→  "key_zones": { "resistance": 64245.0, "support": 63640.0 },
+    62→  "key_zones_comment": "Resistance 4H, Support 4H",
+    63→  "tf_zones": {
+    64→    "15m": { "upper": 63950.0, "lower": 63820.0 },
+    65→    "1h": { "upper": 64100.0, "lower": 63750.0 },
+    66→    "4h": { "upper": 64245.0, "lower": 63640.0 },
+    67→    "1D": { "upper": 64680.0, "lower": 61929.0 }
+    68→  },
+    69→  "tf_zones_comment": "Цена внутри всех зон, пробоя нет",
+    70→  "tf_span_map": { "15m": 130.0, "1h": 350.0, "4h": 605.0, "1D": 2751.0 },
+    71→  "confluence_levels": [
+    72→    { "level": 64245.0, "timeframes": ["4H", "1D"], "priority": "high", "count": 2, "spread": 435.0, "kind": "resistance" },
+    73→    { "level": 63640.0, "timeframes": ["4H"], "priority": "medium", "count": 1, "spread": 0, "kind": "support" }
+    74→  ],
+    75→  "signal_status": "no_signal",
+    76→  "signal_status_comment": "Цена между уровнями, объём низкий, пробоя нет",
+    77→  "entry_conditions": {
+    78→    "aggressive": null,
+    79→    "conservative": null,
+    80→    "current_status": "Ожидание пробоя resistance 64245 или breakdown support 63640"
+    81→  },
+    82→  "entry_conditions_comment": "Вход только после пробоя с объёмом",
+    83→  "risk_management": {
+    84→    "primary": { "sl": null, "tp1": null, "tp2": null, "tp3": null, "rr": null },
+    85→    "alternative": { "sl": null, "tp1": null, "tp2": null, "tp3": null, "rr": null }
+    86→  },
+    87→  "risk_management_comment": "Нет сигнала — нет SL/TP",
+    88→  "scenario_status": "no_alternative",
+    89→  "scenario_status_comment": "Ждём пробоя уровня для активации сценария",
+    90→  "fact_feedback": "RSI нейтральный, funding нейтральный, объём ниже среднего",
+    91→  "confidence": "low",
+    92→  "confidence_reason": "Нет пробоя, объём не подтверждает, цена в зоне баланса",
+    93→  "missing_data": ["Пробой resistance с объёмом", "Закрытие свечи выше 64245"]
+    94→}
+    95→
+    96→ПРИМЕР 2 — aggressive_breakout (пробой resistance с объёмом):
+    97→{
+    98→  "price": 64310.0,
+    99→  "current_price": 64310.0,
+   100→  "last_closed_price": 64245.0,
+   101→  "prev_trend": "up",
+   102→  "current_substructure": "breakout_up",
+   103→  "htf_structure": "trend",
+   104→  "htf_structure_comment": "1D: цена выше SMA50, структура восходящая",
+   105→  "trend_structure": "up",
+   106→  "trend_structure_comment": "4H: SMA cross bull, HH+HL",
+   107→  "ltf_structure": "breakout_up",
+   108→  "ltf_structure_comment": "15m: пробой resistance 64245 с объёмом 2.1x",
+   109→  "accumulation_state": "none",
+   110→  "accumulation_state_comment": "Накопления нет, импульс",
+   111→  "wave_phase": "impulse_up",
+   112→  "wave_phase_comment": "Импульс вверх, 3-я волна",
+   113→  "abc_risk": "none",
+   114→  "abc_risk_comment": "ABC риск отсутствует, импульс",
+   115→  "global_structure": "trend",
+   116→  "global_structure_comment": "Восходящий тренд подтверждён",
+   117→  "key_zones": { "resistance": 65000.0, "support": 64245.0 },
+   118→  "key_zones_comment": "Бывший resistance стал support",
+   119→  "tf_zones": {
+   120→    "15m": { "upper": 64400.0, "lower": 64200.0 },
+   121→    "1h": { "upper": 64500.0, "lower": 64100.0 },
+   122→    "4h": { "upper": 65000.0, "lower": 64245.0 },
+   123→    "1D": { "upper": 66000.0, "lower": 63640.0 }
+   124→  },
+   125→  "tf_zones_comment": "4H resistance 64245 пробит, стал support",
+   126→  "tf_span_map": { "15m": 200.0, "1h": 400.0, "4h": 755.0, "1D": 2360.0 },
+   127→  "confluence_levels": [
+   128→    { "level": 64245.0, "timeframes": ["4H", "1h"], "priority": "high", "count": 2, "spread": 255.0, "kind": "support" }
+   129→  ],
+   130→  "signal_status": "aggressive_breakout",
+   131→  "signal_status_comment": "Пробой 4H resistance с объёмом 2.1x, закрытие выше",
+   132→  "entry_conditions": {
+   133→    "aggressive": "Лонг на 64300, SL ниже 64200, объём подтверждает",
+   134→    "conservative": "Ретест 64245 → лонг при отскоке",
+   135→    "current_status": "Пробой подтверждён, ждем ретест"
+   136→  },
+   137→  "entry_conditions_comment": "Aggressive: вход на пробое. Conservative: ждем ретест",
+   138→  "risk_management": {
+   139→    "primary": { "sl": 64150.0, "tp1": 64600.0, "tp2": 65000.0, "tp3": 66000.0, "rr": 3.5 },
+   140→    "alternative": { "sl": 64200.0, "tp1": 64500.0, "tp2": 64800.0, "tp3": null, "rr": 2.0 }
+   141→  },
+   142→  "risk_management_comment": "Primary: RR 3.5, SL ниже зоны пробоя. Alternative: tighter SL на ретесте",
+   143→  "scenario_status": "primary_valid",
+   144→  "scenario_status_comment": "Пробой подтверждён объёмом, primary сценарий активен",
+   145→  "fact_feedback": "Пробой 4H resistance, объём 2.1x, funding +0.01%, OI растёт",
+   146→  "confidence": "high",
+   147→  "confidence_reason": "Пробой с объёмом, структура подтверждена на 4H+1D, OI растёт",
+   148→  "missing_data": []
+   149→}
+   150→
+   151→ВЕРНИ ТОЛЬКО ОДИН JSON-ОБЪЕКТ ПО ЭТОЙ СХЕМЕ. БЕЗ markdown, БЕЗ пояснений, БЕЗ комментариев вне JSON.
+   152→"""
+   153→
+   154→# --- P3-4: A/B тест промптов ---
+   155→# Variant B: rules-based, без few-shot, акцент на приоритет signal_status.
+   156→# Гипотеза: убирая few-shot примеры (которые стоят ~5000 токенов), LLM получает
+   157→# меньше "якорей" и может лучше адаптироваться к контексту. Взволнованные правила
+   158→# приоритета помогают избежать противоречий (false_breakout + accumulation одновременно).
+   159→PRO_TA_SYSTEM_PROMPT_B = """Ты — алгоритмический трейдер. Работай СТРОГО ПО ФАКТУ.
+   160→
+   161→ПРИОРИТЕТ SIGNAL_STATUS (выбери ровно один):
+   162→1. aggressive_breakout — пробой границы зоны с объёмом >1.5x, закрытие за границей.
+   163→2. retest — цена вернулась к пробитой зоне, отскок с объёмом.
+   164→3. false_breakout — выход за границу + возврат внутрь + объёмное подтверждение возврата.
+   165→4. reversal — смена направления после тренда, подтверждение объёмом и структурой.
+   166→5. accumulation — цена в диапазоне, объём <1.0x, нет пробоя.
+   167→6. no_signal — цена между уровнями, объём низкий, пробоя нет.
+   168→
+   169→ЖЁСТКИЕ ПРАВИЛА:
+   170→- Если signal_status = no_signal / accumulation / false_breakout → primary risk block = null.
+   171→- Если signal_status = aggressive_breakout / retest → заполни entry_conditions + primary risk block.
+   172→- false_breakout только при явном выходе за границу + возврате внутрь + объёме. Иначе → retest или no_signal.
+   173→- TP1/TP2/TP3 бери из структурных уровней, ZigZag, confluence. Не выдумывай.
+   174→- SL за структурным уровнем, не внутри зоны.
+   175→- Фибо только для глубины коррекции, не для SL/TP.
+   176→- Приоритет у старших ТФ: 1D > 4H > 1H > 15m.
+   177→- Младший пробой не означает старший пробой.
+   178→- ABC риск: если wave_phase = correction_up → abc_risk_down; correction_down → abc_risk_up.
+   179→- Не выдумывай данные. Анализируй только закрытые свечи.
+   180→- Все числа — number or null.
+   181→
+   182→ВЕРНИ ТОЛЬКО ОДИН JSON-ОБЪЕКТ ПО СХЕМЕ ИЗ USER PROMPT. БЕЗ markdown, БЕЗ пояснений.
+   183→"""
+   184→
+   185→
+   186→def _get_system_prompt() -> str:
+   187→    """Выбор системного промпта по PROMPT_VARIANT (P3-4 A/B тест)."""
+   188→    if PROMPT_VARIANT == "B":
+   189→        return PRO_TA_SYSTEM_PROMPT_B
+   190→    return PRO_TA_SYSTEM_PROMPT
+   191→
+   192→PRO_TA_USER_PROMPT = """Тип рынка: {market_type}
+   193→
+   194→Текущие данные:
+   195→{metrics}
+   196→
+   197→Контекст таймфреймов:
+   198→{tf_context}
+   199→
+   200→ZigZag контекст:
+   201→{zigzag_context}
+   202→
+   203→Объёмный контекст:
+   204→{volume_context}
+   205→
+   206→Liquidity heatmap:
+   207→{liquidity_context}
+   208→
+   209→State / history context:
+   210→{state_context}
+   211→
+   212→Историческая точность:
+   213→{backtest}
+   214→
+   215→{multi_symbol}
+   216→
+   217→Верни ТОЛЬКО валидный JSON без markdown, пояснений или комментариев. Строгая схема:
+   218→{{
+   219→  "price": <number|null>,
+   220→  "current_price": <number|null>,
+   221→  "last_closed_price": <number|null>,
+   222→
+   223→  "prev_trend": "up|down|balance|unknown",
+   224→  "current_substructure": "accumulation|distribution|breakout_up|breakout_down|false_breakout_up|false_breakout_down|reversal_attempt_up|reversal_attempt_down|balance|correction_up|correction_down|unknown",
+   225→
+   226→  "htf_structure": "trend|balance|correction|unknown",
+   227→  "htf_structure_comment": "краткий комментарий по старшим ТФ",
+   228→
+   229→  "trend_structure": "up|down|balance|unknown",
+   230→  "trend_structure_comment": "краткий комментарий о направлении структуры",
+   231→
+   232→  "ltf_structure": "up|down|balance|correction_up|correction_down|unknown",
+   233→  "ltf_structure_comment": "краткий комментарий о младшем ТФ",
+   234→
+   235→  "accumulation_state": "accumulation|distribution|none|unknown",
+   236→  "accumulation_state_comment": "краткий комментарий",
+   237→
+   238→  "wave_phase": "impulse_up|impulse_down|correction_up|correction_down|impulse_end_risk_up|impulse_end_risk_down|unclear",
+   239→  "wave_phase_comment": "краткий комментарий с направлением и риском ABC, если актуально",
+   240→
+   241→  "abc_risk": "abc_risk_up|abc_risk_down|none|unknown",
+   242→  "abc_risk_comment": "краткий комментарий о риске ABC",
+   243→
+   244→  "global_structure": "trend|balance|correction|unknown",
+   245→  "global_structure_comment": "краткий комментарий о фазе рынка",
+   246→
+   247→  "key_zones": {{ "resistance": <number|null>, "support": <number|null> }},
+   248→  "key_zones_comment": "краткий комментарий",
+   249→
+   250→  "tf_zones": {{
+   251→    "<ТФ>": {{ "upper": <number|null>, "lower": <number|null> }}
+   252→  }},
+   253→  "tf_zones_comment": "краткий комментарий",
+   254→
+   255→  "tf_span_map": {{ "<ТФ>": <number|null> }},
+   256→  "confluence_levels": [
+   257→    {{
+   258→      "level": <number|null>,
+   259→      "timeframes": ["1H", "4H"],
+   260→      "priority": "low|medium|high",
+   261→      "count": <number|null>,
+   262→      "spread": <number|null>,
+   263→      "kind": "resistance|support|mixed"
+   264→    }}
+   265→  ],
+   266→
+   267→  "signal_status": "aggressive_breakout|retest|false_breakout|accumulation|no_signal|reversal",
+   268→  "signal_status_comment": "краткий комментарий",
+   269→
+   270→  "entry_conditions": {{
+   271→    "aggressive": "<уровень + объём or null>",
+   272→    "conservative": "<уровень ретеста + условие or null>",
+   273→    "current_status": "<статус пробоя or null>"
+   274→  }},
+   275→  "entry_conditions_comment": "краткий комментарий",
+   276→
+   277→  "risk_management": {{
+   278→    "primary": {{
+   279→      "sl": <number|null>,
+   280→      "tp1": <number|null>,
+   281→      "tp2": <number|null>,
+   282→      "tp3": <number|null>,
+   283→      "rr": <number|null>
+   284→    }},
+   285→    "alternative": {{
+   286→      "sl": <number|null>,
+   287→      "tp1": <number|null>,
+   288→      "tp2": <number|null>,
+   289→      "tp3": <number|null>,
+   290→      "rr": <number|null>
+   291→    }}
+   292→  }},
+   293→  "risk_management_comment": "краткий комментарий",
+   294→
+   295→  "scenario_status": "primary_valid|primary_invalidated|alternative_active|no_alternative",
+   296→  "scenario_status_comment": "краткий комментарий",
+   297→
+   298→  "fact_feedback": "<кратко подтверждённые факты>",
+   299→  "confidence": "high|medium|low",
+   300→  "confidence_reason": "<структура, объём, сессия, пробой, волновая фаза>",
+   301→  "missing_data": ["<что отсутствует или не подтверждено>"]
+   302→}}
+   303→
+   304→Правила:
+   305→1. htf_structure — только по 1D/4H.
+   306→2. trend_structure — только направление структуры, не фаза рынка.
+   307→3. ltf_structure — только по младшему ТФ.
+   308→4. wave_phase и abc_risk всегда должны содержать направление, если оно понятно.
+   309→5. Если wave_phase_comment указывает ABC вверх/вниз, abc_risk обязан совпадать.
+   310→6. global_structure:
+   311→   - trend = направленное движение
+   312→   - balance = боковик / сжатие
+   313→   - correction = коррекция
+   314→7. Если цена внутри диапазона без подтверждённого пробоя, не ставь false_breakout — используй accumulation или no_signal.
+   315→8. tf_zones и key_zones не пересчитывай — бери из контекста.
+   316→9. Если signal_status = false_breakout / accumulation / no_signal, primary risk block должен быть null.
+   317→10. Если есть подтверждённый пробой и объём, заполняй entry_conditions и primary risk block.
+   318→11. Если основной сценарий сломан, alternative block должен быть заполнен, если он логически следует из структуры.
+   319→12. TP1/TP2/TP3 бери из ближайших структурных уровней, ZigZag и зон ликвидности.
+   320→13. Если младший ТФ пробит, а старший нет — цели старшего ТФ могут быть TP, но не confirmation пробоя.
+   321→14. Фибо — только контекст глубины коррекции, не для SL/TP и не для сигнала.
+   322→15. Если данных не хватает — null.
+   323→16. Все комментарии на русском.
+   324→17. Только JSON, без лишнего текста.
+   325→18. Все числа — только number or null.
+   326→19. Если диапазон устойчивый и без выхода за границы, это accumulation или no_signal.
+   327→20. false_breakout только при выходе за границу с возвратом внутрь и подтверждением.
+   328→21. Если есть реакция у уровня без явного выхода и возврата, не ставь false_breakout — используй retest, reversal или no_signal.
+   329→22. При споре между false_breakout и retest выбирай retest.
+   330→23. Диапазоны ТФ иерархические: 15m → 1H → 4H → 1D.
+   331→24. Младший пробой не означает старший пробой.
+   332→"""
+   333→
+   334→
+   335→def prepare_image_for_llm(img_bytes: bytes) -> str:
+   336→    try:
+   337→        img = Image.open(io.BytesIO(img_bytes))
+   338→        if img.mode != "RGB":
+   339→            img = img.convert("RGB")
+   340→        img.thumbnail((1024, 1024))
+   341→        buffer = io.BytesIO()
+   342→        img.save(buffer, format="JPEG", quality=85)
+   343→        return base64.b64encode(buffer.getvalue()).decode("utf-8")
+   344→    except Exception as e:
+   345→        logger.error(f"Ошибка подготовки фото: {e}")
+   346→        return ""
+   347→
+   348→
+   349→def _fmt(v: Any) -> str:
+   350→    if v is None or v == "None" or v == "":
+   351→        return "Н/Д"
+   352→    return str(v)
+   353→
+   354→
+   355→def parse_llm_json(raw: str) -> dict:
+   356→    clean = raw.strip()
+   357→    clean = re.sub(r"^```(?:json)?\s*", "", clean)
+   358→    clean = re.sub(r"\s*```$", "", clean)
+   359→
+   360→    start = clean.find("{")
+   361→    end = clean.rfind("}")
+   362→    if start == -1 or end == -1 or end <= start:
+   363→        return {"error": True, "message": "JSON not found", "raw": raw}
+   364→
+   365→    candidate = clean[start:end + 1].strip()
+   366→    candidate = candidate.replace("“", '"').replace("”", '"').replace("’", "'")
+   367→
+   368→    # Базовая очистка
+   369→    candidate = re.sub(r'("\s*)(\r?\n\s*")', r'\1,\2', candidate)
+   370→    candidate = re.sub(r'([}\]])(\r?\n\s*")', r'\1,\2', candidate)
+   371→    candidate = re.sub(r',\s*([}\]])', r'\1', candidate)
+   372→
+   373→    # Убираем двойные запятые и лишние разделители
+   374→    candidate = re.sub(r',\s*,+', ',', candidate)
+   375→    candidate = re.sub(r'([}\]])\s*,\s*([}\]])', r'\1\2', candidate)
+   376→    candidate = re.sub(r'(".*?")\s*,\s*,\s*\n', r'\1,\n', candidate)
+   377→    candidate = re.sub(r'(".*?")\s*,\s*,', r'\1,', candidate)
+   378→
+   379→    try:
+   380→        data = json.loads(candidate)
+   381→
+   382→        # Нормализация числовых полей верхнего уровня
+   383→        for key in ("price", "current_price", "last_closed_price"):
+   384→            if key in data:
+   385→                data[key] = _safe_float(data.get(key))
+   386→
+   387→        # Нормализация tf_zones
+   388→        if isinstance(data.get("tf_zones"), dict):
+   389→            normalized = {}
+   390→            for k, v in data["tf_zones"].items():
+   391→                tf_key = str(k).strip().upper().replace("MIN", "M")
+   392→                if isinstance(v, dict):
+   393→                    normalized[tf_key] = {
+   394→                        "upper": _safe_float(v.get("upper")),
+   395→                        "lower": _safe_float(v.get("lower")),
+   396→                    }
+   397→                else:
+   398→                    normalized[tf_key] = v
+   399→            data["tf_zones"] = normalized
+   400→
+   401→        # Нормализация key_zones
+   402→        if isinstance(data.get("key_zones"), dict):
+   403→            kz = data["key_zones"]
+   404→            for k in ("resistance", "support"):
+   405→                v = kz.get(k)
+   406→                if isinstance(v, list):
+   407→                    num = next((x for x in v if isinstance(x, (int, float))), None)
+   408→                    kz[k] = float(num) if num is not None else None
+   409→                else:
+   410→                    kz[k] = _safe_float(v)
+   411→
+   412→        # Нормализация tf_span_map
+   413→        if isinstance(data.get("tf_span_map"), dict):
+   414→            span_map = {}
+   415→            for k, v in data["tf_span_map"].items():
+   416→                span_map[str(k).strip().upper()] = _safe_float(v)
+   417→            data["tf_span_map"] = span_map
+   418→
+   419→        # Нормализация confluence_levels
+   420→        if isinstance(data.get("confluence_levels"), list):
+   421→            clean_levels = []
+   422→            for item in data["confluence_levels"]:
+   423→                if not isinstance(item, dict):
+   424→                    continue
+   425→                clean_levels.append({
+   426→                    "level": _safe_float(item.get("level")),
+   427→                    "timeframes": [str(x).upper() for x in item.get("timeframes", []) if str(x).strip()],
+   428→                    "priority": str(item.get("priority", "low")).lower(),
+   429→                    "count": int(item.get("count") or 0),
+   430→                    "spread": _safe_float(item.get("spread")),
+   431→                    "kind": str(item.get("kind", "mixed")).lower(),
+   432→                })
+   433→            data["confluence_levels"] = clean_levels
+   434→
+   435→        # Нормализация risk_management
+   436→        if isinstance(data.get("risk_management"), dict):
+   437→            rm = data["risk_management"]
+   438→
+   439→            if "primary" not in rm and any(k in rm for k in ("sl", "tp1", "tp2", "tp3", "rr")):
+   440→                rm = {
+   441→                    "primary": {
+   442→                        "sl": rm.get("sl"),
+   443→                        "tp1": rm.get("tp1"),
+   444→                        "tp2": rm.get("tp2"),
+   445→                        "tp3": rm.get("tp3"),
+   446→                        "rr": rm.get("rr"),
+   447→                    },
+   448→                    "alternative": {
+   449→                        "sl": None,
+   450→                        "tp1": None,
+   451→                        "tp2": None,
+   452→                        "tp3": None,
+   453→                        "rr": None,
+   454→                    },
+   455→                }
+   456→
+   457→            for branch in ("primary", "alternative"):
+   458→                if branch not in rm or not isinstance(rm[branch], dict):
+   459→                    rm[branch] = {
+   460→                        "sl": None,
+   461→                        "tp1": None,
+   462→                        "tp2": None,
+   463→                        "tp3": None,
+   464→                        "rr": None,
+   465→                    }
+   466→                else:
+   467→                    for k in ("sl", "tp1", "tp2", "tp3", "rr"):
+   468→                        rm[branch][k] = _safe_float(rm[branch].get(k))
+   469→
+   470→            data["risk_management"] = rm
+   471→
+   472→        return data
+   473→
+   474→    except json.JSONDecodeError as e:
+   475→        logger.warning(f"LLM parse failed after cleanup: {e}")
+   476→        return {
+   477→            "error": True,
+   478→            "message": f"Parse failed: {str(e)}",
+   479→            "raw": raw,
+   480→            "candidate": candidate[:4000],
+   481→        }
+   482→    
+   483→    
+   484→
+   485→def _safe_float(value):
+   486→    try:
+   487→        if value is None:
+   488→            return None
+   489→        return float(value)
+   490→    except (TypeError, ValueError):
+   491→        return None
+   492→
+   493→
+   494→def _pick_tp_levels(direction: str, entry_price: float | None, candidates: list[float]) -> tuple[float | None, float | None, float | None]:
+   495→        if entry_price is None or not candidates:
+   496→            return None, None, None
+   497→
+   498→        direction = (direction or "").lower().strip()
+   499→        if direction not in ("long", "short"):
+   500→            return None, None, None
+   501→
+   502→        # Убираем дубликаты и саму цену входа
+   503→        uniq = sorted(set(round(x, 6) for x in candidates if x is not None and abs(x - entry_price) > 1e-6))
+   504→        if not uniq:
+   505→            return None, None, None
+   506→
+   507→        if direction == "long":
+   508→            ordered = [x for x in uniq if x > entry_price]
+   509→            if not ordered:
+   510→                return None, None, None
+   511→
+   512→            tp1 = ordered[0]
+   513→            tp2 = ordered[1] if len(ordered) > 1 else None
+   514→            tp3 = ordered[2] if len(ordered) > 2 else None
+   515→
+   516→            # fallback без дублей
+   517→            if tp2 is None:
+   518→                tp2 = tp1
+   519→            if tp3 is None:
+   520→                tp3 = tp2 if tp2 != tp1 else None
+   521→
+   522→            return tp1, tp2, tp3
+   523→
+   524→        ordered = [x for x in reversed(uniq) if x < entry_price]
+   525→        if not ordered:
+   526→            return None, None, None
+   527→
+   528→        tp1 = ordered[0]
+   529→        tp2 = ordered[1] if len(ordered) > 1 else None
+   530→        tp3 = ordered[2] if len(ordered) > 2 else None
+   531→
+   532→        if tp2 is None:
+   533→            tp2 = tp1
+   534→        if tp3 is None:
+   535→            tp3 = tp2 if tp2 != tp1 else None
+   536→
+   537→        return tp1, tp2, tp3
+   538→
+   539→
+   540→def _normalize_confluence_levels(levels: Any) -> list[dict]:
+   541→    if not isinstance(levels, list):
+   542→        return []
+   543→
+   544→    out = []
+   545→    for item in levels:
+   546→        if not isinstance(item, dict):
+   547→            continue
+   548→
+   549→        timeframes = item.get("timeframes", [])
+   550→        if not isinstance(timeframes, list):
+   551→            timeframes = []
+   552→
+   553→        out.append({
+   554→            "level": _safe_float(item.get("level")),
+   555→            "timeframes": [str(tf).upper() for tf in timeframes if str(tf).strip()],
+   556→            "priority": str(item.get("priority", "low")).lower(),
+   557→            "count": int(item.get("count") or 0),
+   558→            "spread": _safe_float(item.get("spread")),
+   559→            "kind": str(item.get("kind", "mixed")).lower(),
+   560→        })
+   561→    return out
+   562→
+   563→def _extract_zigzag_levels_from_context(data: dict) -> list[float]:
+   564→    levels: list[float] = []
+   565→
+   566→    zigzag = data.get("zigzag_context") or {}
+   567→    if not isinstance(zigzag, dict):
+   568→        return levels
+   569→
+   570→    confluence = zigzag.get("confluence_levels") or []
+   571→    if isinstance(confluence, list):
+   572→        for item in confluence:
+   573→            if isinstance(item, dict):
+   574→                lvl = _safe_float(item.get("level"))
+   575→                if lvl is not None:
+   576→                    levels.append(lvl)
+   577→
+   578→    timeframes = zigzag.get("timeframes") or {}
+   579→    if isinstance(timeframes, dict):
+   580→        for tf_data in timeframes.values():
+   581→            if not isinstance(tf_data, dict):
+   582→                continue
+   583→
+   584→            for key in ("upper", "lower", "current_price"):
+   585→                v = _safe_float(tf_data.get(key))
+   586→                if v is not None:
+   587→                    levels.append(v)
+   588→
+   589→            zones = tf_data.get("levels") or {}
+   590→            if isinstance(zones, dict):
+   591→                for arr_key in ("resistance", "support"):
+   592→                    arr = zones.get(arr_key) or []
+   593→                    if isinstance(arr, list):
+   594→                        for v in arr:
+   595→                            fv = _safe_float(v)
+   596→                            if fv is not None:
+   597→                                levels.append(fv)
+   598→
+   599→    return sorted(set(round(x, 6) for x in levels))
+   600→
+   601→def enforce_risk_rules(data: dict) -> dict:
+   602→    if not isinstance(data, dict):
+   603→        return data
+   604→
+   605→    def _safe_float(value):
+   606→        try:
+   607→            if value is None:
+   608→                return None
+   609→            if isinstance(value, (int, float)):
+   610→                return float(value)
+   611→            if isinstance(value, str):
+   612→                m = re.search(r"-?\d+(?:\.\d+)?", value.replace(",", "."))
+   613→                if m:
+   614→                    return float(m.group(0))
+   615→            return None
+   616→        except (TypeError, ValueError):
+   617→            return None
+   618→
+   619→    def _empty_risk() -> dict:
+   620→        return {
+   621→            "sl": None,
+   622→            "tp1": None,
+   623→            "tp2": None,
+   624→            "tp3": None,
+   625→            "rr": None,
+   626→        }
+   627→
+   628→    def _empty_bundle() -> dict:
+   629→        return {
+   630→            "primary": _empty_risk(),
+   631→            "alternative": _empty_risk(),
+   632→        }
+   633→
+   634→    def _normalize_risk_block(block) -> dict:
+   635→        if not isinstance(block, dict):
+   636→            block = {}
+   637→        return {
+   638→            "sl": _safe_float(block.get("sl")),
+   639→            "tp1": _safe_float(block.get("tp1")),
+   640→            "tp2": _safe_float(block.get("tp2")),
+   641→            "tp3": _safe_float(block.get("tp3")),
+   642→            "rr": _safe_float(block.get("rr")),
+   643→        }
+   644→
+   645→    def _normalize_tf_zones(tf_zones) -> dict:
+   646→        if not isinstance(tf_zones, dict):
+   647→            return {}
+   648→
+   649→        order = {"1D": 0, "4H": 1, "1H": 2, "15M": 3, "5M": 4}
+   650→        normalized = {}
+   651→
+   652→        for tf, z in tf_zones.items():
+   653→            if not isinstance(z, dict):
+   654→                continue
+   655→
+   656→            tf_key = str(tf).strip().upper().replace("MIN", "M")
+   657→
+   658→            # Пропускать мусорные ключи: гибридные ("1D/4H"), с пробелами, не-ТФ
+   659→            if "/" in tf_key or " " in tf_key:
+   660→                continue
+   661→
+   662→            upper = _safe_float(z.get("upper"))
+   663→            lower = _safe_float(z.get("lower"))
+   664→
+   665→            if upper is None and lower is None:
+   666→                continue
+   667→            if upper is not None and lower is not None and lower > upper:
+   668→                lower, upper = upper, lower
+   669→
+   670→            normalized[tf_key] = {
+   671→                "upper": upper,
+   672→                "lower": lower,
+   673→            }
+   674→
+   675→        return dict(sorted(normalized.items(), key=lambda item: order.get(item[0], 99)))
+   676→
+   677→    def _normalize_confluence_levels(levels) -> list:
+   678→        if not isinstance(levels, list):
+   679→            return []
+   680→
+   681→        out = []
+   682→        for item in levels:
+   683→            if not isinstance(item, dict):
+   684→                continue
+   685→            timeframes = item.get("timeframes", [])
+   686→            if not isinstance(timeframes, list):
+   687→                timeframes = []
+   688→            out.append({
+   689→                "level": _safe_float(item.get("level")),
+   690→                "timeframes": [str(tf).upper() for tf in timeframes if str(tf).strip()],
+   691→                "priority": str(item.get("priority", "low")).lower(),
+   692→                "count": int(item.get("count") or 0),
+   693→                "spread": _safe_float(item.get("spread")),
+   694→                "kind": str(item.get("kind", "mixed")).lower(),
+   695→            })
+   696→        return out
+   697→
+   698→    def _extract_zigzag_levels_from_context(src: dict) -> list[float]:
+   699→        levels: list[float] = []
+   700→
+   701→        zigzag = src.get("zigzag_context") or {}
+   702→        if not isinstance(zigzag, dict):
+   703→            return levels
+   704→
+   705→        confluence = zigzag.get("confluence_levels") or []
+   706→        if isinstance(confluence, list):
+   707→            for item in confluence:
+   708→                if isinstance(item, dict):
+   709→                    lvl = _safe_float(item.get("level"))
+   710→                    if lvl is not None:
+   711→                        levels.append(lvl)
+   712→
+   713→        timeframes = zigzag.get("timeframes") or {}
+   714→        if isinstance(timeframes, dict):
+   715→            for tf_data in timeframes.values():
+   716→                if not isinstance(tf_data, dict):
+   717→                    continue
+   718→
+   719→                for key in ("upper", "lower", "current_price"):
+   720→                    v = _safe_float(tf_data.get(key))
+   721→                    if v is not None:
+   722→                        levels.append(v)
+   723→
+   724→                zones = tf_data.get("levels") or {}
+   725→                if isinstance(zones, dict):
+   726→                    for k in ("resistance", "support"):
+   727→                        arr = zones.get(k) or []
+   728→                        if isinstance(arr, list):
+   729→                            for v in arr:
+   730→                                fv = _safe_float(v)
+   731→                                if fv is not None:
+   732→                                    levels.append(fv)
+   733→
+   734→        return sorted(set(round(x, 6) for x in levels))
+   735→
+   736→    def _sorted_tf_order(tf_zones: dict) -> list[tuple[str, dict]]:
+   737→        order_map = {"5M": 0, "15M": 1, "1H": 2, "4H": 3, "1D": 4}
+   738→        items = []
+   739→        if isinstance(tf_zones, dict):
+   740→            for tf, z in tf_zones.items():
+   741→                if isinstance(z, dict):
+   742→                    items.append((str(tf).upper(), z))
+   743→        items.sort(key=lambda x: order_map.get(x[0], 99))
+   744→        return items
+   745→
+   746→    def _zone_span(z):
+   747→        if not isinstance(z, dict):
+   748→            return None
+   749→        upper = _safe_float(z.get("upper"))
+   750→        lower = _safe_float(z.get("lower"))
+   751→        if upper is None or lower is None:
+   752→            return None
+   753→        return abs(upper - lower)
+   754→
+   755→    def _direction_from_data(src: dict) -> str:
+   756→        signal = str(src.get("signal_status", "")).lower()
+   757→        trend = str(src.get("trend_structure", "")).lower()
+   758→        ltf = str(src.get("ltf_structure", "")).lower()
+   759→        wave = str(src.get("wave_phase", "")).lower()
+   760→        global_structure = str(src.get("global_structure", "")).lower()
+   761→        sub = str(src.get("current_substructure", "")).lower()
+   762→        prev_trend = str(src.get("prev_trend", "")).lower()
+   763→
+   764→        if signal == "aggressive_breakout":
+   765→            return "long"
+   766→        if signal == "reversal":
+   767→            return "short"
+   768→        if signal == "retest":
+   769→            if "down" in trend or "down" in ltf or "down" in wave or prev_trend == "down" or "down" in sub:
+   770→                return "short"
+   771→            return "long"
+   772→        if signal == "false_breakout":
+   773→            if "up" in wave or "up" in ltf or "up" in trend:
+   774→                return "short"
+   775→            if "down" in wave or "down" in ltf or "down" in trend:
+   776→                return "long"
+   777→            return "short"
+   778→
+   779→        if "bull" in trend or trend == "up" or ltf == "up" or wave == "impulse_up":
+   780→            return "long"
+   781→        if "bear" in trend or trend == "down" or ltf == "down" or wave == "impulse_down":
+   782→            return "short"
+   783→        if global_structure == "trend":
+   784→            return "long"
+   785→        if sub in ("breakout_up", "false_breakout_up", "accumulation", "correction_up"):
+   786→            return "long"
+   787→        if sub in ("breakout_down", "false_breakout_down", "distribution", "correction_down"):
+   788→            return "short"
+   789→
+   790→        return "long"
+   791→
+   792→    def _pick_tp_levels(direction: str, entry_price: float | None, candidates: list[float]) -> tuple[float | None, float | None, float | None]:
+   793→        if entry_price is None or not candidates:
+   794→            return None, None, None
+   795→
+   796→        direction = (direction or "").lower().strip()
+   797→        if direction not in ("long", "short"):
+   798→            return None, None, None
+   799→
+   800→        uniq = sorted(set(round(x, 6) for x in candidates if x is not None and abs(x - entry_price) > 1e-6))
+   801→        if not uniq:
+   802→            return None, None, None
+   803→
+   804→        if direction == "long":
+   805→            ordered = [x for x in uniq if x > entry_price]
+   806→            if not ordered:
+   807→                return None, None, None
+   808→            tp1 = ordered[0]
+   809→            tp2 = ordered[1] if len(ordered) > 1 else None
+   810→            tp3 = ordered[2] if len(ordered) > 2 else None
+   811→            if tp2 is None:
+   812→                tp2 = tp1
+   813→            if tp3 is None:
+   814→                tp3 = tp2 if tp2 != tp1 else None
+   815→            return tp1, tp2, tp3
+   816→
+   817→        ordered = [x for x in reversed(uniq) if x < entry_price]
+   818→        if not ordered:
+   819→            return None, None, None
+   820→        tp1 = ordered[0]
+   821→        tp2 = ordered[1] if len(ordered) > 1 else None
+   822→        tp3 = ordered[2] if len(ordered) > 2 else None
+   823→        if tp2 is None:
+   824→            tp2 = tp1
+   825→        if tp3 is None:
+   826→            tp3 = tp2 if tp2 != tp1 else None
+   827→        return tp1, tp2, tp3
+   828→
+   829→    def _calc_rr(entry_price: float | None, sl: float | None, tp1: float | None) -> float | None:
+   830→        if entry_price is None or sl is None or tp1 is None:
+   831→            return None
+   832→        risk = abs(entry_price - sl)
+   833→        reward = abs(tp1 - entry_price)
+   834→        if risk <= 0 or reward <= 0:
+   835→            return None
+   836→        return round(reward / risk, 2)
+   837→
+   838→    def _normalize_wave_abc(src: dict) -> None:
+   839→        wave_comment = str(src.get("wave_phase_comment", "")).lower()
+   840→        wave_phase = str(src.get("wave_phase", "")).lower()
+   841→        abc_risk = str(src.get("abc_risk", "")).lower()
+   842→
+   843→        if "abc вниз" in wave_comment or "abc-коррекции вниз" in wave_comment:
+   844→            src["abc_risk"] = "abc_risk_down"
+   845→            if not src.get("abc_risk_comment"):
+   846→                src["abc_risk_comment"] = "Риск ABC вниз по волновой фазе"
+   847→        elif "abc вверх" in wave_comment or "abc-коррекции вверх" in wave_comment:
+   848→            src["abc_risk"] = "abc_risk_up"
+   849→            if not src.get("abc_risk_comment"):
+   850→                src["abc_risk_comment"] = "Риск ABC вверх по волновой фазе"
+   851→        elif wave_phase == "correction_down" and abc_risk == "none":
+   852→            src["abc_risk"] = "abc_risk_up"
+   853→            src["abc_risk_comment"] = "Риск ABC вверх после коррекции вниз"
+   854→        elif wave_phase == "correction_up" and abc_risk == "none":
+   855→            src["abc_risk"] = "abc_risk_down"
+   856→            src["abc_risk_comment"] = "Риск ABC вниз после коррекции вверх"
+   857→
+   858→    # -----------------------------
+   859→    # 1) Цена
+   860→    # -----------------------------
+   861→    data["price"] = _safe_float(data.get("price"))
+   862→    data["current_price"] = _safe_float(data.get("current_price"))
+   863→    data["last_closed_price"] = _safe_float(data.get("last_closed_price"))
+   864→
+   865→    if data["price"] is None:
+   866→        data["price"] = data["current_price"] or data["last_closed_price"]
+   867→
+   868→        # -----------------------------
+   869→    # 2) Базовые блоки
+   870→    # -----------------------------
+   871→    data["tf_zones"] = _normalize_tf_zones(data.get("tf_zones") or {})
+   872→
+   873→    # -----------------------------
+   874→    # 2a) Валидация матрёшки зон + ограничение D1
+   875→    # -----------------------------
+   876→    def _validate_zone_nesting(tf_zones: dict, price: float | None) -> dict:
+   877→        """
+   878→        1. Младший ТФ должен быть ВНУТРИ старшего: lower_child >= lower_parent,
+   879→           upper_child <= upper_parent. Если нарушено — расширяем родительскую зону.
+   880→        2. D1 зона ограничивается ±10% от текущей цены (LLM иногда берёт
+   881→           исторический максимум за 100 свечей).
+   882→        Порядок вложенности: 1D ⊃ 4H ⊃ 1H ⊃ 15M ⊃ 5M
+   883→        """
+   884→        if not tf_zones or price is None:
+   885→            return tf_zones
+   886→
+   887→        nesting_order = ["1D", "4H", "1H", "15M", "5M"]
+   888→        cap_pct = 0.10  # ±10% от цены
+   889→
+   890→        # 2a-1: ограничить D1 зону
+   891→        d1 = tf_zones.get("1D")
+   892→        if isinstance(d1, dict):
+   893→            d1_upper = d1.get("upper")
+   894→            d1_lower = d1.get("lower")
+   895→            if d1_upper is not None and abs(d1_upper - price) / price > cap_pct:
+   896→                d1["upper"] = round(price * (1 + cap_pct), 2)
+   897→            if d1_lower is not None and abs(price - d1_lower) / price > cap_pct:
+   898→                d1["lower"] = round(price * (1 - cap_pct), 2)
+   899→
+   900→        # 2a-2: валидация вложенности (от старшего к младшему)
+   901→        for i in range(len(nesting_order) - 1):
+   902→            parent_tf = nesting_order[i]
+   903→            child_tf = nesting_order[i + 1]
+   904→            parent = tf_zones.get(parent_tf)
+   905→            child = tf_zones.get(child_tf)
+   906→            if not isinstance(parent, dict) or not isinstance(child, dict):
+   907→                continue
+   908→
+   909→            p_upper = parent.get("upper")
+   910→            p_lower = parent.get("lower")
+   911→            c_upper = child.get("upper")
+   912→            c_lower = child.get("lower")
+   913→
+   914→            if p_lower is None and p_upper is None:
+   915→                continue
+   916→
+   917→            # Если child lower < parent lower → расширяем parent lower
+   918→            if c_lower is not None and p_lower is not None and c_lower < p_lower:
+   919→                parent["lower"] = c_lower
+   920→            # Если child upper > parent upper → расширяем parent upper
+   921→            if c_upper is not None and p_upper is not None and c_upper > p_upper:
+   922→                parent["upper"] = c_upper
+   923→
+   924→        return tf_zones
+   925→
+   926→    data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
+   927→    data["confluence_levels"] = _normalize_confluence_levels(data.get("confluence_levels") or [])
+   928→    data["tf_span_map"] = {}
+   929→
+   930→    rm_obj = data.get("risk_management")
+   931→    rm = rm_obj if isinstance(rm_obj, dict) else _empty_bundle()
+   932→
+   933→    if "primary" not in rm and any(k in rm for k in ("sl", "tp1", "tp2", "tp3", "rr")):
+   934→        rm = {
+   935→            "primary": {
+   936→                "sl": rm.get("sl"),
+   937→                "tp1": rm.get("tp1"),
+   938→                "tp2": rm.get("tp2"),
+   939→                "tp3": rm.get("tp3"),
+   940→                "rr": rm.get("rr"),
+   941→            },
+   942→            "alternative": _empty_risk(),
+   943→        }
+   944→
+   945→    primary_obj = rm.get("primary")
+   946→    alternative_obj = rm.get("alternative")
+   947→    primary = _normalize_risk_block(primary_obj)
+   948→    alternative = _normalize_risk_block(alternative_obj)
+   949→
+   950→    rm["primary"] = primary
+   951→    rm["alternative"] = alternative
+   952→    data["risk_management"] = rm
+   953→
+   954→    for key in ("scenario_status", "scenario_status_comment", "risk_management_comment", "entry_conditions_comment"):
+   955→        if not isinstance(data.get(key), str):
+   956→            data[key] = ""
+   957→
+   958→        # -----------------------------
+   959→    # 2.1) State / history hook
+   960→    # -----------------------------
+   961→    state_obj = data.get("state_diff")
+   962→    state_diff = state_obj if isinstance(state_obj, dict) else {}
+   963→    zone_status = str(state_diff.get("zone_status", "unknown")).lower()
+   964→    active_reference_tf = str(state_diff.get("active_reference_tf", "unknown")).upper()
+   965→
+   966→    if zone_status in ("broken", "false_breakout"):
+   967→        if str(data.get("signal_status", "")).lower() == "aggressive_breakout":
+   968→            data["signal_status"] = "no_signal"
+   969→            data["signal_status_comment"] = (
+   970→                "Старая зона пробита или дала ложный пробой, агрессивный сигнал понижен"
+   971→            )
+   972→
+   973→    if zone_status == "rebuilt":
+   974→        data["scenario_status"] = "alternative_active"
+   975→        if not data.get("scenario_status_comment"):
+   976→            data["scenario_status_comment"] = "Структура перестроена, активен новый ориентир"
+   977→
+   978→    if zone_status == "retest":
+   979→        if str(data.get("signal_status", "")).lower() in ("no_signal", "accumulation"):
+   980→            data["signal_status"] = "retest"
+   981→            data["signal_status_comment"] = "Проверка пробитой зоны в режиме ретеста"
+   982→
+   983→    if zone_status == "updated_inside_range":
+   984→        if not data.get("scenario_status_comment"):
+   985→            data["scenario_status_comment"] = "Зона обновлена внутри старого диапазона"
+   986→
+   987→    if active_reference_tf != "UNKNOWN":
+   988→        data["active_reference_tf"] = active_reference_tf
+   989→
+   990→    data.setdefault("prev_trend", "unknown")
+   991→    data.setdefault("current_substructure", "unknown")
+   992→
+   993→        # -----------------------------
+   994→    # 2.2) State / history correction
+   995→    # -----------------------------
+   996→    state_obj = data.get("state_diff")
+   997→    state_diff = state_obj if isinstance(state_obj, dict) else {}
+   998→
+   999→    zone_status = str(state_diff.get("zone_status", "unknown")).lower()
+  1000→    broken_levels = state_diff.get("broken_levels")
+  1001→    new_levels = state_diff.get("new_levels")
+  1002→    active_reference_tf = str(state_diff.get("active_reference_tf", "unknown")).upper()
+  1003→    
+  1004→    # -----------------------------
+  1005→    # 2.3) Add explicit state event text
+  1006→    # -----------------------------
+  1007→    if isinstance(state_diff, dict):
+  1008→        zone_status = str(state_diff.get("zone_status", "unknown")).lower()
+  1009→        broken_levels = state_diff.get("broken_levels") or []
+  1010→        new_levels = state_diff.get("new_levels") or []
+  1011→
+  1012→        if zone_status == "rebuilt":
+  1013→            data["state_feedback"] = f"Перестройка структуры. Пробой: {broken_levels[:3]} | Новые уровни: {new_levels[:3]}"
+  1014→        elif zone_status == "retest":
+  1015→            data["state_feedback"] = f"Ретест зоны. Активный ориентир: {state_diff.get('active_reference_tf', 'unknown')}"
+  1016→        elif zone_status == "broken":
+  1017→            data["state_feedback"] = f"Пробой уровня: {broken_levels[:3]}"
+  1018→        elif zone_status == "false_breakout":
+  1019→            data["state_feedback"] = f"Ложный пробой с возвратом внутрь: {broken_levels[:3]}"
+  1020→        elif zone_status == "updated_inside_range":
+  1021→            data["state_feedback"] = f"Обновление диапазона без пробоя. Новые уровни: {new_levels[:3]}"
+  1022→
+  1023→    # Мягкая нормализация сигналов по состоянию зоны
+  1024→    if zone_status == "broken":
+  1025→        if str(data.get("signal_status", "")).lower() == "aggressive_breakout":
+  1026→            data["signal_status"] = "no_signal"
+  1027→            data["signal_status_comment"] = (
+  1028→                "Старая зона сломана, агрессивный сигнал понижен до no_signal"
+  1029→            )
+  1030→        if str(data.get("scenario_status", "")).lower() not in ("alternative_active", "primary_invalidated"):
+  1031→            data["scenario_status"] = "primary_invalidated"
+  1032→            data["scenario_status_comment"] = "Старая зона сломана, основной сценарий ослаблен"
+  1033→
+  1034→    elif zone_status == "false_breakout":
+  1035→        if str(data.get("signal_status", "")).lower() == "aggressive_breakout":
+  1036→            data["signal_status"] = "false_breakout"
+  1037→        if not data.get("signal_status_comment"):
+  1038→            data["signal_status_comment"] = "Зафиксирован ложный пробой зоны"
+  1039→
+  1040→    elif zone_status == "retest":
+  1041→        if str(data.get("signal_status", "")).lower() in ("no_signal", "accumulation", "false_breakout"):
+  1042→            data["signal_status"] = "retest"
+  1043→            data["signal_status_comment"] = "Зона проходит ретест"
+  1044→
+  1045→    elif zone_status == "rebuilt":
+  1046→        data["scenario_status"] = "alternative_active"
+  1047→        if not data.get("scenario_status_comment"):
+  1048→            data["scenario_status_comment"] = "Структура перестроена, активен новый ориентир"
+  1049→
+  1050→    elif zone_status == "updated_inside_range":
+  1051→        if not data.get("scenario_status_comment"):
+  1052→            data["scenario_status_comment"] = "Зона обновлена внутри старого диапазона"
+  1053→
+  1054→    if active_reference_tf != "UNKNOWN":
+  1055→        data["active_reference_tf"] = active_reference_tf
+  1056→
+  1057→    if isinstance(broken_levels, list) and broken_levels and not data.get("state_feedback"):
+  1058→        data["state_feedback"] = "Есть пробитые уровни"
+  1059→    if isinstance(new_levels, list) and new_levels and not data.get("state_feedback"):
+  1060→        data["state_feedback"] = "Есть новые уровни"
+  1061→
+  1062→    # -----------------------------
+  1063→    # 3) ABC синхронизация
+  1064→    # -----------------------------
+  1065→    _normalize_wave_abc(data)
+  1066→
+  1067→    # -----------------------------
+  1068→    # 4) Сбор уровней
+  1069→    # -----------------------------
+  1070→    candidates: list[float] = []
+  1071→
+  1072→    for z in data["tf_zones"].values():
+  1073→        if isinstance(z, dict):
+  1074→            for k in ("upper", "lower"):
+  1075→                v = _safe_float(z.get(k))
+  1076→                if v is not None:
+  1077→                    candidates.append(v)
+  1078→
+  1079→    key_zones_obj = data.get("key_zones")
+  1080→    key_zones = key_zones_obj if isinstance(key_zones_obj, dict) else {}
+  1081→    for k in ("resistance", "support"):
+  1082→        v = _safe_float(key_zones.get(k))
+  1083→        if v is not None:
+  1084→            candidates.append(v)
+  1085→
+  1086→    for item in data["confluence_levels"]:
+  1087→        if isinstance(item, dict):
+  1088→            v = _safe_float(item.get("level"))
+  1089→            if v is not None:
+  1090→                candidates.append(v)
+  1091→
+  1092→    candidates.extend(_extract_zigzag_levels_from_context(data))
+  1093→
+  1094→    # Добавляем уровни из liquidity-magnet pools если есть
+  1095→    liquidity_pools = data.get("liquidity_pools") or data.get("liquidity_context", {})
+  1096→    if isinstance(liquidity_pools, dict):
+  1097→        for pool_key in ("resistance_pools", "support_pools", "equal_highs", "equal_lows", "pools"):
+  1098→            pools = liquidity_pools.get(pool_key) or []
+  1099→            if isinstance(pools, list):
+  1100→                for p in pools:
+  1101→                    if isinstance(p, dict):
+  1102→                        lvl = _safe_float(p.get("level") or p.get("price"))
+  1103→                        if lvl is not None:
+  1104→                            candidates.append(lvl)
+  1105→                    elif isinstance(p, (int, float)):
+  1106→                        candidates.append(float(p))
+  1107→    elif isinstance(liquidity_pools, list):
+  1108→        for p in liquidity_pools:
+  1109→            if isinstance(p, dict):
+  1110→                lvl = _safe_float(p.get("level") or p.get("price"))
+  1111→                if lvl is not None:
+  1112→                    candidates.append(lvl)
+  1113→
+  1114→    candidates = sorted(set(round(x, 6) for x in candidates))
+  1115→
+  1116→    # -----------------------------
+  1117→    # 5) Подавление false_breakout внутри диапазона
+  1118→    # -----------------------------
+  1119→    signal_status = str(data.get("signal_status", "")).lower()
+  1120→    current_price = _safe_float(data.get("price"))
+  1121→
+  1122→    if signal_status == "false_breakout":
+  1123→        support = _safe_float(key_zones.get("support"))
+  1124→        resistance = _safe_float(key_zones.get("resistance"))
+  1125→
+  1126→        inside_key_range = (
+  1127→            current_price is not None
+  1128→            and support is not None
+  1129→            and resistance is not None
+  1130→            and min(support, resistance) <= current_price <= max(support, resistance)
+  1131→        )
+  1132→
+  1133→        entry_obj = data.get("entry_conditions")
+  1134→        entry_conditions = entry_obj if isinstance(entry_obj, dict) else {}
+  1135→        current_status = str(entry_conditions.get("current_status", "")).lower()
+  1136→
+  1137→        # Подтверждение для false_breakout:
+  1138→        # - должен быть явный выход/возврат,
+  1139→        # - либо подтверждённый ретест/пробой,
+  1140→        # - либо явное условие входа.
+  1141→        has_confirmed_break = current_status in ("aggressive_breakout", "retest", "breakout") or bool(
+  1142→            entry_conditions.get("aggressive") or entry_conditions.get("conservative")
+  1143→        )
+  1144→
+  1145→        # Если модель поставила false_breakout, но подтверждения нет,
+  1146→        # не превращаем это в accumulation — понижаем в no_signal.
+  1147→        if inside_key_range and not has_confirmed_break:
+  1148→            data["signal_status"] = "no_signal"
+  1149→            data["signal_status_comment"] = (
+  1150→                "Цена внутри ключевого диапазона без подтверждённого выноса и возврата, false_breakout понижен до no_signal"
+  1151→            )
+  1152→            signal_status = "no_signal"
+  1153→    def _zone_label(tf_str: str) -> str:
+  1154→        """Нормализация имени ТФ для компактных меток."""
+  1155→        tf = str(tf_str).strip().upper().replace("MIN", "M")
+  1156→        label_map = {"5M": "5M", "15M": "15M", "1H": "1H", "4H": "4H", "1D": "1D"}
+  1157→        return label_map.get(tf, tf)
+  1158→
+  1159→    # -----------------------------
+  1160→    # 5.1) Merge close tf zones
+  1161→    # -----------------------------
+  1162→    if isinstance(data.get("tf_zones"), dict):
+  1163→        merged_tf_zones = {}
+  1164→        for tf, z in data["tf_zones"].items():
+  1165→            if not isinstance(z, dict):
+  1166→                continue
+  1167→            tf_key = str(tf).strip().upper().replace("MIN", "M")
+  1168→            upper = _safe_float(z.get("upper"))
+  1169→            lower = _safe_float(z.get("lower"))
+  1170→            if upper is not None and lower is not None and lower > upper:
+  1171→                lower, upper = upper, lower
+  1172→            merged_tf_zones[tf_key] = {"upper": upper, "lower": lower}
+  1173→
+  1174→        # keep individual tf zones — visual grouping is done in format_json_for_tg
+  1175→        data["tf_zones"] = merged_tf_zones
+  1176→
+  1177→    # -----------------------------
+  1178→    # 6) tf_span_map
+  1179→    # -----------------------------
+  1180→    sorted_zones = _sorted_tf_order(data["tf_zones"])
+  1181→    tf_span_map = {}
+  1182→    for tf, z in sorted_zones:
+  1183→        span = _zone_span(z)
+  1184→        if span is not None:
+  1185→            tf_span_map[tf] = span
+  1186→    data["tf_span_map"] = tf_span_map
+  1187→
+  1188→    # -----------------------------
+  1189→    # 7) Если no_signal / accumulation — не создаём риск-блоки
+  1190→    # -----------------------------
+  1191→    if signal_status in ("accumulation", "no_signal"):
+  1192→        data["scenario_status"] = "no_alternative"
+  1193→        if not isinstance(data.get("scenario_status_comment"), str) or not data["scenario_status_comment"].strip():
+  1194→            data["scenario_status_comment"] = "Цена внутри диапазона без подтверждённого выхода"
+  1195→        rm["primary"] = _empty_risk()
+  1196→        rm["alternative"] = _empty_risk()
+  1197→
+  1198→    # -----------------------------
+  1199→    # 8) ABC по комментариям
+  1200→    # -----------------------------
+  1201→    wave_comment = str(data.get("wave_phase_comment", "")).lower()
+  1202→
+  1203→    if "abc вниз" in wave_comment or "abc-коррекции вниз" in wave_comment:
+  1204→        data["abc_risk"] = "abc_risk_down"
+  1205→        if not data.get("abc_risk_comment"):
+  1206→            data["abc_risk_comment"] = "Риск ABC вниз по волновой фазе"
+  1207→    elif "abc вверх" in wave_comment or "abc-коррекции вверх" in wave_comment:
+  1208→        data["abc_risk"] = "abc_risk_up"
+  1209→        if not data.get("abc_risk_comment"):
+  1210→            data["abc_risk_comment"] = "Риск ABC вверх по волновой фазе"
+  1211→
+  1212→    abc_risk = str(data.get("abc_risk", "")).lower()
+  1213→    if abc_risk not in ("abc_risk_up", "abc_risk_down", "none", "unknown"):
+  1214→        if "abc вниз" in wave_comment:
+  1215→            data["abc_risk"] = "abc_risk_down"
+  1216→        elif "abc вверх" in wave_comment:
+  1217→            data["abc_risk"] = "abc_risk_up"
+  1218→        else:
+  1219→            data["abc_risk"] = "unknown"
+  1220→
+  1221→
+  1222→    # -----------------------------
+  1223→    # 8.1) Иерархия сигналов (P0.1 из ТЗ)
+  1224→    # Если current_substructure противоречит signal_status -
+  1225→    # приоритет у substructure (более конкретное поле).
+  1226→    # -----------------------------
+  1227→    SIGNAL_PRIORITY = {
+  1228→        "aggressive_breakout": 0,
+  1229→        "retest": 1,
+  1230→        "reversal": 2,
+  1231→        "false_breakout": 3,
+  1232→        "accumulation": 4,
+  1233→        "no_signal": 5,
+  1234→    }
+  1235→    raw_sub = str(data.get("current_substructure", "")).lower()
+  1236→    llm_signal = str(data.get("signal_status", "")).lower()
+  1237→
+  1238→    sub_to_signal = {
+  1239→        "breakout_up": "aggressive_breakout",
+  1240→        "breakout_down": "aggressive_breakout",
+  1241→        "false_breakout_up": "false_breakout",
+  1242→        "false_breakout_down": "false_breakout",
+  1243→        "reversal_attempt_up": "reversal",
+  1244→        "reversal_attempt_down": "reversal",
+  1245→    }
+  1246→    if raw_sub in sub_to_signal and llm_signal in SIGNAL_PRIORITY:
+  1247→        resolved = sub_to_signal[raw_sub]
+  1248→        if SIGNAL_PRIORITY.get(resolved, 99) < SIGNAL_PRIORITY.get(llm_signal, 99):
+  1249→            data["signal_status"] = resolved
+  1250→            data["signal_status_comment"] = (
+  1251→                f"Иерархия: substructure={raw_sub} приоритетнее signal={llm_signal}"
+  1252→            )
+  1253→            signal_status = resolved
+  1254→
+  1255→    # -----------------------------
+  1256→    # 9) Определение направления
+  1257→    # -----------------------------
+  1258→    direction_hint = _direction_from_data(data)
+  1259→
+  1260→    # -----------------------------
+  1261→    # 10) TP/SL для primary
+  1262→    # -----------------------------
+  1263→    primary = rm.get("primary")
+  1264→    if not isinstance(primary, dict):
+  1265→        primary = _empty_risk()
+  1266→        rm["primary"] = primary
+  1267→
+  1268→    if current_price is not None and candidates and data.get("signal_status") in ("aggressive_breakout", "retest", "reversal", "false_breakout"):
+  1269→        tp1, tp2, tp3 = _pick_tp_levels(direction_hint, current_price, candidates)
+  1270→
+  1271→        if direction_hint == "long":
+  1272→            if tp1 is not None and tp1 > current_price and primary.get("tp1") is None:
+  1273→                primary["tp1"] = tp1
+  1274→            if tp2 is not None and tp2 > current_price and tp2 != primary.get("tp1") and primary.get("tp2") is None:
+  1275→                primary["tp2"] = tp2
+  1276→            if tp3 is not None and tp3 > current_price and tp3 not in (primary.get("tp1"), primary.get("tp2")) and primary.get("tp3") is None:
+  1277→                primary["tp3"] = tp3
+  1278→        else:
+  1279→            if tp1 is not None and tp1 < current_price and primary.get("tp1") is None:
+  1280→                primary["tp1"] = tp1
+  1281→            if tp2 is not None and tp2 < current_price and tp2 != primary.get("tp1") and primary.get("tp2") is None:
+  1282→                primary["tp2"] = tp2
+  1283→            if tp3 is not None and tp3 < current_price and tp3 not in (primary.get("tp1"), primary.get("tp2")) and primary.get("tp3") is None:
+  1284→                primary["tp3"] = tp3
+  1285→
+  1286→        if primary.get("sl") is None:
+  1287→            if direction_hint == "long":
+  1288→                below = [x for x in candidates if x < current_price]
+  1289→                primary["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1290→            else:
+  1291→                above = [x for x in candidates if x > current_price]
+  1292→                primary["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1293→
+  1294→        if direction_hint == "long":
+  1295→            for k in ("tp1", "tp2", "tp3"):
+  1296→                tp_val = _safe_float(rm["primary"].get(k))
+  1297→                if tp_val is not None and current_price is not None and tp_val <= current_price:
+  1298→                    rm["primary"][k] = None
+  1299→
+  1300→            sl_val = _safe_float(rm["primary"].get("sl"))
+  1301→            if sl_val is not None and current_price is not None and sl_val >= current_price:
+  1302→                below = [x for x in candidates if current_price is not None and x < current_price]
+  1303→                rm["primary"]["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1304→            else:
+  1305→                for k in ("tp1", "tp2", "tp3"):
+  1306→                    tp_val = _safe_float(rm["primary"].get(k))
+  1307→                    if tp_val is not None and current_price is not None and tp_val >= current_price:
+  1308→                        rm["primary"][k] = None
+  1309→
+  1310→                sl_val = _safe_float(rm["primary"].get("sl"))
+  1311→                if sl_val is not None and current_price is not None and sl_val <= current_price:
+  1312→                    above = [x for x in candidates if current_price is not None and x > current_price]
+  1313→                    rm["primary"]["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1314→
+  1315→    # -----------------------------
+  1316→    # 11) TP/SL для alternative
+  1317→    # -----------------------------
+  1318→    alt_direction = "short" if direction_hint == "long" else "long"
+  1319→    alternative = rm.get("alternative")
+  1320→    if not isinstance(alternative, dict):
+  1321→        alternative = _empty_risk()
+  1322→        rm["alternative"] = alternative
+  1323→
+  1324→    alt_status = str(data.get("scenario_status", "")).lower()
+  1325→    if current_price is not None and candidates and (alt_status in ("alternative_active", "primary_invalidated") or signal_status == "false_breakout"):
+  1326→        tp1, tp2, tp3 = _pick_tp_levels(alt_direction, current_price, candidates)
+  1327→
+  1328→        if alt_direction == "long":
+  1329→            if tp1 is not None and tp1 > current_price and alternative.get("tp1") is None:
+  1330→                alternative["tp1"] = tp1
+  1331→            if tp2 is not None and tp2 > current_price and tp2 != alternative.get("tp1") and alternative.get("tp2") is None:
+  1332→                alternative["tp2"] = tp2
+  1333→            if tp3 is not None and tp3 > current_price and tp3 not in (alternative.get("tp1"), alternative.get("tp2")) and alternative.get("tp3") is None:
+  1334→                alternative["tp3"] = tp3
+  1335→        else:
+  1336→            if tp1 is not None and tp1 < current_price and alternative.get("tp1") is None:
+  1337→                alternative["tp1"] = tp1
+  1338→            if tp2 is not None and tp2 < current_price and tp2 != alternative.get("tp1") and alternative.get("tp2") is None:
+  1339→                alternative["tp2"] = tp2
+  1340→            if tp3 is not None and tp3 < current_price and tp3 not in (alternative.get("tp1"), alternative.get("tp2")) and alternative.get("tp3") is None:
+  1341→                alternative["tp3"] = tp3
+  1342→
+  1343→        if alternative.get("sl") is None:
+  1344→            if alt_direction == "long":
+  1345→                below = [x for x in candidates if x < current_price]
+  1346→                alternative["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1347→            else:
+  1348→                above = [x for x in candidates if x > current_price]
+  1349→                alternative["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1350→
+  1351→        if alt_direction == "long":
+  1352→            for k in ("tp1", "tp2", "tp3"):
+  1353→                tp_val = _safe_float(rm["alternative"].get(k))
+  1354→                if tp_val is not None and current_price is not None and tp_val <= current_price:
+  1355→                    rm["alternative"][k] = None
+  1356→
+  1357→            sl_val = _safe_float(rm["alternative"].get("sl"))
+  1358→            if sl_val is not None and current_price is not None and sl_val >= current_price:
+  1359→                below = [x for x in candidates if current_price is not None and x < current_price]
+  1360→                rm["alternative"]["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1361→        else:
+  1362→            for k in ("tp1", "tp2", "tp3"):
+  1363→                tp_val = _safe_float(rm["alternative"].get(k))
+  1364→                if tp_val is not None and current_price is not None and tp_val >= current_price:
+  1365→                    rm["alternative"][k] = None
+  1366→
+  1367→            sl_val = _safe_float(rm["alternative"].get("sl"))
+  1368→            if sl_val is not None and current_price is not None and sl_val <= current_price:
+  1369→                above = [x for x in candidates if current_price is not None and x > current_price]
+  1370→                rm["alternative"]["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1371→
+  1372→    # -----------------------------
+  1373→    # 12) RR
+  1374→    # -----------------------------
+  1375→    entry_price = current_price
+  1376→
+  1377→    primary["rr"] = _calc_rr(
+  1378→        entry_price,
+  1379→        _safe_float(primary.get("sl")),
+  1380→        _safe_float(primary.get("tp1")),
+  1381→    )
+  1382→    alternative["rr"] = _calc_rr(
+  1383→        entry_price,
+  1384→        _safe_float(alternative.get("sl")),
+  1385→        _safe_float(alternative.get("tp1")),
+  1386→    )
+  1387→
+  1388→        # -----------------------------
+  1389→    # 12.1) Volume-aware validation
+  1390→    # -----------------------------
+  1391→    volume_obj = data.get("volume_context")
+  1392→    volume_ctx = volume_obj if isinstance(volume_obj, dict) else {}
+  1393→
+  1394→    ad_trend = str(volume_ctx.get("ad_trend", "unknown")).lower()
+  1395→    cmf_val = _safe_float(volume_ctx.get("cmf_20"))
+  1396→    volume_confirmation = str(volume_ctx.get("volume_confirmation", "unknown")).lower()
+  1397→    divergence = str(volume_ctx.get("divergence", "unknown")).lower()
+  1398→
+  1399→    volume_bullish = (
+  1400→        volume_confirmation == "bullish"
+  1401→        or (ad_trend == "rising" and (cmf_val is not None and cmf_val > 0))
+  1402→        or divergence == "bullish"
+  1403→    )
+  1404→    volume_bearish = (
+  1405→        volume_confirmation == "bearish"
+  1406→        or (ad_trend == "falling" and (cmf_val is not None and cmf_val < 0))
+  1407→        or divergence == "bearish"
+  1408→    )
+  1409→
+  1410→        # -----------------------------
+  1411→    # 12.2) Scenario / risk consistency
+  1412→    # -----------------------------
+  1413→    primary_has_risk = any(primary.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1414→    alt_has_risk = any(alternative.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1415→
+  1416→    # Если primary_valid, но primary пустой — это ошибка сценария
+  1417→    if str(data.get("scenario_status", "")).lower() == "primary_valid" and not primary_has_risk:
+  1418→        if alt_has_risk:
+  1419→            data["scenario_status"] = "alternative_active"
+  1420→            data["scenario_status_comment"] = (
+  1421→                data.get("scenario_status_comment") or "Основной сценарий не собран, активен альтернативный."
+  1422→            )
+  1423→        else:
+  1424→            data["scenario_status"] = "no_alternative"
+  1425→            data["scenario_status_comment"] = (
+  1426→                data.get("scenario_status_comment") or "Сценарий не подтверждён, риск-блоки пусты."
+  1427→            )
+  1428→
+  1429→    # Если false_breakout есть, но primary пустой — строим primary по текущему направлению
+  1430→    if signal_status.startswith("false_breakout") and not primary_has_risk and current_price is not None and candidates:
+  1431→        if direction_hint == "long":
+  1432→            below = [x for x in candidates if x < current_price]
+  1433→            above = [x for x in candidates if x > current_price]
+  1434→
+  1435→            primary["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1436→            primary["tp1"] = above[0] if above else None
+  1437→            primary["tp2"] = above[1] if len(above) > 1 else primary["tp1"]
+  1438→            primary["tp3"] = above[2] if len(above) > 2 else primary["tp2"]
+  1439→        else:
+  1440→            above = [x for x in candidates if x > current_price]
+  1441→            below = [x for x in candidates if x < current_price]
+  1442→
+  1443→            primary["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1444→            primary["tp1"] = below[-1] if below else None
+  1445→            primary["tp2"] = below[-2] if len(below) > 1 else primary["tp1"]
+  1446→            primary["tp3"] = below[-3] if len(below) > 2 else primary["tp2"]
+  1447→
+  1448→        primary["rr"] = _calc_rr(
+  1449→            current_price,
+  1450→            _safe_float(primary.get("sl")),
+  1451→            _safe_float(primary.get("tp1")),
+  1452→        )
+  1453→        rm["primary"] = primary
+  1454→
+  1455→            # -----------------------------
+  1456→    # 12.3) SL adjustment with volume context
+  1457→    # -----------------------------
+  1458→    def _widen_sl(sl_value: float | None, price_value: float | None, direction: str, factor: float = 0.35) -> float | None:
+  1459→        if sl_value is None or price_value is None:
+  1460→            return sl_value
+  1461→        if direction == "long":
+  1462→            return round(sl_value - abs(price_value - sl_value) * factor, 6)
+  1463→        if direction == "short":
+  1464→            return round(sl_value + abs(price_value - sl_value) * factor, 6)
+  1465→        return sl_value
+  1466→
+  1467→    # Если объём не подтверждает движение — SL чуть дальше, чтобы не выбило на шуме
+  1468→    if current_price is not None:
+  1469→        if signal_status.startswith("false_breakout"):
+  1470→            if volume_bullish and direction_hint == "long":
+  1471→                primary["sl"] = _widen_sl(_safe_float(primary.get("sl")), current_price, "long", factor=0.20)
+  1472→            elif volume_bearish and direction_hint == "short":
+  1473→                primary["sl"] = _widen_sl(_safe_float(primary.get("sl")), current_price, "short", factor=0.20)
+  1474→            else:
+  1475→                primary["sl"] = _widen_sl(_safe_float(primary.get("sl")), current_price, direction_hint, factor=0.45)
+  1476→
+  1477→        elif signal_status in ("retest", "reversal"):
+  1478→            primary["sl"] = _widen_sl(_safe_float(primary.get("sl")), current_price, direction_hint, factor=0.30)
+  1479→
+  1480→    primary["rr"] = _calc_rr(
+  1481→        current_price,
+  1482→        _safe_float(primary.get("sl")),
+  1483→        _safe_float(primary.get("tp1")),
+  1484→    )
+  1485→
+  1486→        # -----------------------------
+  1487→    # 12.4) Volume invalidation
+  1488→    # -----------------------------
+  1489→    if signal_status.startswith("false_breakout") and current_price is not None:
+  1490→        if direction_hint == "long" and volume_bearish:
+  1491→            data["scenario_status"] = "primary_invalidated"
+  1492→            data["scenario_status_comment"] = (
+  1493→                data.get("scenario_status_comment") or "Объём не подтверждает длинный сценарий."
+  1494→            )
+  1495→        elif direction_hint == "short" and volume_bullish:
+  1496→            data["scenario_status"] = "primary_invalidated"
+  1497→            data["scenario_status_comment"] = (
+  1498→                data.get("scenario_status_comment") or "Объём не подтверждает короткий сценарий."
+  1499→            )
+  1500→        
+  1501→        # -----------------------------
+  1502→    # 12.5) Reconcile scenario with risk blocks
+  1503→    # -----------------------------
+  1504→    primary_has_risk = any(primary.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1505→    alt_has_risk = any(alternative.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1506→
+  1507→    if str(data.get("scenario_status", "")).lower() == "primary_valid" and not primary_has_risk:
+  1508→        if alt_has_risk:
+  1509→            data["scenario_status"] = "alternative_active"
+  1510→            data["scenario_status_comment"] = (
+  1511→                data.get("scenario_status_comment") or "Основной сценарий не собран, активен альтернативный."
+  1512→            )
+  1513→        else:
+  1514→            data["scenario_status"] = "no_alternative"
+  1515→            data["scenario_status_comment"] = (
+  1516→                data.get("scenario_status_comment") or "Сценарий не подтверждён, риск-блоки пусты."
+  1517→            )
+  1518→
+  1519→    if signal_status.startswith("false_breakout") and not primary_has_risk and current_price is not None and candidates:
+  1520→        if direction_hint == "long":
+  1521→            below = [x for x in candidates if x < current_price]
+  1522→            above = [x for x in candidates if x > current_price]
+  1523→            primary["sl"] = below[-1] if below else (min(candidates) if candidates else None)
+  1524→            primary["tp1"] = above[0] if above else None
+  1525→            primary["tp2"] = above[1] if len(above) > 1 else primary["tp1"]
+  1526→            primary["tp3"] = above[2] if len(above) > 2 else primary["tp2"]
+  1527→        else:
+  1528→            above = [x for x in candidates if x > current_price]
+  1529→            below = [x for x in candidates if x < current_price]
+  1530→            primary["sl"] = above[0] if above else (max(candidates) if candidates else None)
+  1531→            primary["tp1"] = below[-1] if below else None
+  1532→            primary["tp2"] = below[-2] if len(below) > 1 else primary["tp1"]
+  1533→            primary["tp3"] = below[-3] if len(below) > 2 else primary["tp2"]
+  1534→
+  1535→        primary["rr"] = _calc_rr(
+  1536→            current_price,
+  1537→            _safe_float(primary.get("sl")),
+  1538→            _safe_float(primary.get("tp1")),
+  1539→        )
+  1540→        rm["primary"] = primary
+  1541→
+  1542→    # -----------------------------
+  1543→    # 12.6) SL buffer from structural edge
+  1544→    # -----------------------------
+  1545→    atr_hint = _safe_float(data.get("atr")) or _safe_float(data.get("atr_last"))
+  1546→    if atr_hint is None:
+  1547→        atr_hint = abs(current_price or 0.0) * 0.002 if current_price is not None else 0.0
+  1548→    sl_buffer = max(atr_hint * 0.2, (abs(current_price) * 0.0015 if current_price is not None else 0.0), 1e-9)
+  1549→
+  1550→    def _apply_sl_buffer(sl_value: float | None, direction: str) -> float | None:
+  1551→        if sl_value is None or current_price is None:
+  1552→            return sl_value
+  1553→        if direction == "long":
+  1554→            return round(sl_value - sl_buffer, 6)
+  1555→        if direction == "short":
+  1556→            return round(sl_value + sl_buffer, 6)
+  1557→        return sl_value
+  1558→
+  1559→    if primary.get("sl") is not None:
+  1560→        primary["sl"] = _apply_sl_buffer(_safe_float(primary.get("sl")), direction_hint)
+  1561→
+  1562→    if alt_has_risk and alternative.get("sl") is not None:
+  1563→        alt_direction = "short" if direction_hint == "long" else "long"
+  1564→        alternative["sl"] = _apply_sl_buffer(_safe_float(alternative.get("sl")), alt_direction)
+  1565→
+  1566→    # -----------------------------
+  1567→    # 12.6b) P2-4: SL/TP logical validation
+  1568→    # LONG  → SL must be < price, TP must be > price
+  1569→    # SHORT → SL must be > price, TP must be < price
+  1570→    # RR must be > 1.0, otherwise clear risk block (unrealistic)
+  1571→    # -----------------------------
+  1572→    active_signals = ("aggressive_breakout", "retest", "reversal", "false_breakout")
+  1573→    if signal_status in active_signals and current_price is not None:
+  1574→        for block_name, block_dir in (("primary", direction_hint), ("alternative", alt_direction)):
+  1575→            block = rm.get(block_name)
+  1576→            if not isinstance(block, dict):
+  1577→                continue
+  1578→            sl = _safe_float(block.get("sl"))
+  1579→            tp1 = _safe_float(block.get("tp1"))
+  1580→            rr = _safe_float(block.get("rr"))
+  1581→
+  1582→            if block_dir == "long":
+  1583→                if sl is not None and sl >= current_price:
+  1584→                    block["sl"] = None
+  1585→                    block["sl_invalid"] = True
+  1586→                if tp1 is not None and tp1 <= current_price:
+  1587→                    block["tp1"] = None
+  1588→                    block["tp1_invalid"] = True
+  1589→            else:  # short
+  1590→                if sl is not None and sl <= current_price:
+  1591→                    block["sl"] = None
+  1592→                    block["sl_invalid"] = True
+  1593→                if tp1 is not None and tp1 >= current_price:
+  1594→                    block["tp1"] = None
+  1595→                    block["tp1_invalid"] = True
+  1596→
+  1597→            # Recalc RR after possible corrections
+  1598→            block["rr"] = _calc_rr(current_price, _safe_float(block.get("sl")), _safe_float(block.get("tp1")))
+  1599→            rr = _safe_float(block.get("rr"))
+  1600→
+  1601→            # RR < 1.0 — risk > reward, signal is unrealistic
+  1602→            if rr is not None and rr < 1.0:
+  1603→                block["sl"] = None
+  1604→                block["tp1"] = None
+  1605→                block["tp2"] = None
+  1606→                block["tp3"] = None
+  1607→                block["rr"] = None
+  1608→                block["rr_invalid"] = True
+  1609→
+  1610→        rm["primary"] = rm.get("primary", primary)
+  1611→        rm["alternative"] = rm.get("alternative", alternative)
+  1612→        data["risk_management"] = rm
+  1613→
+  1614→    # -----------------------------
+  1615→    # 12.7) Volume bias influence
+  1616→    # -----------------------------
+  1617→    if current_price is not None:
+  1618→        if volume_bullish and direction_hint == "long":
+  1619→            data["confidence"] = "high" if str(data.get("confidence", "")).lower() != "high" else data["confidence"]
+  1620→            if not data.get("confidence_reason"):
+  1621→                data["confidence_reason"] = "Объём подтверждает направление вверх."
+  1622→        elif volume_bearish and direction_hint == "short":
+  1623→            data["confidence"] = "high" if str(data.get("confidence", "")).lower() != "high" else data["confidence"]
+  1624→            if not data.get("confidence_reason"):
+  1625→                data["confidence_reason"] = "Объём подтверждает направление вниз."
+  1626→        elif volume_confirmation == "neutral" or divergence == "none":
+  1627→            if str(data.get("confidence", "")).lower() == "high":
+  1628→                data["confidence"] = "medium"
+  1629→
+  1630→    primary["rr"] = _calc_rr(
+  1631→        current_price,
+  1632→        _safe_float(primary.get("sl")),
+  1633→        _safe_float(primary.get("tp1")),
+  1634→    )
+  1635→    alternative["rr"] = _calc_rr(
+  1636→        current_price,
+  1637→        _safe_float(alternative.get("sl")),
+  1638→        _safe_float(alternative.get("tp1")),
+  1639→    )
+  1640→
+  1641→        # -----------------------------
+  1642→    # 12.8) Final consistency normalizer
+  1643→    # -----------------------------
+  1644→    primary_has_risk = any(primary.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1645→    alt_has_risk = any(alternative.get(k) is not None for k in ("sl", "tp1", "tp2", "tp3"))
+  1646→
+  1647→    if str(data.get("scenario_status", "")).lower() == "primary_valid" and not primary_has_risk:
+  1648→        if alt_has_risk:
+  1649→            data["scenario_status"] = "alternative_active"
+  1650→            data["scenario_status_comment"] = (
+  1651→                data.get("scenario_status_comment") or "Основной сценарий не собран, активен альтернативный."
+  1652→            )
+  1653→        else:
+  1654→            data["scenario_status"] = "no_alternative"
+  1655→            data["scenario_status_comment"] = (
+  1656→                data.get("scenario_status_comment") or "Сценарий не подтверждён, риск-блоки пусты."
+  1657→            )
+  1658→
+  1659→    if data.get("signal_status") == "no_signal":
+  1660→        rm["primary"] = _empty_risk()
+  1661→        rm["alternative"] = _empty_risk()
+  1662→        data["risk_management"] = rm
+  1663→        data["scenario_status"] = "no_alternative"
+  1664→        if not data.get("scenario_status_comment"):
+  1665→            data["scenario_status_comment"] = "Нет сигнала, риск-блоки очищены."
+  1666→
+  1667→    if data.get("signal_status") == "accumulation":
+  1668→        rm["primary"] = _empty_risk()
+  1669→        rm["alternative"] = _empty_risk()
+  1670→        data["risk_management"] = rm
+  1671→        data["scenario_status"] = "no_alternative"
+  1672→        if not data.get("scenario_status_comment"):
+  1673→            data["scenario_status_comment"] = "Накопление без подтверждённого пробоя."
+  1674→
+  1675→    if signal_status.startswith("false_breakout") and not primary_has_risk and current_price is not None and candidates:
+  1676→        if direction_hint == "long":
+  1677→            below = [x for x in candidates if x < current_price]
+  1678→            above = [x for x in candidates if x > current_price]
+  1679→            primary["sl"] = round((below[-1] if below else min(candidates)) - sl_buffer, 6)
+  1680→            primary["tp1"] = above[0] if above else None
+  1681→            primary["tp2"] = above[1] if len(above) > 1 else primary["tp1"]
+  1682→            primary["tp3"] = above[2] if len(above) > 2 else primary["tp2"]
+  1683→        else:
+  1684→            above = [x for x in candidates if x > current_price]
+  1685→            below = [x for x in candidates if x < current_price]
+  1686→            primary["sl"] = round((above[0] if above else max(candidates)) + sl_buffer, 6)
+  1687→            primary["tp1"] = below[-1] if below else None
+  1688→            primary["tp2"] = below[-2] if len(below) > 1 else primary["tp1"]
+  1689→            primary["tp3"] = below[-3] if len(below) > 2 else primary["tp2"]
+  1690→
+  1691→        primary["rr"] = _calc_rr(
+  1692→            current_price,
+  1693→            _safe_float(primary.get("sl")),
+  1694→            _safe_float(primary.get("tp1")),
+  1695→        )
+  1696→        rm["primary"] = primary
+  1697→
+  1698→    if signal_status.startswith("false_breakout"):
+  1699→        if direction_hint == "long" and volume_bearish:
+  1700→            data["scenario_status"] = "primary_invalidated"
+  1701→            data["scenario_status_comment"] = (
+  1702→                data.get("scenario_status_comment") or "Объём не подтверждает длинный сценарий."
+  1703→            )
+  1704→        elif direction_hint == "short" and volume_bullish:
+  1705→            data["scenario_status"] = "primary_invalidated"
+  1706→            data["scenario_status_comment"] = (
+  1707→                data.get("scenario_status_comment") or "Объём не подтверждает короткий сценарий."
+  1708→            )
+  1709→
+  1710→    primary["rr"] = _calc_rr(
+  1711→        current_price,
+  1712→        _safe_float(primary.get("sl")),
+  1713→        _safe_float(primary.get("tp1")),
+  1714→    )
+  1715→    alternative["rr"] = _calc_rr(
+  1716→        current_price,
+  1717→        _safe_float(alternative.get("sl")),
+  1718→        _safe_float(alternative.get("tp1")),
+  1719→    )
+  1720→
+  1721→    rm["primary"] = primary
+  1722→    rm["alternative"] = alternative
+  1723→    data["risk_management"] = rm
+  1724→
+  1725→    # -----------------------------
+  1726→    # 13) Финальная нормализация комментариев и статусов
+  1727→    # -----------------------------
+  1728→    if data.get("scenario_status") == "alternative_active":
+  1729→        if not isinstance(data.get("scenario_status_comment"), str) or not data["scenario_status_comment"].strip():
+  1730→            data["scenario_status_comment"] = "Альтернативный сценарий активен"
+  1731→
+  1732→    if data.get("scenario_status") not in (
+  1733→        "primary_valid",
+  1734→        "primary_invalidated",
+  1735→        "alternative_active",
+  1736→        "no_alternative",
+  1737→    ):
+  1738→        data["scenario_status"] = "no_alternative"
+  1739→
+  1740→    for key in ("risk_management_comment", "scenario_status_comment", "entry_conditions_comment"):
+  1741→        val = data.get(key)
+  1742→        if not isinstance(val, str):
+  1743→            data[key] = ""
+  1744→
+  1745→    # -----------------------------
+  1746→    # 14) Финальный нормализатор блока риска
+  1747→    # -----------------------------
+  1748→    rm_final = data.get("risk_management")
+  1749→    if not isinstance(rm_final, dict):
+  1750→        rm_final = _empty_bundle()
+  1751→
+  1752→    primary_final = rm_final.get("primary")
+  1753→    alternative_final = rm_final.get("alternative")
+  1754→
+  1755→    if not isinstance(primary_final, dict):
+  1756→        primary_final = _empty_risk()
+  1757→        rm_final["primary"] = primary_final
+  1758→    if not isinstance(alternative_final, dict):
+  1759→        alternative_final = _empty_risk()
+  1760→        rm_final["alternative"] = alternative_final
+  1761→
+  1762→    rm_final["primary"] = _normalize_risk_block(primary_final)
+  1763→    rm_final["alternative"] = _normalize_risk_block(alternative_final)
+  1764→    data["risk_management"] = rm_final
+  1765→    
+  1766→    # -----------------------------
+  1767→    # 14.1) Remove noisy placeholders
+  1768→    # -----------------------------
+  1769→    for key in ("fact_feedback", "signal_status_comment", "scenario_status_comment", "risk_management_comment", "entry_conditions_comment"):
+  1770→        if isinstance(data.get(key), str):
+  1771→            data[key] = _normalize_zone_text(data[key])
+  1772→
+  1773→    # remove duplicate spaces / empty lines in text fields
+  1774→    for key in ("fact_feedback", "signal_status_comment", "scenario_status_comment", "risk_management_comment", "entry_conditions_comment", "confidence_reason"):
+  1775→        if isinstance(data.get(key), str):
+  1776→            data[key] = _cleanup_empty_lines(data[key])
+  1777→
+  1778→    # if missing facts, make them explicit only when needed
+  1779→    if not str(data.get("fact_feedback", "")).strip():
+  1780→        data["fact_feedback"] = "Нет подтверждённых фактов для сигнала."
+  1781→
+  1782→    return data
+  1783→
+  1784→def _normalize_zone_text(text: str) -> str:
+  1785→    text = str(text or "").strip()
+  1786→    if not text:
+  1787→        return ""
+  1788→    text = text.replace("—", "-").replace("–", "-")
+  1789→    text = text.replace("  ", " ")
+  1790→    return text
+  1791→
+  1792→
+  1793→def _format_num(v):
+  1794→    try:
+  1795→        if v is None:
+  1796→            return "Н/Д"
+  1797→        f = float(v)
+  1798→        if f != f or f in (float("inf"), float("-inf")):  # NaN or Inf
+  1799→            return "Н/Д"
+  1800→        if abs(f - round(f)) < 1e-9:
+  1801→            return str(int(round(f)))
+  1802→        return f"{f:.2f}"
+  1803→    except Exception:
+  1804→        return "Н/Д"
+  1805→
+  1806→
+  1807→def _merge_close_levels(levels: list[float], tolerance_ratio: float = 0.0015) -> list[float]:
+  1808→    if not levels:
+  1809→        return []
+  1810→    levels = sorted(float(x) for x in levels if x is not None)
+  1811→    merged = [levels[0]]
+  1812→    for lvl in levels[1:]:
+  1813→        last = merged[-1]
+  1814→        tol = max(abs(last) * tolerance_ratio, 0.5)
+  1815→        if abs(lvl - last) <= tol:
+  1816→            merged[-1] = round((last + lvl) / 2.0, 6)
+  1817→        else:
+  1818→            merged.append(lvl)
+  1819→    return merged
+  1820→
+  1821→
+  1822→def _zone_label(tf: str) -> str:
+  1823→    tf = str(tf or "").strip().upper()
+  1824→    if tf in ("1H", "H1", "1"):
+  1825→        return "H1"
+  1826→    if tf in ("4H", "H4", "4"):
+  1827→        return "H4"
+  1828→    if tf in ("15M", "M15", "15"):
+  1829→        return "M15"
+  1830→    if tf in ("1D", "D1"):
+  1831→        return "D1"
+  1832→    return tf or "TF"
+  1833→
+  1834→
+  1835→def _cleanup_empty_lines(text: str) -> str:
+  1836→    lines = [line.rstrip() for line in str(text or "").splitlines()]
+  1837→    out = []
+  1838→    prev_empty = False
+  1839→    for line in lines:
+  1840→        is_empty = not line.strip()
+  1841→        if is_empty and prev_empty:
+  1842→            continue
+  1843→        out.append(line)
+  1844→        prev_empty = is_empty
+  1845→    return "\n".join(out).strip()
+  1846→
+  1847→def format_json_for_tg(data: dict) -> str:
+  1848→    if not isinstance(data, dict):
+  1849→        return "⚠️ Неверный формат данных анализа."
+  1850→    if data.get("error"):
+  1851→        return f"⚠️ {data.get('message', 'Ошибка анализа.')}"
+  1852→
+  1853→    def fmt(v):
+  1854→        if v is None or v == "None" or v == "":
+  1855→            return "Н/Д"
+  1856→        return str(v)
+  1857→
+  1858→    def clean(v):
+  1859→        s = fmt(v)
+  1860→        return "" if s in ("Н/Д", "[]", "{}") else s
+  1861→
+  1862→    price = data.get("price")
+  1863→    signal_status = str(data.get("signal_status", "no_signal"))
+  1864→    current_substructure = str(data.get("current_substructure", "unknown"))
+  1865→    prev_trend = str(data.get("prev_trend", "unknown"))
+  1866→
+  1867→    key_zones = data.get("key_zones") or {}
+  1868→    risk = data.get("risk_management") or {}
+  1869→    entry = data.get("entry_conditions") or {}
+  1870→    tf_zones = data.get("tf_zones") or {}
+  1871→    confluence_levels = data.get("confluence_levels") or []
+  1872→    tf_span_map = data.get("tf_span_map") or {}
+  1873→
+  1874→    primary = risk.get("primary") or {}
+  1875→    alternative = risk.get("alternative") or {}
+  1876→
+  1877→    psl = primary.get("sl")
+  1878→    ptp1 = primary.get("tp1")
+  1879→    ptp2 = primary.get("tp2")
+  1880→    ptp3 = primary.get("tp3")
+  1881→    prr = primary.get("rr")
+  1882→
+  1883→    asl = alternative.get("sl")
+  1884→    atp1 = alternative.get("tp1")
+  1885→    atp2 = alternative.get("tp2")
+  1886→    atp3 = alternative.get("tp3")
+  1887→    arr = alternative.get("rr")
+  1888→
+  1889→    ordered = []
+  1890→    for tf, z in tf_zones.items():
+  1891→        if isinstance(z, dict):
+  1892→            upper = z.get("upper")
+  1893→            lower = z.get("lower")
+  1894→            if upper is not None or lower is not None:
+  1895→                ordered.append((_zone_label(tf), z))
+  1896→    tf_block = []
+  1897→    if ordered:
+  1898→        # Группировать ТФ с одинаковыми зонами в одну строку: "1D/4H: [...]"
+  1899→        groups: dict[tuple, list[str]] = {}
+  1900→        order: list[tuple] = []
+  1901→        for tf, z in ordered:
+  1902→            upper = z.get("upper")
+  1903→            lower = z.get("lower")
+  1904→            key = (round(float(lower), 4) if lower is not None else None, round(float(upper), 4) if upper is not None else None)
+  1905→            if key not in groups:
+  1906→                groups[key] = []
+  1907→                order.append(key)
+  1908→            groups[key].append(tf)
+  1909→        for key in order:
+  1910→            tfs = groups[key]
+  1911→            label = "/".join(tfs) if len(tfs) > 1 else tfs[0]
+  1912→            tf_block.append(f"• {label}: [{_format_num(key[0])} - {_format_num(key[1])}]")
+  1913→    else:
+  1914→        tf_block.append("• Нет")
+  1915→
+  1916→    confluence_text = []
+  1917→    if isinstance(confluence_levels, list) and confluence_levels:
+  1918→        for item in confluence_levels[:8]:
+  1919→            if isinstance(item, dict):
+  1920→                lvl = item.get("level")
+  1921→                tfs = item.get("timeframes", [])
+  1922→                pr = item.get("priority", "low")
+  1923→                sp = item.get("spread")
+  1924→                kind = item.get("kind", "mixed")
+  1925→                confluence_text.append(
+  1926→                    f"• {_format_num(lvl)} | TF: {fmt(tfs)} | {pr} | spread={_format_num(sp)} | {kind}"
+  1927→                )
+  1928→
+  1929→    tf_span_text = []
+  1930→    if isinstance(tf_span_map, dict) and tf_span_map:
+  1931→        for tf, span in tf_span_map.items():
+  1932→            tf_span_text.append(f"• {_zone_label(tf)}: {_format_num(span)}")
+  1933→
+  1934→    state_diff = data.get("state_diff") if isinstance(data.get("state_diff"), dict) else {}
+  1935→    state_line = ""
+  1936→    if state_diff:
+  1937→        state_line = f"🧠 State: {fmt(state_diff.get('zone_status', 'unknown'))} | Ref TF: {fmt(state_diff.get('active_reference_tf', 'unknown'))}"
+  1938→
+  1939→    lines = []
+  1940→
+  1941→    lines.append(f"💰 Цена: {_format_num(price)}")
+  1942→    lines.append(f"🧭 Prev trend: {prev_trend.capitalize()}")
+  1943→    lines.append(f"🧭 Current substructure: {clean(current_substructure)}")
+  1944→    lines.append(f"🌍 HTF структура: {clean(data.get('htf_structure', 'unknown')).capitalize()}")
+  1945→    lines.append(clean(data.get("htf_structure_comment", "")))
+  1946→    lines.append(f"📈 Тренд: {clean(data.get('trend_structure', 'unknown')).capitalize()}")
+  1947→    lines.append(clean(data.get("trend_structure_comment", "")))
+  1948→    lines.append(f"🧩 LTF структура: {clean(data.get('ltf_structure', 'unknown')).capitalize()}")
+  1949→    lines.append(clean(data.get("ltf_structure_comment", "")))
+  1950→    lines.append(f"🧩 Накопление/распределение: {clean(data.get('accumulation_state', 'unknown')).capitalize()}")
+  1951→    lines.append(clean(data.get("accumulation_state_comment", "")))
+  1952→    lines.append(f"🌊 Волновая фаза: {clean(data.get('wave_phase', 'unclear')).replace('_', ' ').capitalize()}")
+  1953→    lines.append(clean(data.get("wave_phase_comment", "")))
+  1954→    lines.append(f"⚠️ ABC риск: {clean(data.get('abc_risk', 'unknown')).replace('_', ' ').capitalize()}")
+  1955→    lines.append(clean(data.get("abc_risk_comment", "")))
+  1956→    lines.append(f"📏 Зоны: R={_format_num(key_zones.get('resistance'))} | S={_format_num(key_zones.get('support'))}")
+  1957→    lines.append(clean(data.get("key_zones_comment", "")))
+  1958→
+  1959→    lines.append("📦 ЗОНЫ ПО ТФ:")
+  1960→    if tf_block:
+  1961→        for x in tf_block:
+  1962→            lines.append("  " + x)
+  1963→    else:
+  1964→        lines.append("  • Нет")
+  1965→
+  1966→    lines.append("📐 Confluence:")
+  1967→    if confluence_text:
+  1968→        for x in confluence_text:
+  1969→            lines.append("  " + x)
+  1970→    else:
+  1971→        lines.append("  • Нет")
+  1972→
+  1973→    lines.append("📏 TF span map:")
+  1974→    if tf_span_text:
+  1975→        for x in tf_span_text:
+  1976→            lines.append("  " + x)
+  1977→    else:
+  1978→        lines.append("  • Нет")
+  1979→
+  1980→    if state_line:
+  1981→        lines.append(state_line)
+  1982→
+  1983→    lines.append(f"🚦 Сигнал: {clean(signal_status).replace('_', ' ').capitalize()}")
+  1984→    lines.append(clean(data.get("signal_status_comment", "")))
+  1985→    lines.append(f"⚡ Агрессивный: {fmt(entry.get('aggressive'))}")
+  1986→    lines.append(f"🛡️ Консервативный: {fmt(entry.get('conservative'))}")
+  1987→    lines.append(f"📊 Статус: {fmt(entry.get('current_status'))}")
+  1988→    lines.append(clean(data.get("entry_conditions_comment", "")))
+  1989→    lines.append(f"⚖️ Основной риск: SL={_format_num(psl)} | TP1={_format_num(ptp1)} | TP2={_format_num(ptp2)} | TP3={_format_num(ptp3)} | R:R={_format_num(prr)}")
+  1990→    lines.append(clean(data.get("risk_management_comment", "")))
+  1991→    lines.append(f"⚖️ Альтернатива: SL={_format_num(asl)} | TP1={_format_num(atp1)} | TP2={_format_num(atp2)} | TP3={_format_num(atp3)} | R:R={_format_num(arr)}")
+  1992→    lines.append(clean(data.get("scenario_status_comment", "")))
+  1993→    lines.append(f"📝 Факты: {clean(data.get('fact_feedback', ''))}")
+  1994→    lines.append(f"🎯 Уверенность: {clean(data.get('confidence', 'low')).capitalize()} | {clean(data.get('confidence_reason', ''))}")
+  1995→
+  1996→    # убрать пустые строки и подряд идущие пустые строки
+  1997→    filtered = []
+  1998→    for line in lines:
+  1999→        if line is None:
+  2000→            continue
+
+[showing lines 1-2000 of 2218; use offset=2001 with limit to continue reading]

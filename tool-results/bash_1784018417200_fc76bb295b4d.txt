@@ -1,0 +1,1358 @@
+ .dockerignore                                               |   0
+ .gitignore                                                  |   0
+ Dockerfile                                                  |   0
+ README.md                                                   |   0
+ RUN.md                                                      |   0
+ ...6 \320\274\320\270\320\275\320\270 \320\242\320\227.txt" |   0
+ TZ/README.md                                                |   0
+ TZ/TZ_ad_tz_Version3.md                                     |   0
+ TZ/TZ_liquidity_magnet_tz_Version3.md                       |   0
+ TZ/changelog.md                                             |   0
+ TZ/files_to_update.md                                       |   0
+ TZ/implementation_order.md                                  |   0
+ TZ/index.md                                                 |   0
+ TZ/notes.md                                                 |   0
+ TZ/structure.md                                             |   0
+ "TZ/\320\242\320\227 state_tracker.txt"                     |   0
+ ...266\320\264\320\265\320\275\320\270\320\265\320\274.txt" |   0
+ ...276\320\272\321\203\320\274\320\265\320\275\321\202.txt" |   0
+ "TZ/\320\272\320\276\320\277\320\270\320\270/README.txt"    |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...0\271\320\273\320\276\320\262 \320\262 \320\242\320\227" |   0
+ archive/TV/AD/AD_Context_v20.10_PRESETS_XAUUSD_BTCUSD.txt   |   0
+ archive/TV/AD/LOCAL_AI_ENGINE AD Context v20.10.txt         |   0
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_Guide(EN).pdf      | Bin
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine    |   0
+ .../TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine.txt    |   0
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10.pine        |   0
+ .../TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_10_Guide(RU).pdf   | Bin
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.pine         |   0
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.txt          |   0
+ archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_9.pine         |   0
+ ...276\320\272\321\203\320\274\320\265\320\275\321\202.txt" |   0
+ ...271\320\272\320\270  AD_Context_Settings_Cheatsheet.pdf" | Bin
+ ...271\320\272\320\270  AD_Context_Settings_Cheatsheet.txt" |   0
+ ...\320\265\320\275LOCAL_AI_ENGINE_AD_Context_v20_8_1.pine" |   0
+ ...0\321\217\320\273 LOCAL_AI_ENGINE_AD_Context_v20_8.pine" |   0
+ archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.pine            |   0
+ archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.txt             |   0
+ archive/TV/Liquidation HeatMap/Liquidation HeatMap.txt      |   0
+ archive/TV/Liquidation HeatMap/StratifyTrade Liquidity.txt  |   0
+ .../indicator Meridian Liquidity Ledger.txt                 |   0
+ archive/TV/Zig Zag/Zig Zag Channels.txt                     |   0
+ ...gZag Percent Reversal - Forecast - patterns - labels.txt |   0
+ archive/archivezigzag_v1/ZigZag.rar                         | Bin
+ archive/archivezigzag_v1/zigzag_v1/README.md                |   0
+ archive/archivezigzag_v1/zigzag_v1/__init__.py              |   0
+ archive/archivezigzag_v1/zigzag_v1/benchmark_zigzag.py      |   0
+ archive/archivezigzag_v1/zigzag_v1/compare_zigzag.py        |   0
+ archive/archivezigzag_v1/zigzag_v1/example_call.py          |   0
+ archive/archivezigzag_v1/zigzag_v1/run_compare.bat          |   0
+ archive/archivezigzag_v1/zigzag_v1/structural_zigzag.py     |   0
+ archive/archivezigzag_v1/zigzag_v1/structure_levels_test.py |   0
+ archive/archivezigzag_v1/zigzag_v1/zigzag_compare.json      |   0
+ archive/archivezigzag_v1/zigzag_v1/zigzag_compare.md        |   0
+ archive/archivezigzag_v1/zigzag_v1/zigzag_forecast_test.py  |   0
+ ...01 \320\264\320\266\320\276\320\271\321\201\320\275.txt" |   0
+ ...01 \320\264\320\266\320\276\320\271\321\201\320\275.txt" |   0
+ archive/reports/btc_compare.json                            |   0
+ archive/reports/btc_compare.md                              |   0
+ archive/reports/zigzag_compare.json                         |   0
+ archive/reports/zigzag_compare.md                           |   0
+ archive/zigzag_backup_20260511_202610/README.md             |   0
+ archive/zigzag_backup_20260511_202610/auto_chart.py         |   0
+ archive/zigzag_backup_20260511_202610/db.py                 |   0
+ archive/zigzag_backup_20260511_202610/handlers.py           |   0
+ archive/zigzag_backup_20260511_202610/main.py               |   0
+ archive/zigzag_backup_20260511_202610/ollama_client.py      |   0
+ archive/zigzag_backup_20260511_202610/scheduler.py          |   0
+ archive/zigzag_backup_20260511_202610/utils.py              |   0
+ archive/zigzag_backup_before_patch/README.md                |   0
+ archive/zigzag_backup_before_patch/__init__.py              |   0
+ archive/zigzag_backup_before_patch/benchmark_zigzag.py      |   0
+ archive/zigzag_backup_before_patch/compare_zigzag.py        |   0
+ archive/zigzag_backup_before_patch/structural_zigzag.py     |   0
+ archive/zigzag_backup_before_patch/structure_levels_test.py |   0
+ archive/zigzag_v1/README.md                                 |   0
+ core/__init__.py                                            |   0
+ core/auto_chart.py                                          |   0
+ core/backups/auto_chart_2026-06-01_16-38.py                 |   0
+ core/binance_metrics.py                                     |   0
+ core/data_provider.py                                       |   0
+ core/db.py                                                  |   0
+ core/liquidity_heatmap.py                                   |   0
+ core/liquidity_magnet/__init__.py                           |   0
+ core/liquidity_magnet/liquidity_magnet.py                   |   0
+ core/liquidity_magnet/test_liquidity_magnet.py              |   0
+ core/logging_setup.py                                       |   0
+ core/multi_symbol.py                                        |   0
+ core/scheduler.py                                           |   0
+ core/state_tracker.py                                       |   0
+ core/utils.py                                               |   0
+ core/volume_filters.py                                      |   0
+ core/volume_profile.py                                      |   0
+ core/zigzag/README.md                                       |   0
+ core/zigzag/__init__.py                                     |   0
+ core/zigzag/benchmark_zigzag.py                             |   0
+ core/zigzag/compare_zigzag.py                               |   0
+ core/zigzag/example_call.py                                 |   0
+ core/zigzag/run_compare.bat                                 |   0
+ core/zigzag/structural_zigzag.py                            |   0
+ core/zigzag/structure_levels_test.py                        |   0
+ docker-compose.yml                                          |   0
+ docs/AI_AGENT_PROMPT.md                                     |   0
+ docs/AI_AGENT_SKILL.md                                      |   0
+ docs/AI_AUDIT_PROGRESS.md                                   |   0
+ docs/AI_AUDIT_REVIEW.md                                     |   0
+ docs/hermes/2026-07-13_session-report.md                    |   0
+ docs/hermes/CONTEXT.md                                      |   0
+ docs/hermes/README.md                                       |   0
+ ...60\320\273.\320\276\320\272\321\200\321\203\320\266.txt" |   0
+ .../01.06.2026.txt"                                         |   0
+ .../02.06.2026.txt"                                         |   0
+ .../11.05.2026.txt"                                         |   0
+ .../12.05.2026.txt"                                         |   0
+ .../13.05.2026.txt"                                         |   0
+ .../15.05.2026.txt"                                         |   0
+ exchange/README.md                                          |   0
+ exchange/inbox/.gitkeep                                     |   0
+ ...\204\320\270\320\272\320\260\321\206\320\270\320\270.md" |   0
+ ...260\320\275\320\270\320\265-p3-2-zigzag-p3-4-ab-test.md" |   0
+ ...llm-\320\277\321\200\320\276\320\263\320\276\320\275.md" |   0
+ ...\320\273\320\260\321\207\320\275\320\260\321\217-llm.md" |   0
+ ...\200\320\276\320\262\320\265\321\200\320\272\320\270.md" |   0
+ ...273\321\214\320\272\320\276-\320\262\320\265\320\261.md" |   0
+ ...\201\320\270\320\263\320\275\320\260\320\273\321\213.md" |   0
+ ...\276\320\267\320\260\320\277\321\203\321\201\320\272.md" |   0
+ ...270-\320\276\321\206\320\265\320\275\320\272\320\260.md" |   0
+ exchange/outbox/.gitkeep                                    |   0
+ exchange/outbox/2026-07-12_full-cycle-verification.md       |   0
+ ...70\321\217-\320\270-\321\206\320\270\320\272\320\273.md" |   0
+ ...271-\320\277\321\200\320\276\320\263\320\276\320\275.md" |   0
+ exchange/outbox/2026-07-12_p2-logging-docker-types.md       |   0
+ ...\272\320\276\320\274\320\277\320\260\320\272\321\202.md" |   0
+ ...\200\320\276\320\274\320\277\321\202\320\276\320\262.md" |   0
+ ...\263\320\265\321\200\320\274\320\265\321\201\321\203.md" |   0
+ ...\200\320\276\320\263\320\275\320\276\320\267\320\260.md" |   0
+ ...\263\321\200\320\265\321\201\321\201\320\270\321\217.md" |   0
+ ...201-\320\276\321\202\320\262\320\265\321\202-super-z.md" |   0
+ ...\265\320\263\321\200\320\260\321\206\320\270\321\217.md" |   0
+ ...\270\320\263\320\275\320\260\320\273\320\276\320\262.md" |   0
+ ...\321\200\320\276\320\263\320\275\320\276\320\267-btc.md" |   0
+ exchange/outbox/2026-07-13_btc-eth-bot-vs-web.md            |   0
+ exchange/outbox/2026-07-13_fallback-zigzag-nesting-fix.md   |   0
+ exchange/outbox/2026-07-13_fix-d1-zones-web-dashboard.md    |   0
+ ...6-07-13_vp-zigzag-overwrite-\320\261\320\260\320\263.md" |   0
+ .../outbox/2026-07-13_xaut-zone-above-price-btc-d1=h4.md    |   0
+ ...275\321\203\321\202\321\213-\320\270\320\267-grafika.md" |   0
+ ...\204\320\270\320\272\320\260\321\206\320\270\321\217.md" |   0
+ ...\267\321\203\320\273\321\214\321\202\320\260\321\202.md" |   0
+ ...\272\320\260\320\273\321\214\320\275\320\260\321\217.md" |   0
+ ...\203\321\211\320\265\321\201\321\202\320\262\321\203.md" |   0
+ ...321\207\320\260\320\275\320\270\321\217-btc-eth-xaut.md" |   0
+ ...275-\320\274\321\203\320\273\321\214\321\202\320\270.md" |   0
+ ...\320\273\320\260\321\207\320\275\320\276\320\271-llm.md" |   0
+ ...\265\320\275\320\264\320\260\321\206\320\270\320\270.md" |   0
+ ...\320\277\320\276\321\201\320\273\320\265-cap-removed.md" |   0
+ main.py                                                     |   0
+ mypy.ini                                                    |   0
+ requirements.txt                                            |   0
+ results/BTCUSDT_15m_candidates.json                         |   0
+ results/BTCUSDT_15m_err.txt                                 |   0
+ results/BTCUSDT_1d_candidates.json                          |   0
+ results/BTCUSDT_1d_err.txt                                  |   0
+ results/BTCUSDT_1h_candidates.json                          |   0
+ results/BTCUSDT_1h_err.txt                                  |   0
+ results/BTCUSDT_4h_candidates.json                          |   0
+ results/BTCUSDT_4h_err.txt                                  |   0
+ results/ETHUSDT_15m_candidates.json                         |   0
+ results/ETHUSDT_15m_err.txt                                 |   0
+ results/ETHUSDT_1d_candidates.json                          |   0
+ results/ETHUSDT_1d_err.txt                                  |   0
+ results/ETHUSDT_1h_candidates.json                          |   0
+ results/ETHUSDT_1h_err.txt                                  |   0
+ results/ETHUSDT_4h_candidates.json                          |   0
+ results/ETHUSDT_4h_err.txt                                  |   0
+ results/XAUTUSDT_15m_candidates.json                        |   0
+ results/XAUTUSDT_15m_err.txt                                |   0
+ results/XAUTUSDT_1d_candidates.json                         |   0
+ results/XAUTUSDT_1d_err.txt                                 |   0
+ results/XAUTUSDT_1h_candidates.json                         |   0
+ results/XAUTUSDT_1h_err.txt                                 |   0
+ results/XAUTUSDT_4h_candidates.json                         |   0
+ results/XAUTUSDT_4h_err.txt                                 |   0
+ results/all_candidates_label_comparison.csv                 |   0
+ results/all_candidates_label_fixed.csv                      |   0
+ results/all_candidates_times.csv                            |   0
+ results/all_candidates_with_label.csv                       |   0
+ results/autotune_best_params.json                           |   0
+ results/autotune_summary.json                               |   0
+ results/backup/BTCUSDT_15m_candidates.json                  |   0
+ results/backup/BTCUSDT_1d_candidates.json                   |   0
+ results/backup/BTCUSDT_1h_candidates.json                   |   0
+ results/backup/BTCUSDT_4h_candidates.json                   |   0
+ results/backup/XAUTUSDT_15m_candidates.json                 |   0
+ results/backup/XAUTUSDT_1d_candidates.json                  |   0
+ results/backup/XAUTUSDT_1h_candidates.json                  |   0
+ results/backup/XAUTUSDT_4h_candidates.json                  |   0
+ results/diag_log.txt                                        |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.csv" |   0
+ results/unified_dataset.csv                                 |   0
+ results/unified_dataset_v10.csv                             |   0
+ results/unified_dataset_v9.csv                              |   0
+ scripts/generate_unified_dataset_fixed.ps1                  |   0
+ start_bot.bat                                               |   0
+ start_bot.sh                                                |   0
+ tests/AD/README_AD_CLEANUP.md                               |   0
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.pdf" | Bin
+ ...42\200\224 \320\272\320\276\320\277\320\270\321\217.txt" |   0
+ ...276\320\275\321\202\320\265\320\272\321\201\321\202.txt" |   0
+ tests/AD/data/raw/unified_dataset.csv                       |   0
+ tests/AD/diag_candidates.py                                 |   0
+ tests/AD/docs/unified_dataset_fields.md                     |   0
+ tests/AD/docs_unified_dataset_fields.md                     |   0
+ tests/AD/logs/LOCAL_AI_ENGINE AD Context.txt                |   0
+ tests/AD/other/move_and_manifest_fixed.ps1                  |   0
+ tests/AD/other/patch_fix_indent_return.ps1                  |   0
+ tests/AD/other/patch_insert_return.ps1                      |   0
+ tests/AD/other/reorganize_repo.ps1                          |   0
+ tests/AD/pine/LOCAL_AI_ENGINE_AD_Context_v20.3.pine         |   0
+ tests/AD/results/BTCUSDT_15m.json                           |   0
+ tests/AD/results/BTCUSDT_15m_full.json                      |   0
+ tests/AD/results/BTCUSDT_15m_summary.json                   |   0
+ tests/AD/results/BTCUSDT_1d.json                            |   0
+ tests/AD/results/BTCUSDT_1d_full.json                       |   0
+ tests/AD/results/BTCUSDT_1d_summary.json                    |   0
+ tests/AD/results/BTCUSDT_1h.json                            |   0
+ tests/AD/results/BTCUSDT_1h_full.json                       |   0
+ tests/AD/results/BTCUSDT_1h_summary.json                    |   0
+ tests/AD/results/BTCUSDT_4h.json                            |   0
+ tests/AD/results/BTCUSDT_4h_full.json                       |   0
+ tests/AD/results/BTCUSDT_4h_summary.json                    |   0
+ tests/AD/results/ETHUSDT_15m.json                           |   0
+ tests/AD/results/ETHUSDT_15m_full.json                      |   0
+ tests/AD/results/ETHUSDT_15m_summary.json                   |   0
+ tests/AD/results/ETHUSDT_1d.json                            |   0
+ tests/AD/results/ETHUSDT_1d_full.json                       |   0
+ tests/AD/results/ETHUSDT_1d_full_postfix.json               |   0
+ tests/AD/results/ETHUSDT_1d_summary.json                    |   0
+ tests/AD/results/ETHUSDT_1h.json                            |   0
+ tests/AD/results/ETHUSDT_1h_full.json                       |   0
+ tests/AD/results/ETHUSDT_1h_summary.json                    |   0
+ tests/AD/results/ETHUSDT_4h.json                            |   0
+ tests/AD/results/ETHUSDT_4h_full.json                       |   0
+ tests/AD/results/ETHUSDT_4h_summary.json                    |   0
+ tests/AD/results/XAUTUSDT_15m.json                          |   0
+ tests/AD/results/XAUTUSDT_15m_full.json                     |   0
+ tests/AD/results/XAUTUSDT_15m_summary.json                  |   0
+ tests/AD/results/XAUTUSDT_1d.json                           |   0
+ tests/AD/results/XAUTUSDT_1d_full.json                      |   0
+ tests/AD/results/XAUTUSDT_1d_summary.json                   |   0
+ tests/AD/results/XAUTUSDT_1h.json                           |   0
+ tests/AD/results/XAUTUSDT_1h_full.json                      |   0
+ tests/AD/results/XAUTUSDT_1h_summary.json                   |   0
+ tests/AD/results/XAUTUSDT_4h.json                           |   0
+ tests/AD/results/XAUTUSDT_4h_full.json                      |   0
+ tests/AD/results/XAUTUSDT_4h_summary.json                   |   0
+ tests/AD/results/data_btc_1h_full.json                      |   0
+ tests/AD/results/data_btc_1h_summary.json                   |   0
+ tests/AD/results/diag_simple_BTCUSDT_1d.json                |   0
+ tests/AD/results/diag_simple_BTCUSDT_1h.json                |   0
+ tests/AD/results/exp2_traces_summary.json                   |   0
+ tests/AD/results/result.json                                |   0
+ tests/AD/results/result_btc_1h.json                         |   0
+ tests/AD/results/result_full_15m.json                       |   0
+ tests/AD/results/summary_all.json                           |   0
+ tests/AD/results/summary_all_20260517144151.json            |   0
+ tests/AD/results/trace_15m_full.json                        |   0
+ tests/AD/results/trace_15m_summary.json                     |   0
+ tests/AD/results/traces_summary.json                        |   0
+ tests/AD/results/traces_summary_after_patch.json            |   0
+ tests/AD/results/traces_summary_fix_minflowabs.json         |   0
+ tests/AD/results/traces_summary_fix_minflowabs_v2.json      |   0
+ tests/AD/results/traces_summary_tuned.json                  |   0
+ tests/AD/results/tune_summary_1h_20260517172406.json        |   0
+ tests/AD/results/tune_summary_1h_20260517172647.json        |   0
+ tests/AD/results/tune_summary_1h_20260517174214.json        |   0
+ tests/AD/results/tune_table_1h_20260517172406.csv           |   0
+ tests/AD/results/tune_table_1h_20260517172647.csv           |   0
+ tests/AD/results/tune_table_1h_20260517174214.csv           |   0
+ tests/AD/scripts/check_compute_full.py                      |   0
+ tests/AD/scripts/clean_ad_dataset.py                        |   0
+ tests/AD/scripts/diag_candidates.py                         |   0
+ tests/AD/scripts/diag_pivots.py                             |   0
+ tests/AD/scripts/diag_simple.py                             |   0
+ tests/AD/scripts/generate_unified_dataset_fixed.ps1         |   0
+ tests/AD/scripts/indicator_test.py                          |   0
+ tests/AD/scripts/indicator_test_full.py                     |   0
+ tests/AD/scripts/indicator_test_full_trace.py               |   0
+ tests/AD/scripts/inspect_trace.py                           |   0
+ tests/AD/scripts/run_tests.ps1                              |   0
+ tests/AD/scripts/run_trace.ps1                              |   0
+ tests/AD/scripts/run_tuner.ps1                              |   0
+ tests/AD/scripts/test_prefixes.py                           |   0
+ tests/AD/scripts/validate_ad_dataset.py                     |   0
+ tests/AD/traces/BTCUSDT_15m_trace.csv                       |   0
+ tests/AD/traces/BTCUSDT_1d_trace.csv                        |   0
+ tests/AD/traces/BTCUSDT_1h_trace.csv                        |   0
+ tests/AD/traces/BTCUSDT_4h_trace.csv                        |   0
+ tests/AD/traces/ETHUSDT_15m_trace.csv                       |   0
+ tests/AD/traces/ETHUSDT_1d_trace.csv                        |   0
+ tests/AD/traces/ETHUSDT_1d_trace_postpatch.csv              |   0
+ tests/AD/traces/ETHUSDT_1d_trace_regen.csv                  |   0
+ tests/AD/traces/ETHUSDT_1h_trace.csv                        |   0
+ tests/AD/traces/ETHUSDT_4h_trace.csv                        |   0
+ tests/AD/traces/XAUTUSDT_15m_trace.csv                      |   0
+ tests/AD/traces/XAUTUSDT_1d_trace.csv                       |   0
+ tests/AD/traces/XAUTUSDT_1h_trace.csv                       |   0
+ tests/AD/traces/XAUTUSDT_4h_trace.csv                       |   0
+ tests/AD/traces/data_btc_1h_trace.csv                       |   0
+ tests/AD/traces/trace_15m.csv                               |   0
+ tests/AD_backup_old/data/raw/unified_dataset.csv            |   0
+ ...\202\320\276\321\200 \320\276\321\202 FeelsStrategy.pdf" | Bin
+ ...264\320\275\320\276\321\201\321\202\320\270 [FEELS].txt" |   0
+ tests/test_backtest_direction.py                            |   0
+ tests/test_cloud_ai.py                                      |   0
+ tests/test_compare_zigzag.py                                |   0
+ tests/test_local_vision.py                                  |   0
+ tests/zigzag_old/zigzag_forecast_test.py                    |   0
+ tests/zigzag_old/zigzag_multi_compare.json                  |   0
+ tests/zigzag_old/zigzag_multi_compare.md                    |   0
+ tools/autotune_diag.py                                      |   0
+ tools/extract_best.py                                       |   0
+ tools/generate_unified_dataset.ps1                          |   0
+ tools/normalize_dataset.py                                  |   0
+ tools/refactor_unified_dataset.py                           |   0
+ tools/summary_results.py                                    |   0
+ tools/test_dataset.py                                       |   0
+ tools/transform_ad_dataset.py                               |   0
+ tools/unified_dataset.csv                                   |   0
+ tools/v10generate_unified_dataset.ps1                       |   0
+ tools/v11generate_unified_dataset.ps1                       |   0
+ tools/v9generate_unified_dataset.ps1                        |   0
+ tools/validate_ad_dataset.py                                |   0
+ 339 files changed, 0 insertions(+), 0 deletions(-)
+
+diff --git a/.dockerignore b/.dockerignore
+old mode 100644
+new mode 100755
+diff --git a/.gitignore b/.gitignore
+old mode 100644
+new mode 100755
+diff --git a/Dockerfile b/Dockerfile
+old mode 100644
+new mode 100755
+diff --git a/README.md b/README.md
+old mode 100644
+new mode 100755
+diff --git a/RUN.md b/RUN.md
+old mode 100644
+new mode 100755
+diff --git "a/TZ/15.05.2026 \320\274\320\270\320\275\320\270 \320\242\320\227.txt" "b/TZ/15.05.2026 \320\274\320\270\320\275\320\270 \320\242\320\227.txt"
+old mode 100644
+new mode 100755
+diff --git a/TZ/README.md b/TZ/README.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/TZ_ad_tz_Version3.md b/TZ/TZ_ad_tz_Version3.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/TZ_liquidity_magnet_tz_Version3.md b/TZ/TZ_liquidity_magnet_tz_Version3.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/changelog.md b/TZ/changelog.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/files_to_update.md b/TZ/files_to_update.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/implementation_order.md b/TZ/implementation_order.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/index.md b/TZ/index.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/notes.md b/TZ/notes.md
+old mode 100644
+new mode 100755
+diff --git a/TZ/structure.md b/TZ/structure.md
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\242\320\227 state_tracker.txt" "b/TZ/\320\242\320\227 state_tracker.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\242\320\227 \320\264\320\273\321\217 AD \321\201 \320\277\320\276\320\264\321\202\320\262\320\265\321\200\320\266\320\264\320\265\320\275\320\270\320\265\320\274.txt" "b/TZ/\320\242\320\227 \320\264\320\273\321\217 AD \321\201 \320\277\320\276\320\264\321\202\320\262\320\265\321\200\320\266\320\264\320\265\320\275\320\270\320\265\320\274.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\242\320\265\320\272\321\201\321\202\320\276\320\262\321\213\320\271 \320\264\320\276\320\272\321\203\320\274\320\265\320\275\321\202.txt" "b/TZ/\320\242\320\265\320\272\321\201\321\202\320\276\320\262\321\213\320\271 \320\264\320\276\320\272\321\203\320\274\320\265\320\275\321\202.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/README.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/README.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/changelog.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/changelog.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/files_to_update.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/files_to_update.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/implementation_order.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/implementation_order.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/index.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/index.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/notes.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/notes.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/structure.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/structure.md \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\320\272\320\276\320\277\320\270\320\270/\321\201\320\277\320\270\321\201\320\276\320\272 \321\204\320\260\320\271\320\273\320\276\320\262 \320\262 \320\242\320\227 \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/TZ/\320\272\320\276\320\277\320\270\320\270/\321\201\320\277\320\270\321\201\320\276\320\272 \321\204\320\260\320\271\320\273\320\276\320\262 \320\262 \320\242\320\227 \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/TZ/\321\201\320\277\320\270\321\201\320\276\320\272 \321\204\320\260\320\271\320\273\320\276\320\262 \320\262 \320\242\320\227" "b/TZ/\321\201\320\277\320\270\321\201\320\276\320\272 \321\204\320\260\320\271\320\273\320\276\320\262 \320\262 \320\242\320\227"
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/AD_Context_v20.10_PRESETS_XAUUSD_BTCUSD.txt b/archive/TV/AD/AD_Context_v20.10_PRESETS_XAUUSD_BTCUSD.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE AD Context v20.10.txt b/archive/TV/AD/LOCAL_AI_ENGINE AD Context v20.10.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_Guide(EN).pdf b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_Guide(EN).pdf
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine.txt b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10 (1).pine.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10.pine b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20.10.pine
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_10_Guide(RU).pdf b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_10_Guide(RU).pdf
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.pine b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.pine
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.txt b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_7.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_9.pine b/archive/TV/AD/LOCAL_AI_ENGINE_AD_Context_v20_9.pine
+old mode 100644
+new mode 100755
+diff --git "a/archive/TV/AD/\320\242\320\265\320\272\321\201\321\202\320\276\320\262\321\213\320\271 \320\264\320\276\320\272\321\203\320\274\320\265\320\275\321\202.txt" "b/archive/TV/AD/\320\242\320\265\320\272\321\201\321\202\320\276\320\262\321\213\320\271 \320\264\320\276\320\272\321\203\320\274\320\265\320\275\321\202.txt"
+old mode 100644
+new mode 100755
+diff --git "a/archive/TV/AD/\320\275\320\260\321\201\321\202\321\200\320\276\320\271\320\272\320\270  AD_Context_Settings_Cheatsheet.pdf" "b/archive/TV/AD/\320\275\320\260\321\201\321\202\321\200\320\276\320\271\320\272\320\270  AD_Context_Settings_Cheatsheet.pdf"
+old mode 100644
+new mode 100755
+diff --git "a/archive/TV/AD/\320\275\320\260\321\201\321\202\321\200\320\276\320\271\320\272\320\270  AD_Context_Settings_Cheatsheet.txt" "b/archive/TV/AD/\320\275\320\260\321\201\321\202\321\200\320\276\320\271\320\272\320\270  AD_Context_Settings_Cheatsheet.txt"
+old mode 100644
+new mode 100755
+diff --git "a/archive/TV/AD/\320\275\320\265 \320\277\321\200\320\276\320\262\320\265\321\200\320\265\320\275LOCAL_AI_ENGINE_AD_Context_v20_8_1.pine" "b/archive/TV/AD/\320\275\320\265 \320\277\321\200\320\276\320\262\320\265\321\200\320\265\320\275LOCAL_AI_ENGINE_AD_Context_v20_8_1.pine"
+old mode 100644
+new mode 100755
+diff --git "a/archive/TV/AD/\320\275\320\265 \320\277\321\200\320\276\320\262\320\265\321\200\321\217\320\273 LOCAL_AI_ENGINE_AD_Context_v20_8.pine" "b/archive/TV/AD/\320\275\320\265 \320\277\321\200\320\276\320\262\320\265\321\200\321\217\320\273 LOCAL_AI_ENGINE_AD_Context_v20_8.pine"
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.pine b/archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.pine
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.txt b/archive/TV/LOCAL_AI_ENGINE_AD_Context_v20_7.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/Liquidation HeatMap/Liquidation HeatMap.txt b/archive/TV/Liquidation HeatMap/Liquidation HeatMap.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/Liquidation HeatMap/StratifyTrade Liquidity.txt b/archive/TV/Liquidation HeatMap/StratifyTrade Liquidity.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/Liquidation HeatMap/indicator Meridian Liquidity Ledger.txt b/archive/TV/Liquidation HeatMap/indicator Meridian Liquidity Ledger.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/Zig Zag/Zig Zag Channels.txt b/archive/TV/Zig Zag/Zig Zag Channels.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/TV/Zig Zag/ZigZag Percent Reversal - Forecast - patterns - labels.txt b/archive/TV/Zig Zag/ZigZag Percent Reversal - Forecast - patterns - labels.txt
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/ZigZag.rar b/archive/archivezigzag_v1/ZigZag.rar
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/README.md b/archive/archivezigzag_v1/zigzag_v1/README.md
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/__init__.py b/archive/archivezigzag_v1/zigzag_v1/__init__.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/benchmark_zigzag.py b/archive/archivezigzag_v1/zigzag_v1/benchmark_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/compare_zigzag.py b/archive/archivezigzag_v1/zigzag_v1/compare_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/example_call.py b/archive/archivezigzag_v1/zigzag_v1/example_call.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/run_compare.bat b/archive/archivezigzag_v1/zigzag_v1/run_compare.bat
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/structural_zigzag.py b/archive/archivezigzag_v1/zigzag_v1/structural_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/structure_levels_test.py b/archive/archivezigzag_v1/zigzag_v1/structure_levels_test.py
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/zigzag_compare.json b/archive/archivezigzag_v1/zigzag_v1/zigzag_compare.json
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/zigzag_compare.md b/archive/archivezigzag_v1/zigzag_v1/zigzag_compare.md
+old mode 100644
+new mode 100755
+diff --git a/archive/archivezigzag_v1/zigzag_v1/zigzag_forecast_test.py b/archive/archivezigzag_v1/zigzag_v1/zigzag_forecast_test.py
+old mode 100644
+new mode 100755
+diff --git "a/archive/archivezigzag_v1/zigzag_v1/\320\272\320\276\320\264 \320\267\320\260\320\277\321\203\321\201\320\272\320\260 \321\201 \320\264\320\266\320\276\320\271\321\201\320\275.txt" "b/archive/archivezigzag_v1/zigzag_v1/\320\272\320\276\320\264 \320\267\320\260\320\277\321\203\321\201\320\272\320\260 \321\201 \320\264\320\266\320\276\320\271\321\201\320\275.txt"
+old mode 100644
+new mode 100755
+diff --git "a/archive/archivezigzag_v1/\320\272\320\276\320\264 \320\267\320\260\320\277\321\203\321\201\320\272\320\260 \321\201 \320\264\320\266\320\276\320\271\321\201\320\275.txt" "b/archive/archivezigzag_v1/\320\272\320\276\320\264 \320\267\320\260\320\277\321\203\321\201\320\272\320\260 \321\201 \320\264\320\266\320\276\320\271\321\201\320\275.txt"
+old mode 100644
+new mode 100755
+diff --git a/archive/reports/btc_compare.json b/archive/reports/btc_compare.json
+old mode 100644
+new mode 100755
+diff --git a/archive/reports/btc_compare.md b/archive/reports/btc_compare.md
+old mode 100644
+new mode 100755
+diff --git a/archive/reports/zigzag_compare.json b/archive/reports/zigzag_compare.json
+old mode 100644
+new mode 100755
+diff --git a/archive/reports/zigzag_compare.md b/archive/reports/zigzag_compare.md
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/README.md b/archive/zigzag_backup_20260511_202610/README.md
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/auto_chart.py b/archive/zigzag_backup_20260511_202610/auto_chart.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/db.py b/archive/zigzag_backup_20260511_202610/db.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/handlers.py b/archive/zigzag_backup_20260511_202610/handlers.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/main.py b/archive/zigzag_backup_20260511_202610/main.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/ollama_client.py b/archive/zigzag_backup_20260511_202610/ollama_client.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/scheduler.py b/archive/zigzag_backup_20260511_202610/scheduler.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_20260511_202610/utils.py b/archive/zigzag_backup_20260511_202610/utils.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/README.md b/archive/zigzag_backup_before_patch/README.md
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/__init__.py b/archive/zigzag_backup_before_patch/__init__.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/benchmark_zigzag.py b/archive/zigzag_backup_before_patch/benchmark_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/compare_zigzag.py b/archive/zigzag_backup_before_patch/compare_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/structural_zigzag.py b/archive/zigzag_backup_before_patch/structural_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_backup_before_patch/structure_levels_test.py b/archive/zigzag_backup_before_patch/structure_levels_test.py
+old mode 100644
+new mode 100755
+diff --git a/archive/zigzag_v1/README.md b/archive/zigzag_v1/README.md
+old mode 100644
+new mode 100755
+diff --git a/core/__init__.py b/core/__init__.py
+old mode 100644
+new mode 100755
+diff --git a/core/auto_chart.py b/core/auto_chart.py
+old mode 100644
+new mode 100755
+diff --git a/core/backups/auto_chart_2026-06-01_16-38.py b/core/backups/auto_chart_2026-06-01_16-38.py
+old mode 100644
+new mode 100755
+diff --git a/core/binance_metrics.py b/core/binance_metrics.py
+old mode 100644
+new mode 100755
+diff --git a/core/data_provider.py b/core/data_provider.py
+old mode 100644
+new mode 100755
+diff --git a/core/db.py b/core/db.py
+old mode 100644
+new mode 100755
+diff --git a/core/liquidity_heatmap.py b/core/liquidity_heatmap.py
+old mode 100644
+new mode 100755
+diff --git a/core/liquidity_magnet/__init__.py b/core/liquidity_magnet/__init__.py
+old mode 100644
+new mode 100755
+diff --git a/core/liquidity_magnet/liquidity_magnet.py b/core/liquidity_magnet/liquidity_magnet.py
+old mode 100644
+new mode 100755
+diff --git a/core/liquidity_magnet/test_liquidity_magnet.py b/core/liquidity_magnet/test_liquidity_magnet.py
+old mode 100644
+new mode 100755
+diff --git a/core/logging_setup.py b/core/logging_setup.py
+old mode 100644
+new mode 100755
+diff --git a/core/multi_symbol.py b/core/multi_symbol.py
+old mode 100644
+new mode 100755
+diff --git a/core/scheduler.py b/core/scheduler.py
+old mode 100644
+new mode 100755
+diff --git a/core/state_tracker.py b/core/state_tracker.py
+old mode 100644
+new mode 100755
+diff --git a/core/utils.py b/core/utils.py
+old mode 100644
+new mode 100755
+diff --git a/core/volume_filters.py b/core/volume_filters.py
+old mode 100644
+new mode 100755
+diff --git a/core/volume_profile.py b/core/volume_profile.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/README.md b/core/zigzag/README.md
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/__init__.py b/core/zigzag/__init__.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/benchmark_zigzag.py b/core/zigzag/benchmark_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/compare_zigzag.py b/core/zigzag/compare_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/example_call.py b/core/zigzag/example_call.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/run_compare.bat b/core/zigzag/run_compare.bat
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/structural_zigzag.py b/core/zigzag/structural_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/core/zigzag/structure_levels_test.py b/core/zigzag/structure_levels_test.py
+old mode 100644
+new mode 100755
+diff --git a/docker-compose.yml b/docker-compose.yml
+old mode 100644
+new mode 100755
+diff --git a/docs/AI_AGENT_PROMPT.md b/docs/AI_AGENT_PROMPT.md
+old mode 100644
+new mode 100755
+diff --git a/docs/AI_AGENT_SKILL.md b/docs/AI_AGENT_SKILL.md
+old mode 100644
+new mode 100755
+diff --git a/docs/AI_AUDIT_PROGRESS.md b/docs/AI_AUDIT_PROGRESS.md
+old mode 100644
+new mode 100755
+diff --git a/docs/AI_AUDIT_REVIEW.md b/docs/AI_AUDIT_REVIEW.md
+old mode 100644
+new mode 100755
+diff --git a/docs/hermes/2026-07-13_session-report.md b/docs/hermes/2026-07-13_session-report.md
+old mode 100644
+new mode 100755
+diff --git a/docs/hermes/CONTEXT.md b/docs/hermes/CONTEXT.md
+old mode 100644
+new mode 100755
+diff --git a/docs/hermes/README.md b/docs/hermes/README.md
+old mode 100644
+new mode 100755
+diff --git "a/docs/\320\262\320\270\321\200\321\202\321\203\320\260\320\273.\320\276\320\272\321\200\321\203\320\266.txt" "b/docs/\320\262\320\270\321\200\321\202\321\203\320\260\320\273.\320\276\320\272\321\200\321\203\320\266.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/01.06.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/01.06.2026.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/02.06.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/02.06.2026.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/11.05.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/11.05.2026.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/12.05.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/12.05.2026.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/13.05.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/13.05.2026.txt"
+old mode 100644
+new mode 100755
+diff --git "a/docs/\321\201\320\262\320\276\320\264\320\272\320\270/15.05.2026.txt" "b/docs/\321\201\320\262\320\276\320\264\320\272\320\270/15.05.2026.txt"
+old mode 100644
+new mode 100755
+diff --git a/exchange/README.md b/exchange/README.md
+old mode 100644
+new mode 100755
+diff --git a/exchange/inbox/.gitkeep b/exchange/inbox/.gitkeep
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\264\320\276\320\277\320\270\320\273-\320\277\320\276\321\201\320\273\320\265-\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\320\270.md" "b/exchange/inbox/2026-07-12_\320\264\320\276\320\277\320\270\320\273-\320\277\320\276\321\201\320\273\320\265-\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\320\270.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-p3-2-zigzag-p3-4-ab-test.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-p3-2-zigzag-p3-4-ab-test.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-llm-\320\277\321\200\320\276\320\263\320\276\320\275.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\320\275\320\270\320\265-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-llm-\320\277\321\200\320\276\320\263\320\276\320\275.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\321\207\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm.md" "b/exchange/inbox/2026-07-12_\320\267\320\260\320\264\320\260\321\207\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-12_\320\277\320\276\320\273\320\275\321\213\320\271-\321\206\320\270\320\272\320\273-\320\277\321\200\320\276\320\262\320\265\321\200\320\272\320\270.md" "b/exchange/inbox/2026-07-12_\320\277\320\276\320\273\320\275\321\213\320\271-\321\206\320\270\320\272\320\273-\320\277\321\200\320\276\320\262\320\265\321\200\320\272\320\270.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-13_\320\260\320\262\321\202\320\276-\321\200\320\265\320\266\320\270\320\274-\321\202\320\276\320\273\321\214\320\272\320\276-\320\262\320\265\320\261.md" "b/exchange/inbox/2026-07-13_\320\260\320\262\321\202\320\276-\321\200\320\265\320\266\320\270\320\274-\321\202\320\276\320\273\321\214\320\272\320\276-\320\262\320\265\320\261.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-13_\320\260\320\262\321\202\320\276-\321\200\320\265\320\266\320\270\320\274-\321\202\320\276\320\273\321\214\320\272\320\276-\321\201\320\270\320\263\320\275\320\260\320\273\321\213.md" "b/exchange/inbox/2026-07-13_\320\260\320\262\321\202\320\276-\321\200\320\265\320\266\320\270\320\274-\321\202\320\276\320\273\321\214\320\272\320\276-\321\201\320\270\320\263\320\275\320\260\320\273\321\213.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-13_\320\262\320\265\320\261-\320\264\320\260\321\210\320\261\320\276\321\200\320\264-\320\270-\320\260\320\262\321\202\320\276\320\267\320\260\320\277\321\203\321\201\320\272.md" "b/exchange/inbox/2026-07-13_\320\262\320\265\320\261-\320\264\320\260\321\210\320\261\320\276\321\200\320\264-\320\270-\320\260\320\262\321\202\320\276\320\267\320\260\320\277\321\203\321\201\320\272.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/inbox/2026-07-13_\320\267\320\260\320\277\321\203\321\201\320\272-\320\261\320\276\321\202\320\260-\320\270-\320\276\321\206\320\265\320\275\320\272\320\260.md" "b/exchange/inbox/2026-07-13_\320\267\320\260\320\277\321\203\321\201\320\272-\320\261\320\276\321\202\320\260-\320\270-\320\276\321\206\320\265\320\275\320\272\320\260.md"
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/.gitkeep b/exchange/outbox/.gitkeep
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-12_full-cycle-verification.md b/exchange/outbox/2026-07-12_full-cycle-verification.md
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_p1-p2-\321\200\320\265\320\260\320\273\320\270\320\267\320\260\321\206\320\270\321\217-\320\270-\321\206\320\270\320\272\320\273.md" "b/exchange/outbox/2026-07-12_p1-p2-\321\200\320\265\320\260\320\273\320\270\320\267\320\260\321\206\320\270\321\217-\320\270-\321\206\320\270\320\272\320\273.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_p2-3-self-consistency-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-\320\277\321\200\320\276\320\263\320\276\320\275.md" "b/exchange/outbox/2026-07-12_p2-3-self-consistency-\320\264\320\262\320\276\320\271\320\275\320\276\320\271-\320\277\321\200\320\276\320\263\320\276\320\275.md"
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-12_p2-logging-docker-types.md b/exchange/outbox/2026-07-12_p2-logging-docker-types.md
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_p3-2-zigzag-\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202-\320\272\320\276\320\274\320\277\320\260\320\272\321\202.md" "b/exchange/outbox/2026-07-12_p3-2-zigzag-\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202-\320\272\320\276\320\274\320\277\320\260\320\272\321\202.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_p3-4-ab-test-\320\277\321\200\320\276\320\274\320\277\321\202\320\276\320\262.md" "b/exchange/outbox/2026-07-12_p3-4-ab-test-\320\277\321\200\320\276\320\274\320\277\321\202\320\276\320\262.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_super-z-\320\276\321\202\321\207\321\221\321\202-\320\263\320\265\321\200\320\274\320\265\321\201\321\203.md" "b/exchange/outbox/2026-07-12_super-z-\320\276\321\202\321\207\321\221\321\202-\320\263\320\265\321\200\320\274\320\265\321\201\321\203.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\262\320\260\320\273\320\270\320\264\320\260\321\206\320\270\321\217-\320\277\321\200\320\276\320\263\320\275\320\276\320\267\320\260.md" "b/exchange/outbox/2026-07-12_\320\262\320\260\320\273\320\270\320\264\320\260\321\206\320\270\321\217-\320\277\321\200\320\276\320\263\320\275\320\276\320\267\320\260.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\321\217-p1-p2-\321\200\320\265\320\263\321\200\320\265\321\201\321\201\320\270\321\217.md" "b/exchange/outbox/2026-07-12_\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\321\217-p1-p2-\321\200\320\265\320\263\321\200\320\265\321\201\321\201\320\270\321\217.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\263\320\265\321\200\320\274\320\265\321\201-\320\276\321\202\320\262\320\265\321\202-super-z.md" "b/exchange/outbox/2026-07-12_\320\263\320\265\321\200\320\274\320\265\321\201-\320\276\321\202\320\262\320\265\321\202-super-z.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm-\320\270\320\275\321\202\320\265\320\263\321\200\320\260\321\206\320\270\321\217.md" "b/exchange/outbox/2026-07-12_\320\276\320\261\320\273\320\260\321\207\320\275\320\260\321\217-llm-\320\270\320\275\321\202\320\265\320\263\321\200\320\260\321\206\320\270\321\217.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\277\320\273\320\260\320\275-\321\203\320\273\321\203\321\207\321\210\320\265\320\275\320\270\321\217-\321\201\320\270\320\263\320\275\320\260\320\273\320\276\320\262.md" "b/exchange/outbox/2026-07-12_\320\277\320\273\320\260\320\275-\321\203\320\273\321\203\321\207\321\210\320\265\320\275\320\270\321\217-\321\201\320\270\320\263\320\275\320\260\320\273\320\276\320\262.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-12_\320\277\320\276\320\273\320\275\321\213\320\271-\321\206\320\270\320\272\320\273-\320\277\321\200\320\276\320\263\320\275\320\276\320\267-btc.md" "b/exchange/outbox/2026-07-12_\320\277\320\276\320\273\320\275\321\213\320\271-\321\206\320\270\320\272\320\273-\320\277\321\200\320\276\320\263\320\275\320\276\320\267-btc.md"
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-13_btc-eth-bot-vs-web.md b/exchange/outbox/2026-07-13_btc-eth-bot-vs-web.md
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-13_fallback-zigzag-nesting-fix.md b/exchange/outbox/2026-07-13_fallback-zigzag-nesting-fix.md
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-13_fix-d1-zones-web-dashboard.md b/exchange/outbox/2026-07-13_fix-d1-zones-web-dashboard.md
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_vp-zigzag-overwrite-\320\261\320\260\320\263.md" "b/exchange/outbox/2026-07-13_vp-zigzag-overwrite-\320\261\320\260\320\263.md"
+old mode 100644
+new mode 100755
+diff --git a/exchange/outbox/2026-07-13_xaut-zone-above-price-btc-d1=h4.md b/exchange/outbox/2026-07-13_xaut-zone-above-price-btc-d1=h4.md
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\262\321\201\320\265-\320\267\320\276\320\275\321\213-\320\277\320\276\320\264\321\202\321\217\320\275\321\203\321\202\321\213-\320\270\320\267-grafika.md" "b/exchange/outbox/2026-07-13_\320\262\321\201\320\265-\320\267\320\276\320\275\321\213-\320\277\320\276\320\264\321\202\321\217\320\275\321\203\321\202\321\213-\320\270\320\267-grafika.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\264\320\276\320\277\320\270\320\273-\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\321\217.md" "b/exchange/outbox/2026-07-13_\320\264\320\276\320\277\320\270\320\273-\320\262\320\265\321\200\320\270\321\204\320\270\320\272\320\260\321\206\320\270\321\217.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\267\320\260\320\277\321\203\321\201\320\272-\321\200\320\265\320\267\321\203\320\273\321\214\321\202\320\260\321\202.md" "b/exchange/outbox/2026-07-13_\320\267\320\260\320\277\321\203\321\201\320\272-\321\200\320\265\320\267\321\203\320\273\321\214\321\202\320\260\321\202.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\276\321\202\321\207\321\221\321\202-\320\276\320\261\320\273\320\260\320\272\320\276-vs-\320\273\320\276\320\272\320\260\320\273\321\214\320\275\320\260\321\217.md" "b/exchange/outbox/2026-07-13_\320\276\321\202\321\207\321\221\321\202-\320\276\320\261\320\273\320\260\320\272\320\276-vs-\320\273\320\276\320\272\320\260\320\273\321\214\320\275\320\260\321\217.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\262\321\201\320\265-\320\267\320\260\320\274\320\265\321\207\320\260\320\275\320\270\321\217-\320\277\320\276-\321\201\321\203\321\211\320\265\321\201\321\202\320\262\321\203.md" "b/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\262\321\201\320\265-\320\267\320\260\320\274\320\265\321\207\320\260\320\275\320\270\321\217-\320\277\320\276-\321\201\321\203\321\211\320\265\321\201\321\202\320\262\321\203.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\267\320\260\320\274\320\265\321\207\320\260\320\275\320\270\321\217-btc-eth-xaut.md" "b/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\267\320\260\320\274\320\265\321\207\320\260\320\275\320\270\321\217-btc-eth-xaut.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\272\320\275\320\276\320\277\320\272\320\270-\320\260\320\262\321\202\320\276\321\201\320\272\320\260\320\275-\320\274\321\203\320\273\321\214\321\202\320\270.md" "b/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\272\320\275\320\276\320\277\320\272\320\270-\320\260\320\262\321\202\320\276\321\201\320\272\320\260\320\275-\320\274\321\203\320\273\321\214\321\202\320\270.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\277\321\200\320\276\320\261\320\273\320\265\320\274\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\276\320\271-llm.md" "b/exchange/outbox/2026-07-13_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\277\321\200\320\276\320\261\320\273\320\265\320\274\320\260-\320\276\320\261\320\273\320\260\321\207\320\275\320\276\320\271-llm.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-13_\321\201\321\200\320\260\320\262\320\275\320\265\320\275\320\270\320\265-\321\203\321\200\320\276\320\262\320\275\320\265\320\271-\321\200\320\265\320\272\320\276\320\274\320\265\320\275\320\264\320\260\321\206\320\270\320\270.md" "b/exchange/outbox/2026-07-13_\321\201\321\200\320\260\320\262\320\275\320\265\320\275\320\270\320\265-\321\203\321\200\320\276\320\262\320\275\320\265\320\271-\321\200\320\265\320\272\320\276\320\274\320\265\320\275\320\264\320\260\321\206\320\270\320\270.md"
+old mode 100644
+new mode 100755
+diff --git "a/exchange/outbox/2026-07-14_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\267\320\276\320\275\321\213-\320\277\321\200\320\270\320\273\320\270\320\277\320\273\320\270-\320\277\320\276\321\201\320\273\320\265-cap-removed.md" "b/exchange/outbox/2026-07-14_\320\277\320\270\321\201\321\214\320\274\320\276-z-\320\267\320\276\320\275\321\213-\320\277\321\200\320\270\320\273\320\270\320\277\320\273\320\270-\320\277\320\276\321\201\320\273\320\265-cap-removed.md"
+old mode 100644
+new mode 100755
+diff --git a/main.py b/main.py
+old mode 100644
+new mode 100755
+diff --git a/mypy.ini b/mypy.ini
+old mode 100644
+new mode 100755
+diff --git a/requirements.txt b/requirements.txt
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_15m_candidates.json b/results/BTCUSDT_15m_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_15m_err.txt b/results/BTCUSDT_15m_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_1d_candidates.json b/results/BTCUSDT_1d_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_1d_err.txt b/results/BTCUSDT_1d_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_1h_candidates.json b/results/BTCUSDT_1h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_1h_err.txt b/results/BTCUSDT_1h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_4h_candidates.json b/results/BTCUSDT_4h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/BTCUSDT_4h_err.txt b/results/BTCUSDT_4h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_15m_candidates.json b/results/ETHUSDT_15m_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_15m_err.txt b/results/ETHUSDT_15m_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_1d_candidates.json b/results/ETHUSDT_1d_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_1d_err.txt b/results/ETHUSDT_1d_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_1h_candidates.json b/results/ETHUSDT_1h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_1h_err.txt b/results/ETHUSDT_1h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_4h_candidates.json b/results/ETHUSDT_4h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/ETHUSDT_4h_err.txt b/results/ETHUSDT_4h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_15m_candidates.json b/results/XAUTUSDT_15m_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_15m_err.txt b/results/XAUTUSDT_15m_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_1d_candidates.json b/results/XAUTUSDT_1d_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_1d_err.txt b/results/XAUTUSDT_1d_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_1h_candidates.json b/results/XAUTUSDT_1h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_1h_err.txt b/results/XAUTUSDT_1h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_4h_candidates.json b/results/XAUTUSDT_4h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/XAUTUSDT_4h_err.txt b/results/XAUTUSDT_4h_err.txt
+old mode 100644
+new mode 100755
+diff --git a/results/all_candidates_label_comparison.csv b/results/all_candidates_label_comparison.csv
+old mode 100644
+new mode 100755
+diff --git a/results/all_candidates_label_fixed.csv b/results/all_candidates_label_fixed.csv
+old mode 100644
+new mode 100755
+diff --git a/results/all_candidates_times.csv b/results/all_candidates_times.csv
+old mode 100644
+new mode 100755
+diff --git a/results/all_candidates_with_label.csv b/results/all_candidates_with_label.csv
+old mode 100644
+new mode 100755
+diff --git a/results/autotune_best_params.json b/results/autotune_best_params.json
+old mode 100644
+new mode 100755
+diff --git a/results/autotune_summary.json b/results/autotune_summary.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/BTCUSDT_15m_candidates.json b/results/backup/BTCUSDT_15m_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/BTCUSDT_1d_candidates.json b/results/backup/BTCUSDT_1d_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/BTCUSDT_1h_candidates.json b/results/backup/BTCUSDT_1h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/BTCUSDT_4h_candidates.json b/results/backup/BTCUSDT_4h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/XAUTUSDT_15m_candidates.json b/results/backup/XAUTUSDT_15m_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/XAUTUSDT_1d_candidates.json b/results/backup/XAUTUSDT_1d_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/XAUTUSDT_1h_candidates.json b/results/backup/XAUTUSDT_1h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/backup/XAUTUSDT_4h_candidates.json b/results/backup/XAUTUSDT_4h_candidates.json
+old mode 100644
+new mode 100755
+diff --git a/results/diag_log.txt b/results/diag_log.txt
+old mode 100644
+new mode 100755
+diff --git "a/results/unified_dataset \342\200\224 \320\272\320\276\320\277\320\270\321\217.csv" "b/results/unified_dataset \342\200\224 \320\272\320\276\320\277\320\270\321\217.csv"
+old mode 100644
+new mode 100755
+diff --git a/results/unified_dataset.csv b/results/unified_dataset.csv
+old mode 100644
+new mode 100755
+diff --git a/results/unified_dataset_v10.csv b/results/unified_dataset_v10.csv
+old mode 100644
+new mode 100755
+diff --git a/results/unified_dataset_v9.csv b/results/unified_dataset_v9.csv
+old mode 100644
+new mode 100755
+diff --git a/scripts/generate_unified_dataset_fixed.ps1 b/scripts/generate_unified_dataset_fixed.ps1
+old mode 100644
+new mode 100755
+diff --git a/start_bot.bat b/start_bot.bat
+old mode 100644
+new mode 100755
+diff --git a/start_bot.sh b/start_bot.sh
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/README_AD_CLEANUP.md b/tests/AD/README_AD_CLEANUP.md
+old mode 100644
+new mode 100755
+diff --git "a/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202 \342\200\224 \320\272\320\276\320\277\320\270\321\217.pdf" "b/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202 \342\200\224 \320\272\320\276\320\277\320\270\321\217.pdf"
+old mode 100644
+new mode 100755
+diff --git "a/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202 \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt" "b/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202 \342\200\224 \320\272\320\276\320\277\320\270\321\217.txt"
+old mode 100644
+new mode 100755
+diff --git "a/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202.txt" "b/tests/AD/cheatsheet/AD\342\200\221\320\272\320\276\320\275\321\202\320\265\320\272\321\201\321\202.txt"
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/data/raw/unified_dataset.csv b/tests/AD/data/raw/unified_dataset.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/diag_candidates.py b/tests/AD/diag_candidates.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/docs/unified_dataset_fields.md b/tests/AD/docs/unified_dataset_fields.md
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/docs_unified_dataset_fields.md b/tests/AD/docs_unified_dataset_fields.md
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/logs/LOCAL_AI_ENGINE AD Context.txt b/tests/AD/logs/LOCAL_AI_ENGINE AD Context.txt
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/other/move_and_manifest_fixed.ps1 b/tests/AD/other/move_and_manifest_fixed.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/other/patch_fix_indent_return.ps1 b/tests/AD/other/patch_fix_indent_return.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/other/patch_insert_return.ps1 b/tests/AD/other/patch_insert_return.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/other/reorganize_repo.ps1 b/tests/AD/other/reorganize_repo.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/pine/LOCAL_AI_ENGINE_AD_Context_v20.3.pine b/tests/AD/pine/LOCAL_AI_ENGINE_AD_Context_v20.3.pine
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_15m.json b/tests/AD/results/BTCUSDT_15m.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_15m_full.json b/tests/AD/results/BTCUSDT_15m_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_15m_summary.json b/tests/AD/results/BTCUSDT_15m_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1d.json b/tests/AD/results/BTCUSDT_1d.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1d_full.json b/tests/AD/results/BTCUSDT_1d_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1d_summary.json b/tests/AD/results/BTCUSDT_1d_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1h.json b/tests/AD/results/BTCUSDT_1h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1h_full.json b/tests/AD/results/BTCUSDT_1h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_1h_summary.json b/tests/AD/results/BTCUSDT_1h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_4h.json b/tests/AD/results/BTCUSDT_4h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_4h_full.json b/tests/AD/results/BTCUSDT_4h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/BTCUSDT_4h_summary.json b/tests/AD/results/BTCUSDT_4h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_15m.json b/tests/AD/results/ETHUSDT_15m.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_15m_full.json b/tests/AD/results/ETHUSDT_15m_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_15m_summary.json b/tests/AD/results/ETHUSDT_15m_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1d.json b/tests/AD/results/ETHUSDT_1d.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1d_full.json b/tests/AD/results/ETHUSDT_1d_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1d_full_postfix.json b/tests/AD/results/ETHUSDT_1d_full_postfix.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1d_summary.json b/tests/AD/results/ETHUSDT_1d_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1h.json b/tests/AD/results/ETHUSDT_1h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1h_full.json b/tests/AD/results/ETHUSDT_1h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_1h_summary.json b/tests/AD/results/ETHUSDT_1h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_4h.json b/tests/AD/results/ETHUSDT_4h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_4h_full.json b/tests/AD/results/ETHUSDT_4h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/ETHUSDT_4h_summary.json b/tests/AD/results/ETHUSDT_4h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_15m.json b/tests/AD/results/XAUTUSDT_15m.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_15m_full.json b/tests/AD/results/XAUTUSDT_15m_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_15m_summary.json b/tests/AD/results/XAUTUSDT_15m_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1d.json b/tests/AD/results/XAUTUSDT_1d.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1d_full.json b/tests/AD/results/XAUTUSDT_1d_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1d_summary.json b/tests/AD/results/XAUTUSDT_1d_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1h.json b/tests/AD/results/XAUTUSDT_1h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1h_full.json b/tests/AD/results/XAUTUSDT_1h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_1h_summary.json b/tests/AD/results/XAUTUSDT_1h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_4h.json b/tests/AD/results/XAUTUSDT_4h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_4h_full.json b/tests/AD/results/XAUTUSDT_4h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/XAUTUSDT_4h_summary.json b/tests/AD/results/XAUTUSDT_4h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/data_btc_1h_full.json b/tests/AD/results/data_btc_1h_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/data_btc_1h_summary.json b/tests/AD/results/data_btc_1h_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/diag_simple_BTCUSDT_1d.json b/tests/AD/results/diag_simple_BTCUSDT_1d.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/diag_simple_BTCUSDT_1h.json b/tests/AD/results/diag_simple_BTCUSDT_1h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/exp2_traces_summary.json b/tests/AD/results/exp2_traces_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/result.json b/tests/AD/results/result.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/result_btc_1h.json b/tests/AD/results/result_btc_1h.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/result_full_15m.json b/tests/AD/results/result_full_15m.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/summary_all.json b/tests/AD/results/summary_all.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/summary_all_20260517144151.json b/tests/AD/results/summary_all_20260517144151.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/trace_15m_full.json b/tests/AD/results/trace_15m_full.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/trace_15m_summary.json b/tests/AD/results/trace_15m_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/traces_summary.json b/tests/AD/results/traces_summary.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/traces_summary_after_patch.json b/tests/AD/results/traces_summary_after_patch.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/traces_summary_fix_minflowabs.json b/tests/AD/results/traces_summary_fix_minflowabs.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/traces_summary_fix_minflowabs_v2.json b/tests/AD/results/traces_summary_fix_minflowabs_v2.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/traces_summary_tuned.json b/tests/AD/results/traces_summary_tuned.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_summary_1h_20260517172406.json b/tests/AD/results/tune_summary_1h_20260517172406.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_summary_1h_20260517172647.json b/tests/AD/results/tune_summary_1h_20260517172647.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_summary_1h_20260517174214.json b/tests/AD/results/tune_summary_1h_20260517174214.json
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_table_1h_20260517172406.csv b/tests/AD/results/tune_table_1h_20260517172406.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_table_1h_20260517172647.csv b/tests/AD/results/tune_table_1h_20260517172647.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/results/tune_table_1h_20260517174214.csv b/tests/AD/results/tune_table_1h_20260517174214.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/check_compute_full.py b/tests/AD/scripts/check_compute_full.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/clean_ad_dataset.py b/tests/AD/scripts/clean_ad_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/diag_candidates.py b/tests/AD/scripts/diag_candidates.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/diag_pivots.py b/tests/AD/scripts/diag_pivots.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/diag_simple.py b/tests/AD/scripts/diag_simple.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/generate_unified_dataset_fixed.ps1 b/tests/AD/scripts/generate_unified_dataset_fixed.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/indicator_test.py b/tests/AD/scripts/indicator_test.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/indicator_test_full.py b/tests/AD/scripts/indicator_test_full.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/indicator_test_full_trace.py b/tests/AD/scripts/indicator_test_full_trace.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/inspect_trace.py b/tests/AD/scripts/inspect_trace.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/run_tests.ps1 b/tests/AD/scripts/run_tests.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/run_trace.ps1 b/tests/AD/scripts/run_trace.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/run_tuner.ps1 b/tests/AD/scripts/run_tuner.ps1
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/test_prefixes.py b/tests/AD/scripts/test_prefixes.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/scripts/validate_ad_dataset.py b/tests/AD/scripts/validate_ad_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/BTCUSDT_15m_trace.csv b/tests/AD/traces/BTCUSDT_15m_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/BTCUSDT_1d_trace.csv b/tests/AD/traces/BTCUSDT_1d_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/BTCUSDT_1h_trace.csv b/tests/AD/traces/BTCUSDT_1h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/BTCUSDT_4h_trace.csv b/tests/AD/traces/BTCUSDT_4h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_15m_trace.csv b/tests/AD/traces/ETHUSDT_15m_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_1d_trace.csv b/tests/AD/traces/ETHUSDT_1d_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_1d_trace_postpatch.csv b/tests/AD/traces/ETHUSDT_1d_trace_postpatch.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_1d_trace_regen.csv b/tests/AD/traces/ETHUSDT_1d_trace_regen.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_1h_trace.csv b/tests/AD/traces/ETHUSDT_1h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/ETHUSDT_4h_trace.csv b/tests/AD/traces/ETHUSDT_4h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/XAUTUSDT_15m_trace.csv b/tests/AD/traces/XAUTUSDT_15m_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/XAUTUSDT_1d_trace.csv b/tests/AD/traces/XAUTUSDT_1d_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/XAUTUSDT_1h_trace.csv b/tests/AD/traces/XAUTUSDT_1h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/XAUTUSDT_4h_trace.csv b/tests/AD/traces/XAUTUSDT_4h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/data_btc_1h_trace.csv b/tests/AD/traces/data_btc_1h_trace.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD/traces/trace_15m.csv b/tests/AD/traces/trace_15m.csv
+old mode 100644
+new mode 100755
+diff --git a/tests/AD_backup_old/data/raw/unified_dataset.csv b/tests/AD_backup_old/data/raw/unified_dataset.csv
+old mode 100644
+new mode 100755
+diff --git "a/tests/liquidity_old/Liquidity Magnet [FEELS] \342\200\224 \320\230\320\275\320\264\320\270\320\272\320\260\321\202\320\276\321\200 \320\276\321\202 FeelsStrategy.pdf" "b/tests/liquidity_old/Liquidity Magnet [FEELS] \342\200\224 \320\230\320\275\320\264\320\270\320\272\320\260\321\202\320\276\321\200 \320\276\321\202 FeelsStrategy.pdf"
+old mode 100644
+new mode 100755
+diff --git "a/tests/liquidity_old/\320\234\320\260\320\263\320\275\320\270\321\202 \320\273\320\270\320\272\320\262\320\270\320\264\320\275\320\276\321\201\321\202\320\270 [FEELS].txt" "b/tests/liquidity_old/\320\234\320\260\320\263\320\275\320\270\321\202 \320\273\320\270\320\272\320\262\320\270\320\264\320\275\320\276\321\201\321\202\320\270 [FEELS].txt"
+old mode 100644
+new mode 100755
+diff --git a/tests/test_backtest_direction.py b/tests/test_backtest_direction.py
+old mode 100644
+new mode 100755
+diff --git a/tests/test_cloud_ai.py b/tests/test_cloud_ai.py
+old mode 100644
+new mode 100755
+diff --git a/tests/test_compare_zigzag.py b/tests/test_compare_zigzag.py
+old mode 100644
+new mode 100755
+diff --git a/tests/test_local_vision.py b/tests/test_local_vision.py
+old mode 100644
+new mode 100755
+diff --git a/tests/zigzag_old/zigzag_forecast_test.py b/tests/zigzag_old/zigzag_forecast_test.py
+old mode 100644
+new mode 100755
+diff --git a/tests/zigzag_old/zigzag_multi_compare.json b/tests/zigzag_old/zigzag_multi_compare.json
+old mode 100644
+new mode 100755
+diff --git a/tests/zigzag_old/zigzag_multi_compare.md b/tests/zigzag_old/zigzag_multi_compare.md
+old mode 100644
+new mode 100755
+diff --git a/tools/autotune_diag.py b/tools/autotune_diag.py
+old mode 100644
+new mode 100755
+diff --git a/tools/extract_best.py b/tools/extract_best.py
+old mode 100644
+new mode 100755
+diff --git a/tools/generate_unified_dataset.ps1 b/tools/generate_unified_dataset.ps1
+old mode 100644
+new mode 100755
+diff --git a/tools/normalize_dataset.py b/tools/normalize_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tools/refactor_unified_dataset.py b/tools/refactor_unified_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tools/summary_results.py b/tools/summary_results.py
+old mode 100644
+new mode 100755
+diff --git a/tools/test_dataset.py b/tools/test_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tools/transform_ad_dataset.py b/tools/transform_ad_dataset.py
+old mode 100644
+new mode 100755
+diff --git a/tools/unified_dataset.csv b/tools/unified_dataset.csv
+old mode 100644
+new mode 100755
+diff --git a/tools/v10generate_unified_dataset.ps1 b/tools/v10generate_unified_dataset.ps1
+old mode 100644
+new mode 100755
+diff --git a/tools/v11generate_unified_dataset.ps1 b/tools/v11generate_unified_dataset.ps1
+old mode 100644
+new mode 100755
+diff --git a/tools/v9generate_unified_dataset.ps1 b/tools/v9generate_unified_dataset.ps1
+old mode 100644
+new mode 100755
+diff --git a/tools/validate_ad_dataset.py b/tools/validate_ad_dataset.py
+old mode 100644
+new mode 100755

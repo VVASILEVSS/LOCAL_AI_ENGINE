@@ -1,0 +1,1208 @@
+     1→"""
+     2→LOCAL_AI_ENGINE — Dashboard Bot + Web Dashboard
+     3→Бот: @my_hermes_lokal_ai_bot (cloud LLM — Alibaba GLM)
+     4→Основной бот: @KXROBObot (local LLM — LM Studio)
+     5→Запуск: python web_dashboard.py → http://localhost:5000
+     6→
+     7→Функционал — полная копия KXROBO (core/handlers.py) через cloud LLM + автоскан.
+     8→"""
+     9→from __future__ import annotations
+    10→
+    11→import io
+    12→import re
+    13→import os
+    14→import sys
+    15→import threading
+    16→import asyncio
+    17→import sqlite3
+    18→import subprocess
+    19→import logging
+    20→import time
+    21→
+    22→# Загрузка .env (DASHBOARD_LLM_* для облака)
+    23→from dotenv import load_dotenv
+    24→load_dotenv()
+    25→
+    26→# Фикс DNS для aiohttp на Windows
+    27→import aiohttp
+    28→from aiohttp.resolver import ThreadedResolver
+    29→_orig_init = aiohttp.TCPConnector.__init__
+    30→def _patched_init(self, *a, **kw):
+    31→    if 'resolver' not in kw or kw['resolver'] is None:
+    32→        kw['resolver'] = ThreadedResolver()
+    33→    return _orig_init(self, *a, **kw)
+    34→aiohttp.TCPConnector.__init__ = _patched_init
+    35→
+    36→from aiogram import Bot, Dispatcher, F
+    37→from aiogram.filters import Command
+    38→from aiogram.types import (
+    39→    Message, BotCommand,
+    40→    InlineKeyboardMarkup, InlineKeyboardButton,
+    41→    CallbackQuery, InaccessibleMessage, BufferedInputFile,
+    42→)
+    43→from aiogram.client.session.aiohttp import AiohttpSession
+    44→from aiogram.fsm.storage.memory import MemoryStorage
+    45→
+    46→from flask import Flask, jsonify, render_template_string
+    47→
+    48→# ── Config ─────────────────────────────────────────────────────────────────
+    49→
+    50→DASH_TOKEN = os.getenv("DASH_TOKEN", "8823603938:AAEQ8IPYIRIXPIXlz0YlCL4nMv82ITTv24w")
+    51→ADMIN_CHAT_ID = int(os.getenv("ADMIN_CHAT_ID", "1943427656"))
+    52→WEB_PORT = int(os.getenv("WEB_PORT", "5000"))
+    53→PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+    54→DB_PATH = os.path.join(PROJECT_DIR, "forecasts.db")
+    55→PYTHON_EXE = os.path.join(PROJECT_DIR, ".venv", "Scripts", "python.exe")
+    56→
+    57→# ── Cloud LLM config — дашборд-бот использует облако (DASHBOARD_LLM_* из .env) ─
+    58→DASHBOARD_LLM_API_KEY = os.getenv("DASHBOARD_LLM_API_KEY", "")
+    59→DASHBOARD_LLM_BASE_URL = os.getenv("DASHBOARD_LLM_BASE_URL", "").rstrip("/").removesuffix("/v1")
+    60→DASHBOARD_MODEL_NAME = os.getenv("DASHBOARD_MODEL_NAME", "glm-5.2-fast-preview")
+    61→
+    62→# ── Импорты из core (общий код с KXROBO) ────────────────────────────────────
+    63→
+    64→from core.ollama_client import analyze_multi_images, format_json_for_tg
+    65→from core.config import USER_ANALYSIS_CACHE
+    66→from core.auto_chart import fetch_and_plot
+    67→from core.state_tracker import update_and_save_state
+    68→from core.db import get_backtest_stats, get_history_df, get_setting, set_setting
+    69→from core.scheduler import update_timer
+    70→from core.utils import validate_symbol, fetch_ticker_safe, format_symbol, is_futures, sort_timeframes
+    71→
+    72→# ── Main bot process management ─────────────────────────────────────────────
+    73→
+    74→main_bot_process: subprocess.Popen | None = None
+    75→main_bot_started_at: float | None = None
+    76→
+    77→def start_main_bot() -> bool:
+    78→    global main_bot_process, main_bot_started_at
+    79→    if main_bot_process and main_bot_process.poll() is None:
+    80→        return False
+    81→    env = os.environ.copy()
+    82→    env["PYTHONPATH"] = ""
+    83→    main_bot_process = subprocess.Popen(
+    84→        [PYTHON_EXE, "main.py"],
+    85→        cwd=PROJECT_DIR, env=env,
+    86→        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    87→    )
+    88→    main_bot_started_at = time.time()
+    89→    return True
+    90→
+    91→def stop_main_bot() -> bool:
+    92→    global main_bot_process
+    93→    if not main_bot_process or main_bot_process.poll() is not None:
+    94→        return False
+    95→    main_bot_process.terminate()
+    96→    try:
+    97→        main_bot_process.wait(timeout=10)
+    98→    except subprocess.TimeoutExpired:
+    99→        main_bot_process.kill()
+   100→    return True
+   101→
+   102→def is_main_bot_running() -> bool:
+   103→    return main_bot_process is not None and main_bot_process.poll() is None
+   104→
+   105→# ── DB helpers (локальные, не трогаем core.db — используем его напрямую) ──
+   106→
+   107→def _query_db(query, args=()):
+   108→    try:
+   109→        conn = sqlite3.connect(DB_PATH)
+   110→        conn.row_factory = sqlite3.Row
+   111→        c = conn.cursor()
+   112→        c.execute(query, args)
+   113→        rows = c.fetchall()
+   114→        conn.close()
+   115→        return [dict(r) for r in rows]
+   116→    except Exception:
+   117→        return []
+   118→
+   119→def _dash_get_setting(key, default=None):
+   120→    rows = _query_db("SELECT value FROM settings WHERE key=?", (key,))
+   121→    if rows:
+   122→        v = rows[0]["value"]
+   123→        if v in ("true", "false"): return v == "true"
+   124→        return v
+   125→    return default
+   126→
+   127→def _dash_set_setting(key, value):
+   128→    conn = sqlite3.connect(DB_PATH)
+   129→    c = conn.cursor()
+   130→    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+   131→    conn.commit(); conn.close()
+   132→
+   133→def get_stats():
+   134→    stats = {
+   135→        "bot_status": "🟢 Running" if is_main_bot_running() else "🔴 Stopped",
+   136→        "uptime": int(time.time() - main_bot_started_at) if main_bot_started_at else 0,
+   137→        "model": DASHBOARD_MODEL_NAME,
+   138→        "llm_mode": "cloud" if DASHBOARD_LLM_API_KEY else "local",
+   139→        "prompt_variant": os.getenv("PROMPT_VARIANT", "A"),
+   140→        "interval": get_setting("interval_minutes", 60),
+   141→        "auto_mode": get_setting("auto_mode", False),
+   142→    }
+   143→    rows = _query_db("""
+   144→        SELECT COUNT(*) as total,
+   145→            SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins,
+   146→            SUM(CASE WHEN outcome = 'sl_hit' THEN 1 ELSE 0 END) as sl_hits
+   147→        FROM signal_log WHERE checked_at IS NOT NULL
+   148→    """)
+   149→    if rows and rows[0]["total"] and rows[0]["total"] > 0:
+   150→        r = rows[0]; total = r["total"]
+   151→        stats.update(checked=total, wins=int(r["wins"] or 0),
+   152→                      accuracy=round((r["wins"] or 0) / total * 100, 1),
+   153→                      sl_rate=round((r["sl_hits"] or 0) / total * 100, 1))
+   154→    else:
+   155→        stats.update(checked=0, wins=0, accuracy=0, sl_rate=0)
+   156→    pending = _query_db("SELECT COUNT(*) as cnt FROM signal_log WHERE checked_at IS NULL")
+   157→    stats["pending"] = pending[0]["cnt"] if pending else 0
+   158→    last = _query_db("SELECT timestamp, symbol, signal_status, direction, entry_price, sl, tp1, outcome FROM signal_log ORDER BY timestamp DESC LIMIT 10")
+   159→    stats["last_signals"] = last
+   160→    ab = _query_db("SELECT prompt_variant, COUNT(*) as cnt, SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins FROM signal_log WHERE checked_at IS NOT NULL AND prompt_variant IS NOT NULL GROUP BY prompt_variant")
+   161→    stats["ab_variants"] = [{"variant": r["prompt_variant"] or "A", "total": r["cnt"], "wins": r["wins"] or 0} for r in ab]
+   162→    return stats
+   163→
+   164→# ═══════════════════════════════════════════════════════════════════════════
+   165→# КОПИЯ KXROBO HANDLERS — тот же функционал, но через cloud LLM
+   166→# ═══════════════════════════════════════════════════════════════════════════
+   167→
+   168→USER_PHOTO_BUFFER: dict[int, list[bytes]] = {}
+   169→SCAN_LOCK = asyncio.Lock()  # Последовательная загрузка графиков
+   170→
+   171→
+   172→def clean_analysis_report(text: str) -> str:
+   173→    """Исправляет логические противоречия в ТП/СЛ и форматирует вывод."""
+   174→    if "НАПРАВЛЕНИЕ:" in text:
+   175→        direction = "Long" if "Long" in text.split("НАПРАВЛЕНИЕ:")[1].split("|")[0] else "Short"
+   176→        price_match = re.search(r"Текущая цена:\s*([\d.]+)", text)
+   177→        if price_match:
+   178→            current = float(price_match.group(1))
+   179→            tp1_match = re.search(r"TP1:\s*([\d.]+)", text)
+   180→            if tp1_match:
+   181→                tp1 = float(tp1_match.group(1))
+   182→                if direction == "Long" and tp1 <= current:
+   183→                    text = text.replace(f"TP1: {tp1}", "TP1: Уже отработан")
+   184→                elif direction == "Short" and tp1 >= current:
+   185→                    text = text.replace(f"TP1: {tp1}", "TP1: Уже отработан")
+   186→    return text
+   187→
+   188→
+   189→def _get_timeframes() -> list[str]:
+   190→    val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
+   191→    return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
+   192→
+   193→
+   194→def _get_symbols() -> list[str]:
+   195→    val = get_setting("symbols", ["BTCUSDT", "XAUTUSDT"])
+   196→    return val if isinstance(val, list) else ["BTCUSDT", "XAUTUSDT"]
+   197→
+   198→
+   199→def _format_symbol(symbol_id: str) -> str:
+   200→    if "/" in symbol_id:
+   201→        return symbol_id
+   202→    for quote in ["USDT", "BUSD", "USDC", "EUR", "TRY", "BTC", "ETH", "BNB", "DAI", "GBP", "AUD"]:
+   203→        if symbol_id.endswith(quote):
+   204→            return f"{symbol_id[:-len(quote)]}/{quote}"
+   205→    return symbol_id
+   206→
+   207→
+   208→# ── Автоскан: символы и интервал ───────────────────────────────────────────
+   209→
+   210→ALL_AUTOSCAN_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XAUTUSDT", "SOLUSDT"]
+   211→SYMBOL_LABELS = {"BTCUSDT": "BTC", "ETHUSDT": "ETH", "XAUTUSDT": "XAUT", "SOLUSDT": "SOL"}
+   212→DEFAULT_AUTOSCAN_SYMBOLS = ["BTCUSDT", "XAUTUSDT"]
+   213→
+   214→
+   215→def _get_autoscan_symbols() -> list[str]:
+   216→    raw = _dash_get_setting("autoscan_symbols", "")
+   217→    if raw and isinstance(raw, str) and raw.strip():
+   218→        syms = [s.strip().upper() for s in raw.split(",") if s.strip()]
+   219→        return [s for s in syms if s in ALL_AUTOSCAN_SYMBOLS]
+   220→    return list(DEFAULT_AUTOSCAN_SYMBOLS)
+   221→
+   222→
+   223→def _set_autoscan_symbols(symbols: list[str]):
+   224→    _dash_set_setting("autoscan_symbols", ",".join(symbols))
+   225→
+   226→
+   227→# ── Inline Keyboards (копия KXROBO + автоскан) ─────────────────────────────
+   228→
+   229→def get_main_menu_keyboard() -> InlineKeyboardMarkup:
+   230→    """Главная клавиатура — как у KXROBO + строка автоскана."""
+   231→    return InlineKeyboardMarkup(inline_keyboard=[
+   232→        [InlineKeyboardButton(text="📊 Быстрый анализ", callback_data="menu_scan"),
+   233→         InlineKeyboardButton(text="📷 Анализ скриншотов", callback_data="menu_screenshots")],
+   234→        [InlineKeyboardButton(text="⚙️ Инструменты", callback_data="menu_instruments"),
+   235→         InlineKeyboardButton(text="⏱ Таймер", callback_data="menu_timer")],
+   236→        [InlineKeyboardButton(text="📈 Таймфреймы", callback_data="menu_timeframes"),
+   237→         InlineKeyboardButton(text="📊 Экспорт + Бэктест", callback_data="menu_export")],
+   238→        [InlineKeyboardButton(text="📋 Настройки", callback_data="menu_settings"),
+   239→         InlineKeyboardButton(text="ℹ️ О боте", callback_data="menu_about")],
+   240→        [InlineKeyboardButton(text=_autoscan_button_label(), callback_data="toggle_autoscan"),
+   241→         InlineKeyboardButton(text="📊 Автоскан: тикеры", callback_data="multi_monitor")],
+   242→    ])
+   243→
+   244→
+   245→def get_tf_keyboard() -> InlineKeyboardMarkup:
+   246→    selected = _get_timeframes()
+   247→    keyboard = []
+   248→    row = []
+   249→    for tf in ["15m", "1h", "4h", "1D"]:
+   250→        icon = "✅" if tf in selected else "⬜"
+   251→        row.append(InlineKeyboardButton(text=f"{icon} {tf}", callback_data=f"tf_toggle_{tf}"))
+   252→    keyboard.append(row)
+   253→    keyboard.append([InlineKeyboardButton(text="❌ Закрыть", callback_data="close_tf")])
+   254→    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+   255→
+   256→
+   257→def _multi_monitor_keyboard() -> InlineKeyboardMarkup:
+   258→    """Клавиатура выбора тикеров для автоскана."""
+   259→    selected = _get_autoscan_symbols()
+   260→    rows = []
+   261→    row = []
+   262→    for sym in ALL_AUTOSCAN_SYMBOLS:
+   263→        icon = "✅" if sym in selected else "⬜"
+   264→        label = SYMBOL_LABELS.get(sym, sym.replace("USDT", ""))
+   265→        row.append(InlineKeyboardButton(text=f"{icon} {label}", callback_data=f"sym_toggle_{sym}"))
+   266→        if len(row) == 2:
+   267→            rows.append(row)
+   268→            row = []
+   269→    if row:
+   270→        rows.append(row)
+   271→    interval = _dash_get_setting("autoscan_interval", 30)
+   272→    rows.append([InlineKeyboardButton(text=f"⏱ Интервал: {interval} мин", callback_data="autoscan_interval_info")])
+   273→    rows.append([
+   274→        InlineKeyboardButton(text="◀ −5 мин", callback_data="iv_minus"),
+   275→        InlineKeyboardButton(text="+5 мин ▶", callback_data="iv_plus"),
+   276→    ])
+   277→    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_main")])
+   278→    return InlineKeyboardMarkup(inline_keyboard=rows)
+   279→
+   280→
+   281→def _autoscan_button_label() -> str:
+   282→    interval = _dash_get_setting("autoscan_interval", 30)
+   283→    active = _dash_get_setting("autoscan_active", False)
+   284→    if active:
+   285→        return f"⏹ Стоп автоскан ({interval} мин)"
+   286→    syms = _get_autoscan_symbols()
+   287→    sym_labels = "+".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   288→    return f"▶ Автоскан ({sym_labels}, {interval} мин)"
+   289→
+   290→
+   291→# ═══════════════════════════════════════════════════════════════════════════
+   292→# BOT DISPATCHER + HANDLERS
+   293→# ═══════════════════════════════════════════════════════════════════════════
+   294→
+   295→dp = Dispatcher(storage=MemoryStorage())
+   296→
+   297→
+   298→# ── /start ──────────────────────────────────────────────────────────────────
+   299→
+   300→@dp.message(Command("start"))
+   301→@dp.message(Command("menu"))
+   302→async def show_main_menu(message: Message) -> None:
+   303→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   304→    await message.answer(
+   305→        "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\n"
+   306→        "Полная копия KXROBO + автоскан.\n"
+   307→        "Выберите действие ниже или используйте команды:",
+   308→        reply_markup=get_main_menu_keyboard(),
+   309→        parse_mode="Markdown",
+   310→    )
+   311→
+   312→
+   313→# ── /scan (полная копия из handlers.py, но через cloud LLM) ────────────────
+   314→
+   315→async def _do_full_scan(symbol: str, timeframes: list[str], chat_id: int, bot: Bot) -> None:
+   316→    """Полный анализ символ/ТФ через cloud LLM — графики последовательно."""
+   317→    async with SCAN_LOCK:
+   318→        await bot.send_message(chat_id, f"📡 Загружаю {_format_symbol(symbol)} по ТФ: {', '.join(timeframes)}...")
+   319→        try:
+   320→            chart_bytes_list: list[bytes] = []
+   321→            all_metrics: dict[str, dict] = {}
+   322→
+   323→            # Графики ПОСЛЕДОВАТЕЛЬНО (один за другим)
+   324→            for tf in timeframes:
+   325→                chart_bytes, metrics = fetch_and_plot(symbol=symbol, timeframe=tf, limit=120)
+   326→                chart_bytes_list.append(chart_bytes)
+   327→                all_metrics[tf] = metrics
+   328→
+   329→            m_htf = all_metrics[timeframes[0]]
+   330→            m_ltf = all_metrics[timeframes[-1]]
+   331→
+   332→            fib = m_ltf.get("fib_context", {"50%": "N/A", "61.8%": "N/A", "38.2%": "N/A", "rule": ""})
+   333→            tf_zones = {tf: all_metrics[tf]["zone"] for tf in timeframes}
+   334→
+   335→            live_price = m_ltf.get("current_price", m_ltf.get("last_closed_price", 0))
+   336→
+   337→            tf_context = (
+   338→                f"[HTF] {m_htf.get('phase', 'N/A')} | Упор: {m_htf.get('resistance', 'N/A')} | Поддержка: {m_htf.get('support', 'N/A')} | "
+   339→                f"[{timeframes[-1]}] {m_ltf.get('phase', 'N/A')} | Текущая цена: {live_price} | "
+   340→                f"Объём: {m_ltf.get('vol_ratio', 1.0)}x ({m_ltf.get('vol_trend', 'N/A')}) | "
+   341→                f"Фибо: 50%={fib['50%']} | 61.8%={fib['61.8%']} | 38.2%={fib['38.2%']}"
+   342→            )
+   343→
+   344→            stats = get_backtest_stats()
+   345→            metrics_str = (
+   346→                f"Текущая цена: {live_price} | Последняя закрытая: {m_ltf.get('last_closed_price', 'N/A')} | "
+   347→                f"ATR: {m_ltf.get('atr', 'N/A')} | RSI: {m_ltf.get('rsi', 'N/A')} | Сессия: {m_ltf.get('session', 'N/A')}"
+   348→            )
+   349→
+   350→            # ZigZag compact context
+   351→            try:
+   352→                from core.zigzag.benchmark_zigzag import run_benchmark
+   353→                zigzag_benchmark = run_benchmark(
+   354→                    symbol=symbol, market_type="future",
+   355→                    timeframes=timeframes, limit=200,
+   356→                    mode="hybrid_atr", confirmation_mode="close",
+   357→                    debug=False, output=None, output_mode="compact",
+   358→                )
+   359→                zigzag_context = {
+   360→                    "symbol": zigzag_benchmark.get("symbol", symbol),
+   361→                    "normalized_symbol": zigzag_benchmark.get("normalized_symbol", symbol),
+   362→                    "stack": zigzag_benchmark.get("stack", {}),
+   363→                    "timeframes": zigzag_benchmark.get("timeframes", {}),
+   364→                    "confluence_levels": zigzag_benchmark.get("confluence_levels", []),
+   365→                }
+   366→            except Exception as e:
+   367→                zigzag_context = {
+   368→                    "error": True, "message": f"ZigZag: {type(e).__name__}",
+   369→                    "symbol": symbol, "stack": {}, "timeframes": {}, "confluence_levels": [],
+   370→                }
+   371→
+   372→            ltf_volume = all_metrics[timeframes[-1]].get("volume_context", {})
+   373→            if not isinstance(ltf_volume, dict):
+   374→                ltf_volume = {}
+   375→
+   376→            # Liquidity heatmap
+   377→            try:
+   378→                from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
+   379→                from core.data_provider import OhlcvDataProvider
+   380→                provider = OhlcvDataProvider()
+   381→                ltf_tf = timeframes[-1]
+   382→                try:
+   383→                    ltf_df = provider.read_current_csv(symbol, ltf_tf)
+   384→                    hm = build_liquidity_heatmap(ltf_df, symbol=symbol, timeframe=ltf_tf)
+   385→                    heatmap_text = build_liquidity_context_text(hm)
+   386→                except FileNotFoundError:
+   387→                    heatmap_text = "Liquidity heatmap: CSV недоступен."
+   388→            except Exception:
+   389→                heatmap_text = "Liquidity heatmap: ошибка."
+   390→
+   391→            prev_ctx = {
+   392→                "metrics": metrics_str,
+   393→                "tf_context": tf_context,
+   394→                "backtest": f"Win Rate: {stats['win_rate']}%, MAE: {stats['mae_pct']}%",
+   395→                "tf_zones": tf_zones,
+   396→                "zigzag_context": zigzag_context,
+   397→                "volume_context": ltf_volume,
+   398→                "heatmap_context": heatmap_text,
+   399→            }
+   400→
+   401→            # LLM через CLOUD
+   402→            raw_result = await analyze_multi_images(
+   403→                chart_bytes_list,
+   404→                prev_analysis=prev_ctx,
+   405→                llm_api_key=DASHBOARD_LLM_API_KEY,
+   406→                llm_base_url=DASHBOARD_LLM_BASE_URL,
+   407→                llm_model=DASHBOARD_MODEL_NAME,
+   408→            )
+   409→
+   410→            parsed_result = raw_result
+   411→            if isinstance(parsed_result, dict):
+   412→                parsed_result = update_and_save_state(symbol, timeframes[-1], parsed_result)
+   413→
+   414→            # NOTE: enforce_risk_rules уже вызван внутри analyze_multi_images —
+   415→            # tf_zones, D1 cap, nesting, confluence — всё валидировано.
+   416→            # НЕ перезаписываем tf_zones сырыми данными после валидации.
+   417→
+   418→            if isinstance(parsed_result, dict) and parsed_result.get("error"):
+   419→                await bot.send_message(chat_id, f"⚠️ Ошибка анализа: {parsed_result.get('message')}")
+   420→                return
+   421→
+   422→            if isinstance(parsed_result, dict):
+   423→                final_text = format_json_for_tg(parsed_result)
+   424→            else:
+   425→                final_text = str(parsed_result)
+   426→
+   427→            USER_ANALYSIS_CACHE[chat_id] = final_text
+   428→            await bot.send_message(chat_id, f"📊 Анализ {_format_symbol(symbol)}:\n\n{final_text}")
+   429→
+   430→        except Exception as e:
+   431→            await bot.send_message(chat_id, f"⚠️ Ошибка: {e}")
+   432→
+   433→
+   434→@dp.message(Command("scan"))
+   435→async def cmd_scan(message: Message) -> None:
+   436→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   437→    if not DASHBOARD_LLM_API_KEY:
+   438→        await message.answer("❌ DASHBOARD_LLM_API_KEY не задан в .env")
+   439→        return
+   440→    if message.text is None:
+   441→        return
+   442→    # Support multi-symbol: /scan BTC | ETH | XAUT  OR  /scan BTC ETH XAUT  OR  /scan BTC
+   443→    raw_text = message.text.split(maxsplit=1)
+   444→    raw_syms_str = raw_text[1] if len(raw_text) > 1 else "BTC"
+   445→    raw_syms = [s.strip().upper().replace("/", "").replace("USDT", "") for s in raw_syms_str.split("|")]
+   446→    raw_syms = [s for s in raw_syms if s]  # filter empty
+   447→    if not raw_syms:
+   448→        raw_syms = ["BTC"]
+   449→    timeframes = sort_timeframes(_get_timeframes())
+   450→    for i, raw_sym in enumerate(raw_syms):
+   451→        symbol = f"{raw_sym}USDT"
+   452→        if i > 0:
+   453→            await asyncio.sleep(3)  # pause between tickers to avoid rate limit
+   454→        await _do_full_scan(symbol, timeframes, message.chat.id, message.bot)
+   455→
+   456→
+   457→# ── /add, /remove, /settings, /timer, /filter, /auto, /export ──────────────
+   458→
+   459→@dp.message(Command("add"))
+   460→async def cmd_add(message: Message) -> None:
+   461→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   462→    if message.text is None: return
+   463→    parts = message.text.split()
+   464→    if len(parts) < 2:
+   465→        return await message.answer("❌ Укажите ID тикера: `/add XAGUSDT`")
+   466→    raw_sym = parts[1]
+   467→    result = await validate_symbol(raw_sym)
+   468→    if not result["valid"]:
+   469→        return await message.answer(result["error"])
+   470→    current = _get_symbols()
+   471→    if result["id"] in current:
+   472→        return await message.answer(f"⚠️ `{_format_symbol(result['id'])}` уже в списке.")
+   473→    current.append(result["id"])
+   474→    set_setting("symbols", current)
+   475→    display = [f"`{_format_symbol(s)}`" for s in current]
+   476→    await message.answer(f"✅ `{_format_symbol(result['id'])}` добавлен ({result['type']}).\n📋 Список: {', '.join(display)}")
+   477→
+   478→
+   479→@dp.message(Command("remove"))
+   480→async def cmd_remove(message: Message) -> None:
+   481→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   482→    if message.text is None: return
+   483→    parts = message.text.split()
+   484→    if len(parts) < 2:
+   485→        return await message.answer("❌ Укажите ID тикера: `/remove XAGUSDT`")
+   486→    raw_sym = parts[1].strip().upper()
+   487→    current = _get_symbols()
+   488→    found_idx = next((i for i, s in enumerate(current) if s == raw_sym or s.replace("/", "") == raw_sym), None)
+   489→    if found_idx is None:
+   490→        return await message.answer(f"⚠️ `{parts[1]}` не найден в списке.")
+   491→    current.pop(found_idx)
+   492→    set_setting("symbols", current)
+   493→    display = [f"`{_format_symbol(s)}`" for s in current]
+   494→    await message.answer(f"✅ Удалён. Осталось: {', '.join(display) if current else 'нет'}")
+   495→
+   496→
+   497→@dp.message(Command("settings"))
+   498→async def cmd_settings(message: Message) -> None:
+   499→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   500→    symbols = _get_symbols()
+   501→    timer = get_setting("interval_minutes", 60)
+   502→    timeframes = _get_timeframes()
+   503→    spot = [_format_symbol(s) for s in symbols if not is_futures(s)]
+   504→    futures = [_format_symbol(s) for s in symbols if is_futures(s)]
+   505→    txt = "⚙️ ТЕКУЩАЯ КОНФИГУРАЦИЯ:\n\n"
+   506→    txt += f" СПОТ: {', '.join(f'`{s}`' for s in spot) if spot else 'Нет'}\n"
+   507→    txt += f"🔴 ФЬЮЧЕРСЫ: {', '.join(f'`{s}`' for s in futures) if futures else 'Нет'}\n\n"
+   508→    txt += f"⏱ Интервал отчётов: {timer} минут\n"
+   509→    txt += f"📈 Таймфреймы: {', '.join(timeframes) if timeframes else 'Нет'}\n\n"
+   510→    txt += "🔹 `/add XAGUSDT` — добавить инструмент\n"
+   511→    txt += "🔹 `/remove XAGUSDT` — удалить инструмент\n"
+   512→    txt += "🔹 `/timer 30` — изменить интервал (мин 5)\n"
+   513→    txt += "🔹 `/timeframes` — выбрать ТФ"
+   514→    await message.answer(txt)
+   515→
+   516→
+   517→@dp.message(Command("timer"))
+   518→async def cmd_timer(message: Message) -> None:
+   519→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   520→    if message.text is None: return
+   521→    parts = message.text.split()
+   522→    if len(parts) < 2:
+   523→        return await message.answer("❌ Укажите интервал в минутах: `/timer 30`")
+   524→    try:
+   525→        mins = int(parts[1])
+   526→        if mins < 5:
+   527→            return await message.answer("⚠️ Минимальный интервал — 5 минут.")
+   528→    except ValueError:
+   529→        return await message.answer("❌ Введите число.")
+   530→    success, resp = update_timer(mins)
+   531→    await message.answer(resp)
+   532→
+   533→
+   534→@dp.message(Command("filter"))
+   535→async def cmd_filter(message: Message) -> None:
+   536→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   537→    if message.text is None: return
+   538→    args = message.text.split()
+   539→    current = get_setting("filter_mode", True)
+   540→    if len(args) > 1:
+   541→        state = args[1].lower() in ("on", "вкл", "true", "1")
+   542→        set_setting("filter_mode", state)
+   543→        status = "✅ ВКЛЮЧЁН" if state else "❌ ВЫКЛЮЧЁН"
+   544→        await message.answer(
+   545→            f"⚙️ Фильтр сигналов {status}.\n\n"
+   546→            f"🔹 ВКЛ: только подтверждённые пробои/ретесты + предупреждения о подходе к уровням.\n"
+   547→            f"🔹 ВЫКЛ: все отчёты без фильтрации."
+   548→        )
+   549→    else:
+   550→        status = "✅ ВКЛЮЧЁН" if current else "❌ ВЫКЛЮЧЁН"
+   551→        await message.answer(f"⚙️ Фильтр сигналов: {status}\nИспользуйте: `/filter on` или `/filter off`")
+   552→
+   553→
+   554→@dp.message(Command("auto"))
+   555→async def cmd_auto(message: Message) -> None:
+   556→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   557→    state = not get_setting("auto_mode", False)
+   558→    set_setting("auto_mode", state)
+   559→    status_text = "🔇 ON (только сигналы)" if state else "📢 OFF (все анализы)"
+   560→    await message.answer(f"Авто-режим: {status_text}")
+   561→
+   562→
+   563→@dp.message(Command("export"))
+   564→async def cmd_export(message: Message) -> None:
+   565→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   566→    stats = get_backtest_stats()
+   567→    csv_data = get_history_df()
+   568→    filename = f"forecasts_{stats['total']}_win{stats['win_rate']}%.csv"
+   569→    await message.answer_document(
+   570→        BufferedInputFile(csv_data.encode("utf-8-sig"), filename=filename),
+   571→        caption=f"📈 Бэктест: Всего {stats['total']}, Win: {stats['win_rate']}%, MAE: {stats['mae_pct']}%"
+   572→    )
+   573→
+   574→
+   575→# ── /timeframes ─────────────────────────────────────────────────────────────
+   576→
+   577→@dp.message(Command("timeframes"))
+   578→async def cmd_timeframes(message: Message) -> None:
+   579→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   580→    selected = _get_timeframes()
+   581→    txt = f"📊 ТЕКУЩИЕ ТАЙМФРЕЙМЫ:\n{', '.join(selected)}\n\n"
+   582→    txt += "Нажмите на ТФ, чтобы добавить/удалить.\n"
+   583→    txt += "Все выбранные ТФ применяются к `/scan` и авто-отчётам."
+   584→    await message.answer(txt, reply_markup=get_tf_keyboard())
+   585→
+   586→
+   587→# ── Скриншоты (фото) ───────────────────────────────────────────────────────
+   588→
+   589→@dp.message(lambda msg: msg.photo)
+   590→async def collect_photos(message: Message) -> None:
+   591→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   592→    assert message.from_user is not None
+   593→    assert message.bot is not None
+   594→    user_id = message.from_user.id
+   595→    if user_id not in USER_PHOTO_BUFFER:
+   596→        USER_PHOTO_BUFFER[user_id] = []
+   597→    if len(USER_PHOTO_BUFFER[user_id]) >= 5:
+   598→        await message.answer("⚠️ Максимум 5 фото. Введите `/analyze_all`.")
+   599→        return
+   600→    if not message.photo:
+   601→        return
+   602→    bio = io.BytesIO()
+   603→    file_info = await message.bot.get_file(message.photo[-1].file_id)
+   604→    if file_info.file_path:
+   605→        await message.bot.download_file(file_info.file_path, destination=bio)
+   606→        USER_PHOTO_BUFFER[user_id].append(bio.getvalue())
+   607→        await message.answer(f"✅ Фото сохранено ({len(USER_PHOTO_BUFFER[user_id])}/5).")
+   608→    else:
+   609→        await message.answer("❌ Не удалось скачать фото.")
+   610→
+   611→
+   612→@dp.message(Command("analyze_all"))
+   613→async def cmd_analyze_all(message: Message) -> None:
+   614→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   615→    assert message.from_user is not None
+   616→    user_id = message.from_user.id
+   617→    if user_id not in USER_PHOTO_BUFFER or not USER_PHOTO_BUFFER[user_id]:
+   618→        await message.answer("❌ Сначала отправьте фото.")
+   619→        return
+   620→    if not DASHBOARD_LLM_API_KEY:
+   621→        await message.answer("❌ DASHBOARD_LLM_API_KEY не задан в .env")
+   622→        return
+   623→    images = USER_PHOTO_BUFFER.pop(user_id)
+   624→    prev = USER_ANALYSIS_CACHE.get(user_id)
+   625→    await message.answer("🧠 Анализирую через облако...")
+   626→    try:
+   627→        result = await analyze_multi_images(
+   628→            images, prev_analysis=prev,
+   629→            llm_api_key=DASHBOARD_LLM_API_KEY,
+   630→            llm_base_url=DASHBOARD_LLM_BASE_URL,
+   631→            llm_model=DASHBOARD_MODEL_NAME,
+   632→        )
+   633→        final_text = format_json_for_tg(result)
+   634→        USER_ANALYSIS_CACHE[user_id] = final_text
+   635→        await message.answer(final_text)
+   636→    except Exception as e:
+   637→        await message.answer(f"⚠️ Ошибка: {e}")
+   638→
+   639→
+   640→# ── Callback handler (копия KXROBO + автоскан) ─────────────────────────────
+   641→
+   642→@dp.callback_query()
+   643→async def callbacks_handler(callback: CallbackQuery) -> None:
+   644→    await callback.answer()
+   645→    if not callback.message or isinstance(callback.message, InaccessibleMessage):
+   646→        return
+   647→    if not callback.data:
+   648→        return
+   649→    msg = callback.message
+   650→
+   651→    # ── KXROBO кнопки ─────────────────────────────────────────────────────
+   652→    if callback.data == "menu_scan":
+   653→        await msg.answer("📊 Введите пару для анализа:\n`/scan BTC` или `/scan ETH/USDT` или `/scan SOL`")
+   654→    elif callback.data == "menu_screenshots":
+   655→        await msg.answer("📷 Отправьте 1–5 скриншотов графиков, затем введите `/analyze_all`")
+   656→    elif callback.data == "menu_instruments":
+   657→        await msg.answer("⚙️ Управление портфелем:\n`/add SOL/USDT` — добавить\n`/remove ETH/USDT` — удалить\n`/settings` — текущий список")
+   658→    elif callback.data == "menu_timer":
+   659→        await msg.answer("⏱ Введите интервал авто-отчётов в минутах:\n`/timer 15` (минимум 5)")
+   660→    elif callback.data == "menu_timeframes":
+   661→        await cmd_timeframes(msg)
+   662→    elif callback.data == "menu_export":
+   663→        await cmd_export(msg)
+   664→    elif callback.data == "menu_settings":
+   665→        await cmd_settings(msg)
+   666→    elif callback.data == "menu_about":
+   667→        cloud = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+   668→        await msg.edit_text(
+   669→            "🤖 *Dashboard Bot* — @my_hermes_lokal_ai_bot\n"
+   670→            "  LLM: {model} ({cloud})\n"
+   671→            "  Функции: полный анализ + автоскан\n\n"
+   672→            "🔧 *Основной бот* — @KXROBObot\n"
+   673→            "  LLM: LM Studio qwen2.5-vl-7b (локальная)\n\n"
+   674→            "📁 github.com/VVASILEVSS/LOCAL_AI_ENGINE".format(model=DASHBOARD_MODEL_NAME, cloud=cloud),
+   675→            parse_mode="Markdown",
+   676→        )
+   677→    elif callback.data == "analyze_all_btn":
+   678→        if not callback.from_user: return
+   679→        user_id = callback.from_user.id
+   680→        if user_id in USER_PHOTO_BUFFER and USER_PHOTO_BUFFER[user_id]:
+   681→            images = USER_PHOTO_BUFFER.pop(user_id)
+   682→            await msg.edit_text("🧠 Анализирую через облако...")
+   683→            try:
+   684→                result = await analyze_multi_images(
+   685→                    images, prev_analysis=USER_ANALYSIS_CACHE.get(user_id),
+   686→                    llm_api_key=DASHBOARD_LLM_API_KEY,
+   687→                    llm_base_url=DASHBOARD_LLM_BASE_URL,
+   688→                    llm_model=DASHBOARD_MODEL_NAME,
+   689→                )
+   690→                final_text = format_json_for_tg(result)
+   691→                USER_ANALYSIS_CACHE[user_id] = final_text
+   692→                await msg.answer(final_text)
+   693→            except Exception as e:
+   694→                await msg.answer(f"⚠️ Ошибка: {e}")
+   695→        else:
+   696→            await msg.answer("❌ Сначала отправьте скриншоты.")
+   697→    elif callback.data == "export_history":
+   698→        stats = get_backtest_stats()
+   699→        csv_data = get_history_df()
+   700→        await msg.answer_document(
+   701→            BufferedInputFile(csv_data.encode("utf-8-sig"), filename="forecasts.csv"),
+   702→            caption=f"📈 Бэктест: Win {stats['win_rate']}%, MAE {stats['mae_pct']}%"
+   703→        )
+   704→    elif callback.data == "settings_menu":
+   705→        await msg.edit_text("⚙️ Используйте команды: /settings, /add, /remove, /timer, /timeframes")
+   706→
+   707→    # ── TF toggle ─────────────────────────────────────────────────────────
+   708→    elif callback.data and (callback.data.startswith("tf_toggle_") or callback.data == "close_tf"):
+   709→        if callback.data == "close_tf":
+   710→            await msg.edit_text("⚙️ Меню таймфреймов закрыто.")
+   711→            return
+   712→        tf = callback.data.replace("tf_toggle_", "")
+   713→        current = _get_timeframes()
+   714→        if tf in current:
+   715→            current.remove(tf)
+   716→        else:
+   717→            current.append(tf)
+   718→        set_setting("timeframes", current)
+   719→        await msg.edit_text(
+   720→            f"📊 ТЕКУЩИЕ ТАЙМФРЕЙМЫ:\n{', '.join(current)}\n\n"
+   721→            "Нажмите на ТФ, чтобы добавить/удалить.\n"
+   722→            "Все выбранные ТФ применяются к `/scan` и авто-отчётам.",
+   723→            reply_markup=get_tf_keyboard()
+   724→        )
+   725→
+   726→    # ── Автоскан toggle ───────────────────────────────────────────────────
+   727→    elif callback.data == "toggle_autoscan":
+   728→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   729→        active = _dash_get_setting("autoscan_active", False)
+   730→        if active:
+   731→            _stop_autoscan()
+   732→            text = "⏹ Автоскан остановлен"
+   733→        else:
+   734→            if not DASHBOARD_LLM_API_KEY:
+   735→                await callback.answer("❌ DASHBOARD_LLM_API_KEY не задан", show_alert=True)
+   736→                return
+   737→            syms = _get_autoscan_symbols()
+   738→            if not syms:
+   739→                await callback.answer("❌ Нет выбранных тикеров", show_alert=True)
+   740→                return
+   741→            _start_autoscan(callback.bot)
+   742→            iv = _dash_get_setting("autoscan_interval", 30)
+   743→            labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   744→            text = (
+   745→                f"▶ Автоскан запущен\n\n"
+   746→                f"Тикеры: {labels}\n"
+   747→                f"Интервал: {iv} мин\n"
+   748→                f"Цикл: {' → '.join(SYMBOL_LABELS.get(s, s.replace('USDT', '')) for s in syms)} → пауза → повтор"
+   749→            )
+   750→        await msg.edit_text(text, reply_markup=get_main_menu_keyboard())
+   751→
+   752→    # ── Мультивалютный монитор ────────────────────────────────────────────
+   753→    elif callback.data == "multi_monitor":
+   754→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   755→        selected = _get_autoscan_symbols()
+   756→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   757→        text = (
+   758→            f"📊 *Мультивалютный монитор*\n\n"
+   759→            f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   760→            f"Нажми на тикер, чтобы добавить/убрать.\n"
+   761→            f"Минимум 1 тикер."
+   762→        )
+   763→        await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   764→
+   765→    elif callback.data and callback.data.startswith("sym_toggle_"):
+   766→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   767→        sym = callback.data.removeprefix("sym_toggle_")
+   768→        if sym not in ALL_AUTOSCAN_SYMBOLS:
+   769→            await callback.answer("Неизвестный символ", show_alert=True)
+   770→            return
+   771→        selected = _get_autoscan_symbols()
+   772→        if sym in selected:
+   773→            if len(selected) <= 1:
+   774→                await callback.answer("❌ Минимум 1 тикер!", show_alert=True)
+   775→                return
+   776→            selected.remove(sym)
+   777→        else:
+   778→            selected.append(sym)
+   779→        _set_autoscan_symbols(selected)
+   780→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   781→        text = (
+   782→            f"📊 *Мультивалютный монитор*\n\n"
+   783→            f"Выбранные тикеры для автоскана:\n{labels}\n\n"
+   784→            f"Нажми на тикер, чтобы добавить/убратить."
+   785→        )
+   786→        await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   787→        if _dash_get_setting("autoscan_active", False):
+   788→            _stop_autoscan()
+   789→            _start_autoscan(callback.bot)
+   790→            await callback.answer(f"Автоскан перезапущен: {labels}", show_alert=False)
+   791→
+   792→    elif callback.data == "iv_minus":
+   793→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   794→        iv = _dash_get_setting("autoscan_interval", 30)
+   795→        iv = max(5, iv - 5)
+   796→        _dash_set_setting("autoscan_interval", iv)
+   797→        selected = _get_autoscan_symbols()
+   798→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   799→        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\n◀ / ▶ для интервала"
+   800→        await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   801→        if _dash_get_setting("autoscan_active", False):
+   802→            _stop_autoscan()
+   803→            _start_autoscan(callback.bot)
+   804→
+   805→    elif callback.data == "iv_plus":
+   806→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   807→        iv = _dash_get_setting("autoscan_interval", 30)
+   808→        iv = min(240, iv + 5)
+   809→        _dash_set_setting("autoscan_interval", iv)
+   810→        selected = _get_autoscan_symbols()
+   811→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   812→        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\n◀ / ▶ для интервала"
+   813→        await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   814→        if _dash_get_setting("autoscan_active", False):
+   815→            _stop_autoscan()
+   816→            _start_autoscan(callback.bot)
+   817→
+   818→    elif callback.data == "autoscan_interval_info":
+   819→        if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
+   820→        selected = _get_autoscan_symbols()
+   821→        labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
+   822→        iv = _dash_get_setting("autoscan_interval", 30)
+   823→        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\nТекущий интервал: {iv} мин. ◀ / ▶ для изменения."
+   824→        await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
+   825→
+   826→    elif callback.data == "back_to_main":
+   827→        await msg.edit_text(
+   828→            "🤖 *Dashboard Bot* — облако (Alibaba GLM)\n\nВыберите действие:",
+   829→            parse_mode="Markdown",
+   830→            reply_markup=get_main_menu_keyboard(),
+   831→        )
+   832→
+   833→
+   834→# ── /autoscan (команда) ────────────────────────────────────────────────────
+   835→
+   836→@dp.message(Command("autoscan"))
+   837→async def cmd_autoscan(message: Message) -> None:
+   838→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   839→    parts = message.text.strip().split()
+   840→    if len(parts) >= 2:
+   841→        arg = parts[1].lower()
+   842→        if arg in ("off", "stop", "0"):
+   843→            _stop_autoscan()
+   844→            await message.answer("⏹ Автоскан остановлен")
+   845→            return
+   846→        try:
+   847→            minutes = int(arg)
+   848→            if minutes < 5:
+   849→                await message.answer("❌ Минимум 5 минут")
+   850→                return
+   851→            _dash_set_setting("autoscan_interval", minutes)
+   852→            active = _dash_get_setting("autoscan_active", False)
+   853→            if active:
+   854→                _stop_autoscan()
+   855→                _start_autoscan(message.bot)
+   856→            await message.answer(f"✅ Интервал: {minutes} мин" + (" (перезапущен)" if active else ""))
+   857→            return
+   858→        except ValueError:
+   859→            pass
+   860→    active = _dash_get_setting("autoscan_active", False)
+   861→    iv = _dash_get_setting("autoscan_interval", 30)
+   862→    syms = _get_autoscan_symbols()
+   863→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
+   864→    await message.answer(
+   865→        f"Автоскан: {'🟢 ON' if active else '🔴 OFF'} ({iv} мин)\n"
+   866→        f"Тикеры: {labels}\n\n"
+   867→        f"/autoscan 30 — интервал\n/autoscan off — стоп"
+   868→    )
+   869→
+   870→
+   871→# ── /status, /stats, /startbot, /stopbot, /version ─────────────────────────
+   872→
+   873→@dp.message(Command("status"))
+   874→async def cmd_status(message: Message) -> None:
+   875→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   876→    running = is_main_bot_running()
+   877→    uptime = int(time.time() - main_bot_started_at) if main_bot_started_at and running else 0
+   878→    pid = main_bot_process.pid if running else "—"
+   879→    status = "🟢 Running" if running else "🔴 Stopped"
+   880→    cloud_status = "✅ cloud" if DASHBOARD_LLM_API_KEY else "❌ no key"
+   881→    autoscan = _dash_get_setting("autoscan_active", False)
+   882→    autoscan_iv = _dash_get_setting("autoscan_interval", 30)
+   883→    autoscan_syms = _get_autoscan_symbols()
+   884→    autoscan_labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in autoscan_syms)
+   885→    text = (
+   886→        f"📊 *Статус*\n\n"
+   887→        f"Основной бот (@KXROBObot): {status}\n"
+   888→        f"  PID: {pid}\n"
+   889→        f"  Uptime: {uptime//60} мин {uptime%60} сек\n"
+   890→        f"  Модель: LM Studio qwen2.5-vl-7b (локальная)\n\n"
+   891→        f"Дашборд-бот (@my_hermes_lokal_ai_bot): 🟢 Active\n"
+   892→        f"  Модель: {DASHBOARD_MODEL_NAME} ({cloud_status})\n"
+   893→        f"  Prompt: variant {os.getenv('PROMPT_VARIANT', 'A')}\n"
+   894→        f"  Auto: {'🔇 ON' if get_setting('auto_mode', False) else '📢 OFF'}\n"
+   895→        f"  Автоскан: {'🟢 ON' if autoscan else '🔴 OFF'} ({autoscan_iv} мин)\n"
+   896→        f"    Тикеры: {autoscan_labels}"
+   897→    )
+   898→    await message.answer(text)
+   899→
+   900→
+   901→@dp.message(Command("stats"))
+   902→async def cmd_stats(message: Message) -> None:
+   903→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   904→    s = get_stats()
+   905→    text = f"📈 *Статистика*\n\nПроверено: {s['checked']}\nAccuracy: {s['accuracy']}%\nWins: {s['wins']}\nSL: {s['sl_rate']}%\nPending: {s['pending']}\n\n"
+   906→    if s.get("ab_variants"):
+   907→        text += "🧪 *A/B:*\n"
+   908→        for v in s["ab_variants"]:
+   909→            text += f"  {v['variant']}: {v['wins']}/{v['total']}\n"
+   910→    if s.get("last_signals"):
+   911→        text += "\n📋 *Сигналы:*\n"
+   912→        for sig in s["last_signals"][:5]:
+   913→            text += f"  {sig['timestamp'][:16]} | {sig['symbol']} | {sig['signal_status']} | {sig.get('outcome','pending')}\n"
+   914→    else:
+   915→        text += "\n_(нет данных)_"
+   916→    await message.answer(text)
+   917→
+   918→
+   919→@dp.message(Command("startbot"))
+   920→async def cmd_startbot(message: Message) -> None:
+   921→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   922→    if is_main_bot_running():
+   923→        await message.answer("⚠️ Уже запущен")
+   924→        return
+   925→    ok = start_main_bot()
+   926→    await message.answer(f"✅ Запущен (PID {main_bot_process.pid})" if ok else "❌ Ошибка")
+   927→
+   928→
+   929→@dp.message(Command("stopbot"))
+   930→async def cmd_stopbot(message: Message) -> None:
+   931→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   932→    if not is_main_bot_running():
+   933→        await message.answer("⚠️ Уже остановлен")
+   934→        return
+   935→    ok = stop_main_bot()
+   936→    await message.answer("🛑 Остановлен" if ok else "❌ Ошибка")
+   937→
+   938→
+   939→@dp.message(Command("help"))
+   940→async def cmd_help(message: Message) -> None:
+   941→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   942→    text = """📖 *Справка*
+   943→
+   944→*Анализ:*
+   945→/scan BTC — анализ любой пары (SOL, XAG, DOGE...)
+   946→/analyze_all — анализ загруженных скриншотов
+   947→📎 Отправь 1–5 фото графиков → /analyze_all
+   948→
+   949→*Портфель:*
+   950→/add XAGUSDT — добавить тикер в список
+   951→/remove XAGUSDT — удалить тикер
+   952→/settings — текущая конфигурация
+   953→
+   954→*Таймфреймы и таймер:*
+   955→/timeframes — выбрать ТФ (15m, 1h, 4h, 1D)
+   956→/timer 30 — интервал авто-отчётов (мин 5)
+   957→
+   958→*Автоскан (облако):*
+   959→/autoscan — статус автоскана
+   960→/autoscan 30 — установить интервал
+   961→/autoscan off — остановить
+   962→Кнопка «Автоскан: тикеры» — выбор монет для цикла
+   963→
+   964→*Режимы:*
+   965→/auto — тогл авто-режима (только сигналы / все)
+   966→/filter on/off — фильтр сигналов
+   967→
+   968→*Прочее:*
+   969→/export — скачать CSV бэктеста
+   970→/status — статус обоих ботов
+   971→/stats — статистика точности
+   972→/version — git HEAD
+   973→/startbot / stopbot — управл. основным ботом"""
+   974→    await message.answer(text, parse_mode="Markdown")
+   975→
+   976→
+   977→@dp.message(Command("version"))
+   978→async def cmd_version(message: Message) -> None:
+   979→    if message.from_user and message.from_user.id != ADMIN_CHAT_ID: return
+   980→    try:
+   981→        r = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=PROJECT_DIR)
+   982→        head = r.stdout.strip()
+   983→        r2 = subprocess.run(["git", "log", "-1", "--format=%s"], capture_output=True, text=True, cwd=PROJECT_DIR)
+   984→        await message.answer(f"📌 HEAD: `{head}`\n{r2.stdout.strip()}")
+   985→    except Exception as e:
+   986→        await message.answer(f"❌ {e}")
+   987→
+   988→
+   989→# ═══════════════════════════════════════════════════════════════════════════
+   990→# АВТОСКАН — последовательный цикл (BTC → 2мин → XAUT → пауза → повтор)
+   991→# ═══════════════════════════════════════════════════════════════════════════
+   992→
+   993→_autoscan_running = False
+   994→
+   995→
+   996→async def _autoscan_sequential_cycle(bot: Bot):
+   997→    """Последовательный цикл: символы по очереди, 2 мин пауза между, затем пауза до интервала."""
+   998→    global _autoscan_running
+   999→    if not DASHBOARD_LLM_API_KEY:
+  1000→        logging.warning("autoscan: DASHBOARD_LLM_API_KEY not set")
+  1001→        return
+  1002→    if _autoscan_running:
+  1003→        return
+  1004→    _autoscan_running = True
+  1005→
+  1006→    symbols = _get_autoscan_symbols()
+  1007→    interval = _dash_get_setting("autoscan_interval", 30)
+  1008→    inter_symbol_pause = 120  # 2 минуты между символами
+  1009→
+  1010→    import core.config as cfg
+  1011→    import core.scheduler as sched_mod
+  1012→
+  1013→    try:
+  1014→        while _dash_get_setting("autoscan_active", False) and _autoscan_running:
+  1015→            cycle_start = time.time()
+  1016→            timeframes = sort_timeframes(_get_timeframes())
+  1017→
+  1018→            for i, symbol in enumerate(symbols):
+  1019→                if not _dash_get_setting("autoscan_active", False) or not _autoscan_running:
+  1020→                    break
+  1021→                label = SYMBOL_LABELS.get(symbol, symbol.replace("USDT", ""))
+  1022→                logging.info(f"Autoscan: analyzing {label}...")
+  1023→
+  1024→                # Автоскан: AUTO_SIGNAL_ONLY = True (только сигналы в TG)
+  1025→                old_auto = cfg.AUTO_SIGNAL_ONLY
+  1026→                old_my_chat = cfg.MY_CHAT_ID
+  1027→                try:
+  1028→                    cfg.MY_CHAT_ID = ADMIN_CHAT_ID
+  1029→                    sched_mod.AUTO_SIGNAL_ONLY = True
+  1030→                    sched_mod.ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
+  1031→                    from core.scheduler import run_hourly_analysis
+  1032→                    await run_hourly_analysis(
+  1033→                        bot=bot,
+  1034→                        symbol_filter=symbol,
+  1035→                        llm_api_key=DASHBOARD_LLM_API_KEY,
+  1036→                        llm_base_url=DASHBOARD_LLM_BASE_URL,
+  1037→                        llm_model=DASHBOARD_MODEL_NAME,
+  1038→                    )
+  1039→                except Exception as e:
+  1040→                    logging.error(f"autoscan {symbol} error: {e}")
+  1041→                finally:
+  1042→                    cfg.AUTO_SIGNAL_ONLY = old_auto
+  1043→                    cfg.MY_CHAT_ID = old_my_chat
+  1044→
+  1045→                # Пауза между символами
+  1046→                if i < len(symbols) - 1 and _dash_get_setting("autoscan_active", False):
+  1047→                    logging.info(f"Autoscan: pause {inter_symbol_pause}s before next symbol")
+  1048→                    sleep_end = time.time() + inter_symbol_pause
+  1049→                    while time.time() < sleep_end and _autoscan_running:
+  1050→                        if not _dash_get_setting("autoscan_active", False):
+  1051→                            break
+  1052→                        await asyncio.sleep(min(10, sleep_end - time.time()))
+  1053→
+  1054→            # Пауза после полного цикла
+  1055→            if _dash_get_setting("autoscan_active", False) and _autoscan_running:
+  1056→                elapsed = time.time() - cycle_start
+  1057→                remaining = (interval * 60) - elapsed
+  1058→                if remaining > 0:
+  1059→                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s")
+  1060→                    sleep_end = time.time() + remaining
+  1061→                    while time.time() < sleep_end and _autoscan_running:
+  1062→                        if not _dash_get_setting("autoscan_active", False):
+  1063→                            break
+  1064→                        await asyncio.sleep(min(10, sleep_end - time.time()))
+  1065→    except asyncio.CancelledError:
+  1066→        logging.info("Autoscan: cancelled")
+  1067→    finally:
+  1068→        _autoscan_running = False
+  1069→
+  1070→
+  1071→def _start_autoscan(bot: Bot) -> bool:
+  1072→    global _autoscan_running
+  1073→    if _autoscan_running:
+  1074→        return False
+  1075→    _dash_set_setting("autoscan_active", True)
+  1076→    symbols = _get_autoscan_symbols()
+  1077→    interval = _dash_get_setting("autoscan_interval", 30)
+  1078→    labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in symbols)
+  1079→    logging.info(f"Autoscan started: interval={interval}min, symbols=[{labels}]")
+  1080→    asyncio.create_task(_autoscan_sequential_cycle(bot))
+  1081→    return True
+  1082→
+  1083→
+  1084→def _stop_autoscan() -> bool:
+  1085→    global _autoscan_running
+  1086→    _autoscan_running = False
+  1087→    _dash_set_setting("autoscan_active", False)
+  1088→    logging.info("Autoscan stopped")
+  1089→    return True
+  1090→
+  1091→
+  1092→# ═══════════════════════════════════════════════════════════════════════════
+  1093→# FLASK WEB DASHBOARD
+  1094→# ═══════════════════════════════════════════════════════════════════════════
+  1095→
+  1096→app = Flask(__name__)
+  1097→
+  1098→HTML = """<!DOCTYPE html>
+  1099→<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  1100→<title>LOCAL_AI_ENGINE Dashboard</title>
+  1101→<style>
+  1102→*{box-sizing:border-box;margin:0;padding:0}
+  1103→body{font-family:'Segoe UI',sans-serif;background:#1a1a2e;color:#e0e0e0;padding:20px}
+  1104→h1{color:#e94560;margin-bottom:20px}
+  1105→.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:15px;margin-bottom:20px}
+  1106→.card{background:#16213e;border-radius:10px;padding:15px;border:1px solid #0f3460}
+  1107→.card h2{color:#e94560;font-size:1.1em;margin-bottom:10px}
+  1108→.stat{display:flex;justify-content:space-between;padding:4px 0;font-family:'Courier New',monospace}
+  1109→.stat .val{color:#53d769;font-weight:bold}
+  1110→.stat .val.red{color:#e94560}
+  1111→table{width:100%;border-collapse:collapse;margin-top:10px}
+  1112→th{text-align:left;color:#e94560;padding:6px;font-size:0.85em}
+  1113→td{padding:6px;font-family:'Courier New',monospace;font-size:0.85em;border-top:1px solid #0f3460}
+  1114→.controls{margin:15px 0}
+  1115→.btn{padding:10px 20px;border:none;border-radius:5px;cursor:pointer;font-size:1em;margin-right:10px}
+  1116→.btn-start{background:#53d769;color:#1a1a2e}.btn-stop{background:#e94560;color:#fff}
+  1117→</style></head><body>
+  1118→<h1>📊 LOCAL_AI_ENGINE Dashboard</h1>
+  1119→<div class="controls">
+  1120→<button class="btn btn-start" onclick="ctrl('start')">▶ Start</button>
+  1121→<button class="btn btn-stop" onclick="ctrl('stop')">⏹ Stop</button>
+  1122→</div>
+  1123→<div class="grid" id="dashboard"></div>
+  1124→<script>
+  1125→async function fetchStats(){const r=await fetch('/api/stats');const d=await r.json();let h='';
+  1126→h+='<div class="card"><h2>⚙️ Статус</h2>';
+  1127→h+='<div class="stat"><span>Основной бот:</span><span class="val">'+d.bot_status+'</span></div>';
+  1128→h+='<div class="stat"><span>Uptime:</span><span>'+Math.floor(d.uptime/60)+' мин</span></div>';
+  1129→h+='<div class="stat"><span>Дашборд LLM:</span><span>'+d.model+' ('+d.llm_mode+')</span></div>';
+  1130→h+='<div class="stat"><span>Variant:</span><span>'+d.prompt_variant+'</span></div>';
+  1131→h+='<div class="stat"><span>Auto:</span><span>'+(d.auto_mode?'ON':'OFF')+'</span></div>';
+  1132→h+='</div>';
+  1133→h+='<div class="card"><h2>🎯 Точность</h2>';
+  1134→h+='<div class="stat"><span>Проверено:</span><span class="val">'+d.checked+'</span></div>';
+  1135→h+='<div class="stat"><span>Accuracy:</span><span class="val">'+d.accuracy+'%</span></div>';
+  1136→h+='<div class="stat"><span>SL rate:</span><span class="val red">'+d.sl_rate+'%</span></div>';
+  1137→h+='<div class="stat"><span>Pending:</span><span>'+d.pending+'</span></div>';
+  1138→h+='</div>';
+  1139→if(d.last_signals&&d.last_signals.length>0){h+='<div class="card" style="grid-column:1/-1"><h2>📈 Сигналы</h2><table><tr><th>Время</th><th>Символ</th><th>Signal</th><th>Dir</th><th>Outcome</th></tr>';
+  1140→d.last_signals.forEach(s=>{h+='<tr><td>'+(s.timestamp||'').slice(11,19)+'</td><td>'+s.symbol+'</td><td>'+s.signal_status+'</td><td>'+(s.direction||'—')+'</td><td>'+(s.outcome||'pending')+'</td></tr>'});
+  1141→h+='</table></div>';}
+  1142→document.getElementById('dashboard').innerHTML=h;}
+  1143→async function ctrl(a){await fetch('/api/'+a,{method:'POST'});setTimeout(fetchStats,500);}
+  1144→fetchStats();setInterval(fetchStats,60000);
+  1145→</script></body></html>"""
+  1146→
+  1147→@app.route("/")
+  1148→def dashboard():
+  1149→    return render_template_string(HTML)
+  1150→
+  1151→@app.route("/api/stats")
+  1152→def api_stats():
+  1153→    return jsonify(get_stats())
+  1154→
+  1155→@app.route("/api/start", methods=["POST"])
+  1156→def api_start():
+  1157→    return jsonify({"status": "started" if start_main_bot() else "already running"})
+  1158→
+  1159→@app.route("/api/stop", methods=["POST"])
+  1160→def api_stop():
+  1161→    return jsonify({"status": "stopped" if stop_main_bot() else "not running"})
+  1162→
+  1163→
+  1164→# ═══════════════════════════════════════════════════════════════════════════
+  1165→# MAIN
+  1166→# ═══════════════════════════════════════════════════════════════════════════
+  1167→
+  1168→async def main():
+  1169→    if not is_main_bot_running():
+  1170→        start_main_bot()
+  1171→        logging.info(f"Main bot started (PID {main_bot_process.pid})")
+  1172→
+  1173→    def run_flask():
+  1174→        app.run(host="0.0.0.0", port=WEB_PORT, debug=False, use_reloader=False)
+  1175→    flask_thread = threading.Thread(target=run_flask, daemon=True)
+  1176→    flask_thread.start()
+  1177→    logging.info(f"Web dashboard: http://localhost:{WEB_PORT}")
+  1178→
+  1179→    session = AiohttpSession()
+  1180→    bot = Bot(token=DASH_TOKEN, session=session)
+  1181→    await bot.set_my_commands([
+  1182→        BotCommand(command="help", description="📖 Справка по командам"),
+  1183→        BotCommand(command="start", description="Меню с кнопками"),
+  1184→        BotCommand(command="scan", description="Анализ: /scan BTC или /scan SOL"),
+  1185→        BotCommand(command="add", description="Добавить тикер"),
+  1186→        BotCommand(command="remove", description="Удалить тикер"),
+  1187→        BotCommand(command="settings", description="Настройки"),
+  1188→        BotCommand(command="timeframes", description="Таймфреймы"),
+  1189→        BotCommand(command="timer", description="Интервал авто-отчётов"),
+  1190→        BotCommand(command="filter", description="Фильтр сигналов"),
+  1191→        BotCommand(command="auto", description="Тогл авто-режима"),
+  1192→        BotCommand(command="export", description="Экспорт CSV"),
+  1193→        BotCommand(command="analyze_all", description="Анализ скриншотов"),
+  1194→        BotCommand(command="autoscan", description="Автоскан: /autoscan 30"),
+  1195→        BotCommand(command="status", description="Статус ботов"),
+  1196→        BotCommand(command="stats", description="Статистика"),
+  1197→        BotCommand(command="startbot", description="Запустить основной бот"),
+  1198→        BotCommand(command="stopbot", description="Остановить основной бот"),
+  1199→        BotCommand(command="version", description="Git HEAD"),
+  1200→    ])
+  1201→    me = await bot.get_me()
+  1202→    logging.info(f"Dashboard bot: @{me.username} (id={me.id})")
+  1203→    await dp.start_polling(bot)
+  1204→
+  1205→if __name__ == "__main__":
+  1206→    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+  1207→    print(f"📊 Dashboard Bot + Web: http://localhost:{WEB_PORT}")
+  1208→    asyncio.run(main())

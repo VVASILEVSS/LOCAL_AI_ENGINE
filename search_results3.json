@@ -1,0 +1,92 @@
+[
+  {
+    "url": "https://www.tradingview.com/script/7wUzaia6-Liquidity-Magnet-Compass-forexobroker",
+    "name": "Liquidity Magnet Compass [forexobroker] - TradingView",
+    "snippet": "Liquidity Magnet Compass maps every swing high and swing low on the chart as a liquidity zone where stop orders tend to cluster -- Buy-Side ...\nLiquidity Magnet Compass maps every swing high and swing low on the chart as a liquidity zone where stop orders tend to cluster. Pine Script ...",
+    "host_name": "www.tradingview.com",
+    "rank": 0,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=T51yrIJRJEI",
+    "name": "NEW Indicator SHOWS Buy-Side & Sell-Side Liquidity - YouTube",
+    "snippet": "PineTrades Custom Indicator: https://www.chartprime.com/pinetrades ------------------- - Liquidity Pro Map by ChartPrime — A Visual Edge ...",
+    "host_name": "www.youtube.com",
+    "rank": 1,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://medium.com/@betashorts1998/5-advanced-pine-script-techniques-that-will-take-your-trading-to-the-next-level-dfe1908f009a",
+    "name": "5 Advanced Pine Script Techniques That Will Take Your Trading to the Next Level - Medium",
+    "snippet": "How it works: ✔ Detects hidden liquidity pools where large traders are positioning ✔ Helps avoid entering right before stop hunts or fake moves ...\nHow to use it: Red zone = potential smart money activity → Avoid trading into these areas. If a liquidity gap occurs before a breakout → High ...\nCode How to use it: Red zones = Hidden order absorption detected → Institutions likely positioning. If hidden orders appear at major levels → ...",
+    "host_name": "medium.com",
+    "rank": 2,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.scribd.com/document/866446449/Liquidity-Zones-Indicator-Lines-Only-Pine-Script-v6",
+    "name": "Liquidity Zones Indicator Script | PDF - Scribd",
+    "snippet": "This document is a Pine Script code for a TradingView indicator that plots liquidity zones based on previous day, week, and month highs and lows.",
+    "host_name": "www.scribd.com",
+    "rank": 3,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=NHk30V9k23I",
+    "name": "Smart Money Liquidity Zones Explained (With Examples) - YouTube",
+    "snippet": "Go to channel Jesse Livermore's Trading Code · 90% of Traders Use WRONG Indicators | Here's the 3 That Work. Jesse Livermore's Trading Code•141K.\nIn this video, you'll learn how to identify and trade key liquidity zones ... Go to channel Jesse Livermore's Trading Code · 90% of Traders Use ...",
+    "host_name": "www.youtube.com",
+    "rank": 4,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.reddit.com/r/pinescript/comments/1skuaye/i_made_an_indicator_that_finds_supplydemand_zones",
+    "name": "I made an indicator that finds supply/demand zones (or liquidity zones) based one price action and volume. (Not selling or sharing.) : r/pinescript - Reddit",
+    "snippet": "Creating custom indicators in Pine Script. Practices for optimizing Pine Script code. How to debug Pine Script effectively. Open App.",
+    "host_name": "www.reddit.com",
+    "rank": 5,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://bookmap.com/blog/how-to-set-profit-targets-using-liquidity-maps",
+    "name": "How to Set Profit Targets Using Liquidity Maps - Bookmap",
+    "snippet": "Here, liquidity zones act as strong magnets. They pull the price back and forth. In such cases, these zones make excellent profit targets.",
+    "host_name": "bookmap.com",
+    "rank": 6,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.youtube.com/watch?v=rrKdpVWpEJE",
+    "name": "Identify Liquidity Zones Easily with This Secret Technique. Supply & Demand Basics FOREX Trading SMC - YouTube",
+    "snippet": "Mastering liquidity zones is easier than you think. Discover a simple technique to find and draw liquidity supply and demand zones on any ...\nIdentify Liquidity Zones Easily with This Secret Technique. Supply & Demand Basics FOREX Trading SMC · Comments.",
+    "host_name": "www.youtube.com",
+    "rank": 7,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.tradingview.com/script/ne2ZDkeE-Liquidity-Magnet-Zones-forexobroker",
+    "name": "Liquidity Magnet Zones [forexobroker] - TradingView",
+    "snippet": "Every zone gets a Magnetic Strength Score from 0 to 100 based on four factors — making it instantly clear which levels are high-priority targets ...\nLiquidity Magnet Zones is a Smart Money Concepts (SMC) tool that automatically identifies where liquidity pools are forming above swing highs ...\nLiquidity Magnet Zones is a Smart Money Concepts (SMC) tool that automatically identifies where liquidity pools are forming above swing ...",
+    "host_name": "www.tradingview.com",
+    "rank": 8,
+    "date": "",
+    "favicon": ""
+  },
+  {
+    "url": "https://www.luxalgo.com/blog/how-to-map-liquidity-zones-and-order-blocks",
+    "name": "How to Map Liquidity Zones and Order Blocks - LuxAlgo",
+    "snippet": "Learn how to identify and map liquidity zones and order blocks to enhance your trading strategy and improve risk management.",
+    "host_name": "www.luxalgo.com",
+    "rank": 9,
+    "date": "",
+    "favicon": ""
+  }
+]

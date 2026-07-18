@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,12 @@ def init_backtest_table() -> None:
             outcome TEXT,
             rr_realised REAL,
 
+            -- Зоны для backtest no_signal (цена вышла за resistance/support?)
+            zone_upper REAL,
+            zone_lower REAL,
+            key_resistance REAL,
+            key_support REAL,
+
             -- Метаданные
             consistency_runs INTEGER,
             consistency_agreed INTEGER,
@@ -86,14 +92,35 @@ def init_backtest_table() -> None:
         ON signal_log(symbol, timestamp)
         WHERE checked_at IS NULL
     """)
-    # P3-4: миграция — добавить prompt_variant если отсутствует (existing DB)
-    try:
-        c.execute("ALTER TABLE signal_log ADD COLUMN prompt_variant TEXT DEFAULT 'A'")
-    except Exception:
-        pass  # колонка уже существует
+    # Миграция — добавить колонки если отсутствуют (existing DB)
+    for col_sql in [
+        "ALTER TABLE signal_log ADD COLUMN prompt_variant TEXT DEFAULT 'A'",
+        "ALTER TABLE signal_log ADD COLUMN zone_upper REAL",
+        "ALTER TABLE signal_log ADD COLUMN zone_lower REAL",
+        "ALTER TABLE signal_log ADD COLUMN key_resistance REAL",
+        "ALTER TABLE signal_log ADD COLUMN key_support REAL",
+    ]:
+        try:
+            c.execute(col_sql)
+        except Exception:
+            pass  # колонка уже существует
     _conn().commit()
     _conn().close()
     logger.info("backtest table ready")
+
+
+def cleanup_old_signal_logs(retain_days: int = 14) -> int:
+    """Удалить записи signal_log старше retain_days. Возвращает количество удалённых."""
+    cutoff = (datetime.utcnow() - timedelta(days=retain_days)).isoformat()
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM signal_log WHERE timestamp < ?", (cutoff,))
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    if deleted > 0:
+        logger.info("signal_log cleanup: deleted %d records older than %d days", deleted, retain_days)
+    return deleted
 
 
 def save_signal_log(
@@ -120,7 +147,10 @@ def save_signal_log(
         runs = consistency.get("runs", 1)
         agreed = 1 if consistency.get("agreed", True) else 0
 
-        entry = _safe_float(parsed.get("price") or parsed.get("current_price"))
+        # entry_price = live_price (current_price), а не last_closed_price.
+        # LLM часто возвращает price = last_closed_price, но для backtest
+        # нужна реальная цена на момент прогноза.
+        entry = _safe_float(parsed.get("current_price") or parsed.get("price"))
         sl = _safe_float(primary.get("sl"))
         tp1 = _safe_float(primary.get("tp1"))
         tp2 = _safe_float(primary.get("tp2"))
@@ -132,18 +162,52 @@ def save_signal_log(
 
         conn = _conn()
         c = conn.cursor()
+        # P3: Извлечь зоны для backtest no_signal прогнозов.
+        # Берём LTF зону (последний ТФ) как рабочую + key_zones.
+        # Phase 2: зона может быть {range: [low, high], bos_price, bos_dir, bos_age}
+        # или legacy {upper, lower}. Извлекаем upper/lower из range если есть.
+        tf_zones = parsed.get("tf_zones") or {}
+        # Последняя зона по каноническому порядку (самый младший ТФ)
+        ltf_zone = None
+        for tf_key in ["5M", "15M", "1H", "4H", "1D"]:
+            z = tf_zones.get(tf_key)
+            if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None
+                                        or (isinstance(z.get("range"), list) and len(z["range"]) == 2)):
+                ltf_zone = z
+        # Если канонического нет — берём последнюю из dict
+        if ltf_zone is None and tf_zones:
+            last_key = list(tf_zones.keys())[-1]
+            ltf_zone = tf_zones[last_key]
+
+        # Нормализуем upper/lower (с поддержкой Phase 2 range)
+        def _zone_bounds(z):
+            if not isinstance(z, dict):
+                return None, None
+            rng = z.get("range")
+            if isinstance(rng, list) and len(rng) == 2:
+                return _safe_float(rng[0]), _safe_float(rng[1])
+            return _safe_float(z.get("lower")), _safe_float(z.get("upper"))
+
+        zone_lower, zone_upper = _zone_bounds(ltf_zone)
+
+        key_zones = parsed.get("key_zones") or {}
+        key_resistance = _safe_float(key_zones.get("resistance"))
+        key_support = _safe_float(key_zones.get("support"))
+
         c.execute("""
             INSERT INTO signal_log
               (symbol, timestamp, signal_status, direction, entry_price,
                sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
+               zone_upper, zone_lower, key_resistance, key_support,
                consistency_runs, consistency_agreed, prompt_variant, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol, now, status, direction, entry,
             sl, tp1, tp2, tp3, rr,
             parsed.get("confidence"),
             parsed.get("htf_structure"),
             parsed.get("abc_risk"),
+            zone_upper, zone_lower, key_resistance, key_support,
             runs, agreed, variant,
             json.dumps(parsed, ensure_ascii=False, default=str)[:8000],
         ))
@@ -167,7 +231,8 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
     conn = _conn()
     c = conn.cursor()
     c.execute("""
-        SELECT id, symbol, timestamp, direction, entry_price, sl, tp1, tp2, tp3
+        SELECT id, symbol, timestamp, direction, entry_price, sl, tp1, tp2, tp3,
+               zone_upper, zone_lower, key_resistance, key_support, signal_status
         FROM signal_log
         WHERE checked_at IS NULL
           AND datetime(timestamp, '+{} hours') < datetime('now')
@@ -182,7 +247,8 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
     now = datetime.now(timezone.utc).isoformat()
 
     for row in pending:
-        row_id, symbol, ts, direction, entry, sl, tp1, tp2, tp3 = row
+        row_id, symbol, ts, direction, entry, sl, tp1, tp2, tp3, \
+            zone_upper, zone_lower, key_res, key_sup, signal_status = row
 
         actual = current_prices.get(symbol)
         if actual is None:
@@ -240,6 +306,20 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
                 outcome = "no_hit"
         else:
             outcome = "no_direction"
+
+        # P3: Для no_signal — проверить выход за зоны.
+        # Если signal_status=no_signal и цена вышла за zone_upper/key_resistance
+        # или zone_lower/key_support → outcome = "zone_break_up" / "zone_break_down".
+        if str(signal_status).lower() in ("no_signal", "accumulation") and outcome in ("no_direction", "no_hit"):
+            # Проверяем LTF зону, затем key_zones
+            upper_bound = zone_upper or key_res
+            lower_bound = zone_lower or key_sup
+            if upper_bound and actual and actual > upper_bound:
+                outcome = "zone_break_up"
+            elif lower_bound and actual and actual < lower_bound:
+                outcome = "zone_break_down"
+            else:
+                outcome = "zone_hold"  # цена осталась внутри зоны
 
         # Расчёт реализованного RR
         if entry and sl and sl_hit:

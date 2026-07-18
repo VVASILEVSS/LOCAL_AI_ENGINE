@@ -38,7 +38,10 @@ async def main() -> None:
     logger.info("Папка проекта: %s", os.getcwd())
 
     # Запуск планировщика автоанализа
-    start_scheduler(bot)
+    # ОТКЛЮЧЕН: scheduler вызывает run_hourly_analysis без LLM params
+    # → fallback на LM Studio localhost:1234 которого нет.
+    # Включить после подключения LLM params к scheduler.
+    # start_scheduler(bot)
 
     try:
         await dp.start_polling(bot)

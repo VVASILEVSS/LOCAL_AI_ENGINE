@@ -1,0 +1,41 @@
+{
+  "n_samples": 300,
+  "n_positive": 240,
+  "n_negative": 60,
+  "cv_folds": 5,
+  "seed": 42,
+  "best_model": "RandomForest (pure, 20t)",
+  "best_accuracy": 0.79332,
+  "models": {
+    "DecisionStump (baseline)": {
+      "accuracy": 0.78,
+      "precision": 0.80206,
+      "recall": 0.9625,
+      "f1": 0.8748400000000001
+    },
+    "RandomForest (pure, 20t)": {
+      "accuracy": 0.79332,
+      "precision": 0.79864,
+      "recall": 0.99168,
+      "f1": 0.8847400000000001
+    },
+    "sklearn RandomForest (100t)": {
+      "accuracy": 0.7767,
+      "precision": 0.7993,
+      "recall": 0.9625,
+      "f1": 0.8733
+    },
+    "sklearn GradientBoosting": {
+      "accuracy": 0.75,
+      "precision": 0.7978,
+      "recall": 0.9208,
+      "f1": 0.8549
+    },
+    "sklearn LogisticRegression": {
+      "accuracy": 0.6433,
+      "precision": 0.8482,
+      "recall": 0.675,
+      "f1": 0.7517
+    }
+  }
+}

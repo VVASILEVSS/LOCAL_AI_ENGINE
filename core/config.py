@@ -34,6 +34,14 @@ LLM_MODE = "cloud" if LLM_API_KEY else "local"
 # (БЕЗ /v1 — service добавляет сам, иначе будет /v1/v1/ → 404).
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "")
 
+# --- ОБЛАЧНАЯ LLM ДЛЯ ДАШБОРДА ---
+# Отдельные ключи для web_dashboard.py (/scan и др. команды).
+# Основной бот (main.py) использует LLM_* выше (пустые = локальная LM Studio).
+# Дашборд может работать на Alibaba GLM параллельно.
+DASHBOARD_LLM_API_KEY = os.getenv("DASHBOARD_LLM_API_KEY", "")
+DASHBOARD_LLM_BASE_URL = os.getenv("DASHBOARD_LLM_BASE_URL", "").rstrip("/").removesuffix("/v1")
+DASHBOARD_MODEL_NAME = os.getenv("DASHBOARD_MODEL_NAME", "glm-5.2-fast-preview")
+
 # --- A/B ТЕСТ ПРОМПТОВ (P3-4) ---
 # "A" = текущий промпт (strict fact-based + 2 few-shot примера)
 # "B" = альтернативный промпт (rules-based, без few-shot, приоритет signal_status)
