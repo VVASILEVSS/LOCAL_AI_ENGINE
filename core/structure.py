@@ -421,13 +421,15 @@ def analyze_tf_structure(
         zone_low = current_price
         swing_dir = "sideways"
 
-    # ── Variant D: minimum zone = last 4 swings (1 complete swing cycle) ──
+    # ── Variant D: minimum zone = last N swings (self-limiting extension) ──
     # Если curr_struct микро (BOS только что, < 2 свинга после BOS),
-    # расширяем зону до последних 4 свингов из STRUCT_WINDOW.
-    # Если curr_struct уже достаточно широкий — max(curr, last4) = curr (no change).
-    # 4 свинга = ~1 полный цикл H-L-H-L = то что трейдер видит на графике.
-    # Решает проблему: curr-only = 0.17% (микро), union = 43% (макро).
-    _LAST_SWINGS_MIN = 4
+    # расширяем зону до последних N свингов из STRUCT_WINDOW.
+    # Если curr_struct уже достаточно широкий — max(curr, lastN) = curr (no change).
+    # N адаптивный по ТФ: старшие TF = меньше swings (1D=3),
+    # младшие TF = больше swings (15M=6) для преодоления шума.
+    # Решает: curr-only = 0.17% (микро), union = 43% (макро).
+    _TF_SWING_N = {"5m": 8, "15m": 6, "1h": 5, "4h": 4, "1d": 3}
+    _LAST_SWINGS_MIN = _TF_SWING_N.get(tf, 4)
     if curr_struct and len(swing_points) >= 2:
         recent = swing_points[-_LAST_SWINGS_MIN:]
         recent_highs = [p["price"] for p in recent if p["type"] == "high"]
@@ -465,12 +467,27 @@ def analyze_tf_structure(
     # Если clamp создаёт inverted zone (zone_low > zone_high) → НЕ клампим.
     # Это значит child curr_structure полностью ВЫШЕ или НИЖЕ parent zone —
     # parent пробит, child сохраняет свои границы (концепция Возного).
+    #
+    # Skip clamp если parent span < min_span для parent TF —
+    # parent не сформировал структурную зону (микро post-BOS).
+    # Решает проблему: parent clamp срезает Variant D расширение на child.
+    _PARENT_MIN_SPAN = {"1d": 0.02, "4h": 0.015, "1h": 0.008, "15m": 0.005, "5m": 0.003}
     chain_broken = False
     if parent_zone is not None:
         p_low, p_high = parent_zone
-        # НЕ клампим если parent zone inverted (low >= high) — это значит
-        # у parent нет сформированной curr_structure (после BOS, ждём swing).
-        if p_high > p_low:
+        # Skip clamp если parent zone inverted (low >= high) — нет структуры
+        # ИЛИ parent span < min_span — parent микро, не ограничиваем child
+        parent_span_ok = p_high > p_low
+        if parent_span_ok and parent_tf:
+            parent_span_pct = (p_high - p_low) / current_price
+            parent_min = _PARENT_MIN_SPAN.get(parent_tf, 0.005)
+            if parent_span_pct < parent_min:
+                logging.info(
+                    "TOPDOWN: %s parent %s span %.2f%% < min %.2f%% — skip clamp (parent not formed)",
+                    tf, parent_tf, parent_span_pct * 100, parent_min * 100,
+                )
+                parent_span_ok = False
+        if parent_span_ok:
             clamped_high = min(zone_high, p_high)
             clamped_low = max(zone_low, p_low)
             # Проверка: не создаёт ли clamp inverted zone?
