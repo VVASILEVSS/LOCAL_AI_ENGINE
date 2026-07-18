@@ -297,7 +297,7 @@ def _multi_monitor_keyboard() -> InlineKeyboardMarkup:
             row = []
     if row:
         rows.append(row)
-    interval = _dash_get_setting("autoscan_interval", 30)
+    interval = _effective_autoscan_interval()
     rows.append([InlineKeyboardButton(text=f"⏱ Интервал: {interval} мин", callback_data="autoscan_interval_info")])
     rows.append([
         InlineKeyboardButton(text="◀ −5 мин", callback_data="iv_minus"),
@@ -308,13 +308,25 @@ def _multi_monitor_keyboard() -> InlineKeyboardMarkup:
 
 
 def _autoscan_button_label() -> str:
-    interval = _dash_get_setting("autoscan_interval", 30)
+    interval = _effective_autoscan_interval()
     active = _dash_get_setting("autoscan_active", False)
     if active:
         return f"⏹ Стоп автоскан ({interval} мин)"
     syms = _get_autoscan_symbols()
     sym_labels = "+".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in syms)
     return f"▶ Автоскан ({sym_labels}, {interval} мин)"
+
+
+def _effective_autoscan_interval() -> int:
+    """Базовый autoscan_interval с weekend-удвоением (сб/вс = x2)."""
+    raw = _dash_get_setting("autoscan_interval", 30)
+    try:
+        base = int(raw)
+    except (ValueError, TypeError):
+        base = 30
+    if datetime.now().weekday() >= 5:  # 5=сб, 6=вс
+        return base * 2
+    return base
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1083,8 +1095,11 @@ async def callbacks_handler(callback: CallbackQuery) -> None:
         if callback.from_user and callback.from_user.id != ADMIN_CHAT_ID: return
         selected = _get_autoscan_symbols()
         labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in selected)
-        iv = _dash_get_setting("autoscan_interval", 30)
-        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\nТекущий интервал: {iv} мин. ◀ / ▶ для изменения."
+        base_iv = _dash_get_setting("autoscan_interval", 30)
+        eff_iv = _effective_autoscan_interval()
+        is_weekend = datetime.now().weekday() >= 5
+        wm_note = f"\n\n💤 _Weekend-mode: базовый {base_iv} мин × 2 = {eff_iv} мин (рынок спящий)_" if is_weekend else ""
+        text = f"📊 *Мультивалютный монитор*\n\nВыбранные тикеры: {labels}\n\nТекущий интервал: {eff_iv} мин.{wm_note}\n\n◀ / ▶ для изменения"
         await msg.edit_text(text, parse_mode="Markdown", reply_markup=_multi_monitor_keyboard())
 
     elif callback.data == "back_to_main":
@@ -1374,9 +1389,11 @@ async def _autoscan_sequential_cycle(bot: Bot):
             # Пауза после полного цикла
             if _dash_get_setting("autoscan_active", False) and _autoscan_running:
                 elapsed = time.time() - cycle_start
-                remaining = (interval * 60) - elapsed
+                # Weekend-mode: интервал x2 на сб/вс (рынок спящий)
+                effective_interval = interval * (2 if datetime.now().weekday() >= 5 else 1)
+                remaining = (effective_interval * 60) - elapsed
                 if remaining > 0:
-                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s")
+                    logging.info(f"Autoscan: cycle done, waiting {remaining:.0f}s (base={interval}min, effective={effective_interval}min)")
                     sleep_end = time.time() + remaining
                     while time.time() < sleep_end and _autoscan_running:
                         if not _dash_get_setting("autoscan_active", False):
@@ -1394,9 +1411,9 @@ def _start_autoscan(bot: Bot) -> bool:
         return False
     _dash_set_setting("autoscan_active", True)
     symbols = _get_autoscan_symbols()
-    interval = _dash_get_setting("autoscan_interval", 30)
+    interval = _effective_autoscan_interval()
     labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in symbols)
-    logging.info(f"Autoscan started: interval={interval}min, symbols=[{labels}]")
+    logging.info(f"Autoscan started: interval={interval}min (effective, weekend-aware), symbols=[{labels}]")
     asyncio.create_task(_autoscan_sequential_cycle(bot))
     return True
 
