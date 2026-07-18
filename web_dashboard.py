@@ -321,21 +321,17 @@ def _effective_autoscan_interval() -> int:
     """Эффективный autoscan интервал с учётом рыночных часов.
     Рабочее окно: пн 08:00 – пт 23:59 (крипто 24/7, но движения живые).
     Вне окна (сб/вс + пн до 08:00): 60 мин фикс — рынок спящий.
-    В окне: базовый autoscan_interval из settings (10–15 мин, дефолт 15)."""
+    В окне: базовый autoscan_interval из settings (10–15 мин, дефолт 15).
+
+    TEMP (2026-07-18): weekend-mode ОТКЛЮЧЕН для теста отката 438453c.
+    Возвращается после проверки зон. Бэкап: web_dashboard.py.bak.weekend-mode-temp-off.
+    """
     raw = _dash_get_setting("autoscan_interval", 15)
     try:
         base = int(raw)
     except (ValueError, TypeError):
         base = 15
-    now = datetime.now()
-    wd = now.weekday()  # 0=пн, 5=сб, 6=вс
-    # Сб/вс → вне окна
-    if wd >= 5:
-        return 60
-    # Пн до 08:00 → вне окна
-    if wd == 0 and now.hour < 8:
-        return 60
-    # Пн 08:00+ … Пт 23:59 → рабочее окно
+    # TEMP: weekend-mode off — всегда base interval
     return base
 
 

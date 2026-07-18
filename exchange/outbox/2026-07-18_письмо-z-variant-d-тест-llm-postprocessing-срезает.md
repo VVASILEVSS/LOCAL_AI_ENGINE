@@ -72,13 +72,36 @@ _LAST_SWINGS_MIN = {"1d": 3, "4h": 4, "1h": 6, "15m": 8, "5m": 10}
 Сейчас `scheduler.py` получает zone из LLM ответа (не из structure.py напрямую).
 Variant D меняет structure.py zone, но LLM может вернуть свою → перетёрло.
 
-## 5. Вопросы
+## 5. M15 = копия 1H (parent clamp перетёр Variant D)
+
+User спросил «м 15 где?». 15M зоны **есть в API и MT5**, но значения проблемные:
+
+| Сим | 15M zone | span | что не так |
+|-----|----------|------|-----------|
+| BTC | [63912 - 64237] | 0.51% | **= 1H (копия)** |
+| ETH | [1836.4 - 1849.7] | 0.72% | **= 1H (копия)** |
+| XAUT | [4010.0 - 4012.3] | **0.06%** | микро |
+
+**Причина 1 (BTC/ETH):** в narrative structure.py пишет `(parent 1H задал рамки)`.
+15M зона clamp'ится к 1H bounds → 1H узкий (0.51%) → 15M = копия 1H.
+Variant D расширяет через last 4 swings, **но parent clamp обрезает обратно**.
+
+**Причина 2 (XAUT):** суббота, золото не торгуется → last 4 swings в compression
+[4010-4012] → max(curr, last4) = микро. Нужно больше свингов для 15M.
+
+## 6. Вопросы
 
 1. ETH 1H уменьшился после Variant D — это (a)/(b)/(c)? Проверь лог.
 2. POST-LLM `validate_min_span` + `enforce_zone_uniqueness` — нужны ли они
    теперь когда Variant D даёт структурные зоны? Или они ломают твой фикс?
 3. `FALLBACK: 1H zone from ZigZag structure` — это берёт зону ИЗ structure.py
    (с Variant D) или из отдельного ZigZag расчёта?
+4. **M15 = копия 1H** — parent clamp обрезает Variant D расширение. Варианты:
+   - (a) Применять Variant D **после** parent clamp, а не до
+   - (b) Не clamp'ить 15M к 1H если 1H сам микро (span < 1%)
+   - (c) Для 15M брать last 6-8 swings (не 4) — больше данных, шире зона
+5. **XAUT 15M = 0.06%** — субботний compression. Можно ли для микро-TF
+   увеличивать _LAST_SWINGS_MIN динамически?
 
 ## 6. Status
 
