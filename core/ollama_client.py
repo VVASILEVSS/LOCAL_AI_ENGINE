@@ -1405,7 +1405,7 @@ def enforce_risk_rules(data: dict) -> dict:
 
         return tf_zones
 
-    data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))
+    # data["tf_zones"] = _validate_zone_nesting(data["tf_zones"], data.get("price"))  # TEMP disabled Variant E Phase 1 — Z: дубль parent clamp (structure.py уже clamp'ит)
 
     # -----------------------------
     # 2b) Confluence detection (T5: top-down refactor)
@@ -1469,7 +1469,7 @@ def enforce_risk_rules(data: dict) -> dict:
 
         return tf_zones
 
-    data["tf_zones"] = _enforce_zone_uniqueness(data["tf_zones"], data.get("price"))
+    # data["tf_zones"] = _enforce_zone_uniqueness(data["tf_zones"], data.get("price"))  # TEMP disabled Variant E Phase 1 — Z: Variant D гарантирует >= 4 swings, микроканал = норма
 
     # -----------------------------
     # 2c) Min-span validation (после uniqueness)
@@ -1499,7 +1499,7 @@ def enforce_risk_rules(data: dict) -> dict:
                 del tf_zones[tf_key]
         return tf_zones
 
-    data["tf_zones"] = _validate_min_span(data["tf_zones"], data.get("price"))
+    # data["tf_zones"] = _validate_min_span(data["tf_zones"], data.get("price"))  # TEMP disabled Variant E Phase 1 — Z: Variant D расширяет микро-зоны, узкая зона = реальная структура
 
     # -----------------------------
     # 2c-bis) Zone-drift validation: если LLM зона значительно отличается
