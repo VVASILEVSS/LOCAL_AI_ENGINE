@@ -34,8 +34,8 @@ scheduler = AsyncIOScheduler()
 
 
 def _get_timeframes() -> list:
-    val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
-    return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
+    val = get_setting("timeframes", ["5m", "15m", "1h", "4h", "1D"])
+    return val if isinstance(val, list) else ["5m", "15m", "1h", "4h", "1D"]
 
 
 # Phase 3 MT5: кэш последних результатов анализа для /api/signals (web_dashboard.py)

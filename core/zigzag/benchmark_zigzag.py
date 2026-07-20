@@ -13,7 +13,7 @@ _PIVOT_ATR_K: float = 0.5
 
 # Structural window per TF for pivot detection (T2: top-down).
 # Younger TFs use a window to focus on ~2 structural movements.
-_STRUCT_WINDOW: Dict[str, Optional[int]] = {"5m": 50, "15m": 50, "1h": 80, "4h": 150, "1d": 100}
+_STRUCT_WINDOW: Dict[str, Optional[int]] = {"5m": 200, "15m": 50, "1h": 80, "4h": 150, "1d": 100}
 # D1=100 свечей (~3 месяца), 4H=150 (~25 дней).
 # None = все 500 свечей — находит древние пивоты (BTC@126k из 2025),
 # что делает зоны гигантскими и неактуальными.
@@ -312,7 +312,7 @@ def run_benchmark(
     output_mode: str = "compact",
 ) -> Dict[str, Any]:
     if timeframes is None:
-        timeframes = ["15m", "1h", "4h", "1d"]
+        timeframes = ["5m", "15m", "1h", "4h", "1d"]
 
     normalized_symbol = _normalize_symbol(symbol)
     exchange = ccxt.binance({"options": {"defaultType": market_type}})
