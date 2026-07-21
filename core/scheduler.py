@@ -633,6 +633,21 @@ async def run_hourly_analysis(
                     save_signal_log(parsed, symbol_id, timeframes, prompt_variant=PROMPT_VARIANT)
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
+                    sig_id = None
+
+                # Position tracker: открыть/реверсировать позицию на actionable сигнале
+                try:
+                    _pos_dbg_status = str(parsed.get("signal_status", "")).lower()
+                    _pos_dbg_dir = str(parsed.get("signal_direction", "")).lower()
+                    _pos_dbg_rm = parsed.get("risk_management") or {}
+                    _pos_dbg_primary = _pos_dbg_rm.get("primary") if isinstance(_pos_dbg_rm, dict) else None
+                    _pos_dbg_entry = parsed.get("entry_price") or parsed.get("price")
+                    action = handle_new_signal(parsed, symbol_id, signal_log_id=sig_id)
+                    if action:
+                        logger.info("POSITION action=%s symbol=%s sig_id=%s | dbg: status=%s dir=%s entry=%s primary=%s",
+                                    action, symbol_id, sig_id, _pos_dbg_status, _pos_dbg_dir, _pos_dbg_entry, _pos_dbg_primary)
+                except Exception as pos_err:
+                    logger.warning("handle_new_signal failed: %s", pos_err)
 
             if isinstance(parsed, dict) and parsed.get("error"):
                 logger.error(f"Ошибка анализа {symbol_id}: {parsed.get('message')}")

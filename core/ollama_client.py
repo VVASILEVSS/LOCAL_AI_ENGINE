@@ -1854,8 +1854,9 @@ def enforce_risk_rules(data: dict) -> dict:
                 zz_ctx_sl = data.get("zigzag_context") or {}
                 if isinstance(zz_ctx_sl, dict):
                     zz_tfs_sl = zz_ctx_sl.get("timeframes") or {}
-                    # Ищем ТФ где есть breakout (от M15 вверх — младший = сигнал)
-                    for tf_key in ("15m", "1h", "4h", "1D"):
+                    # Ищем ТФ где есть breakout (только intraday TF: 15m/1h — Z's fix P0)
+                    # 4H/1D слишком широкие для intraday SL: zone_low 4H = -3% для 15-мин горизонта
+                    for tf_key in ("15m", "1h"):
                         tfd = zz_tfs_sl.get(tf_key)
                         if not isinstance(tfd, dict):
                             continue
