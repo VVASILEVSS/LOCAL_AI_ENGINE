@@ -133,21 +133,6 @@ async def tf_callback(callback: types.CallbackQuery) -> None:
         )
 
 
-def clean_tp_sl(text: str, current_price: float, direction: str) -> str:
-    """Исправляет логические ошибки ТП/СЛ."""
-    if direction == "Long":
-        for match in re.finditer(r"TP\d+:\s*([\d.]+)", text):
-            tp = float(match.group(1))
-            if tp <= current_price * 0.999:
-                text = text.replace(match.group(0), "TP: Уже отработан / Не рассчитан")
-    elif direction == "Short":
-        for match in re.finditer(r"TP\d+:\s*([\d.]+)", text):
-            tp = float(match.group(1))
-            if tp >= current_price * 1.001:
-                text = text.replace(match.group(0), "TP: Уже отработан / Не рассчитан")
-    return text
-
-
 @router.message(Command("scan"))
 async def cmd_scan(message: types.Message) -> None:
     if message.text is None:
