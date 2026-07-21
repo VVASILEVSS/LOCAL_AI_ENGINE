@@ -1864,62 +1864,39 @@ def enforce_risk_rules(data: dict) -> dict:
                             continue
                         bu = struct.get("zone_breakout_up")
                         bd = struct.get("zone_breakout_down")
+                        bos_info = struct.get("bos") or {}
+                        bos_broken = _safe_float(bos_info.get("broken_level"))
                         curr = struct.get("curr_structure") or {}
                         if not isinstance(curr, dict):
                             continue
                         z_low = _safe_float(curr.get("low"))
                         z_high = _safe_float(curr.get("high"))
                         if bu and z_low is not None and z_low < current_price:
-                            breakout_sl = z_low  # long: SL = zone_low
+                            # V4: SL = BOS broken_level (structural stop), fallback zone_low
+                            breakout_sl = bos_broken if (bos_broken and bos_broken < current_price) else z_low
                             logging.info(
-                                "SL (breakout zone): %s long, TF=%s, zone=[%.2f-%.2f], SL=zone_low=%.2f",
-                                "primary", tf_key, z_low, z_high, breakout_sl,
+                                "SL (V4 BOS): %s long, TF=%s, BOS=%.2f, zone=[%.2f-%.2f], SL=%.2f",
+                                "primary", tf_key, bos_broken or 0, z_low, z_high, breakout_sl,
                             )
                             break
                         if bd and z_high is not None and z_high > current_price:
-                            breakout_sl = z_high  # short: SL = zone_high
+                            # V4: SL = BOS broken_level (structural stop), fallback zone_high
+                            breakout_sl = bos_broken if (bos_broken and bos_broken > current_price) else z_high
                             logging.info(
-                                "SL (breakout zone): %s short, TF=%s, zone=[%.2f-%.2f], SL=zone_high=%.2f",
-                                "primary", tf_key, z_low, z_high, breakout_sl,
+                                "SL (V4 BOS): %s short, TF=%s, BOS=%.2f, zone=[%.2f-%.2f], SL=%.2f",
+                                "primary", tf_key, bos_broken or 0, z_low, z_high, breakout_sl,
                             )
                             break
 
             if breakout_sl is not None:
-                # Для aggressive_breakout: SL = MAX(зона, ближайший swing старшего ТФ)
-                # Зона = минимальный SL (край зоны пробоя по Возному)
-                # Swing H1/H4 = структурный SL (если дальше от entry — реальный уровень)
-                # ОГРАНИЧЕНИЕ: swing в пределах 8% от entry (1D swing = слишком далеко, 19%)
-                max_sl_distance = abs(current_price) * 0.08 if current_price is not None else float('inf')
-                if direction_hint == "long":
-                    # long: SL ниже entry. Берём swing low ПОД entry который СТРОГО дальше от entry чем zone_low
-                    below = [x for x in swing_lows if x < current_price] if current_price is not None else []
-                    # zone_low = минимальный SL. Ищем swing low СТРОГО дальше zone_low (структурный H1/H4)
-                    # но не дальше 8% от entry (1D swing слишком далеко → RR < 1.0)
-                    farther_below = [x for x in below if x < breakout_sl and (current_price - x) <= max_sl_distance]
-                    if farther_below:
-                        # берём ближайший к entry из тех что СТРОГО дальше zone_low (но ниже = дальше от entry)
-                        primary["sl"] = farther_below[-1]
-                        logging.info(
-                            "SL (breakout zone + swing): long, zone_low=%.2f, swing=%.2f (структурный дальше)",
-                            breakout_sl, farther_below[-1],
-                        )
-                    else:
-                        primary["sl"] = breakout_sl
-                else:
-                    # short: SL выше entry. Берём swing high НАД entry который СТРОГО дальше от entry чем zone_high
-                    above = [x for x in swing_highs if x > current_price] if current_price is not None else []
-                    # zone_high = минимальный SL. Ищем swing high СТРОГО дальше zone_high (структурный H1/H4)
-                    # но не дальше 8% от entry (1D swing слишком далеко → RR < 1.0)
-                    farther_above = [x for x in above if x > breakout_sl and (x - current_price) <= max_sl_distance]
-                    if farther_above:
-                        # берём ближайший к entry из тех что СТРОГО дальше zone_high
-                        primary["sl"] = farther_above[0]
-                        logging.info(
-                            "SL (breakout zone + swing): short, zone_high=%.2f, swing=%.2f (структурный дальше)",
-                            breakout_sl, farther_above[0],
-                        )
-                    else:
-                        primary["sl"] = breakout_sl
+                # V4: SL = BOS broken_level (структурный стоп). БЕЗ swing override.
+                # Концепт: BOS broken_level = уровень пробития = структурный стоп.
+                # farther_below swing (старый код) раздувал risk → RR<1.
+                primary["sl"] = breakout_sl
+                logging.info(
+                    "SL (V4 final): %s, breakout_sl=%.2f (BOS broken_level, без swing override)",
+                    direction_hint, breakout_sl,
+                )
             elif direction_hint == "long":
                 # long: SL ниже entry — ближайший swing low под entry (H1/H4 приоритет, не M15)
                 below = [x for x in swing_lows if x < current_price] if current_price is not None else []
@@ -1938,6 +1915,27 @@ def enforce_risk_rules(data: dict) -> dict:
                     # fallback: candidate swing high
                     cand_above = [x for x in candidates if x > current_price] if current_price is not None else []
                     primary["sl"] = cand_above[0] if cand_above else (max(candidates) if candidates else None)
+
+        # V4: aggressive_breakout — TP1 = entry + 2×risk (forced RR=2.0)
+        # Концепт: один TP перекрывает 2 SL. SL=BOS broken_level (структурный стоп),
+        # TP1 вычисляется от risk, а не берётся ближайший candidate.
+        if signal_status == "aggressive_breakout" and current_price is not None:
+            sl_final = _safe_float(primary.get("sl"))
+            if sl_final is not None:
+                if direction_hint == "long" and sl_final < current_price:
+                    risk = current_price - sl_final
+                    primary["tp1"] = current_price + 2.0 * risk
+                    logging.info(
+                        "TP1 (V4 forced RR=2): long, entry=%.2f, SL=%.2f, risk=%.2f, TP1=%.2f",
+                        current_price, sl_final, risk, primary["tp1"],
+                    )
+                elif direction_hint == "short" and sl_final > current_price:
+                    risk = sl_final - current_price
+                    primary["tp1"] = current_price - 2.0 * risk
+                    logging.info(
+                        "TP1 (V4 forced RR=2): short, entry=%.2f, SL=%.2f, risk=%.2f, TP1=%.2f",
+                        current_price, sl_final, risk, primary["tp1"],
+                    )
 
         if direction_hint == "long":
             # LONG: SL must be BELOW entry, TP must be ABOVE entry
@@ -2220,6 +2218,26 @@ def enforce_risk_rules(data: dict) -> dict:
 
     if primary.get("sl") is not None:
         primary["sl"] = _apply_sl_buffer(_safe_float(primary.get("sl")), direction_hint)
+
+    # V4 recalc: TP1 = entry + 2×risk AFTER SL buffer applied
+    # SL buffer расширяет SL → risk растёт → TP1 нужно пересчитать
+    if signal_status == "aggressive_breakout" and current_price is not None:
+        sl_final = _safe_float(primary.get("sl"))
+        if sl_final is not None:
+            if direction_hint == "long" and sl_final < current_price:
+                risk = current_price - sl_final
+                primary["tp1"] = round(current_price + 2.0 * risk, 6)
+                logging.info(
+                    "TP1 (V4 recalc after buffer): long, entry=%.2f, SL=%.2f, risk=%.2f, TP1=%.2f",
+                    current_price, sl_final, risk, primary["tp1"],
+                )
+            elif direction_hint == "short" and sl_final > current_price:
+                risk = sl_final - current_price
+                primary["tp1"] = round(current_price - 2.0 * risk, 6)
+                logging.info(
+                    "TP1 (V4 recalc after buffer): short, entry=%.2f, SL=%.2f, risk=%.2f, TP1=%.2f",
+                    current_price, sl_final, risk, primary["tp1"],
+                )
 
     if alt_has_risk and alternative.get("sl") is not None:
         alt_direction = "short" if direction_hint == "long" else "long"
