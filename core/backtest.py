@@ -162,6 +162,56 @@ def save_signal_log(
 
         conn = _conn()
         c = conn.cursor()
+
+        # ── DEDUP: не дублировать сигнал, если он не изменился ──────────
+        # Концепция: «если цель есть — либо тейк, либо стоп».
+        # TP/SL фиксируются при первом расчёте и НЕ пересчитываются каждый цикл.
+        # Новая запись создаётся только если:
+        #   (a) сменился signal_status (aggressive_breakout → retest / no_signal / ...)
+        #   (b) сменилось direction (long → short)
+        #   (c) нет предыдущей активной записи для этого symbol+status+direction
+        status = str(parsed.get("signal_status", "")).lower()
+        direction_norm = (direction or "").lower()
+        c.execute(
+            "SELECT id, entry_price, sl, tp1, tp2, tp3 FROM signal_log "
+            "WHERE symbol = ? AND signal_status = ? AND direction = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (symbol, status, direction_norm),
+        )
+        prev = c.fetchone()
+        if prev is not None:
+            prev_id, prev_entry, prev_sl, prev_tp1, prev_tp2, prev_tp3 = prev
+            # Проверяем: сработал ли TP или SL предыдущего сигнала?
+            # Если да — предыдущий трейд закрыт, новый сетап → разрешаем INSERT.
+            # Если нет — сигнал активен, TP/SL зафиксированы → пропускаем (dedup).
+            hit = False
+            cur_price = entry  # entry = live_price (current_price)
+            if cur_price is not None:
+                if direction_norm == "long":
+                    if prev_sl is not None and cur_price <= prev_sl:
+                        hit = True
+                    elif prev_tp1 is not None and cur_price >= prev_tp1:
+                        hit = True
+                elif direction_norm == "short":
+                    if prev_sl is not None and cur_price >= prev_sl:
+                        hit = True
+                    elif prev_tp1 is not None and cur_price <= prev_tp1:
+                        hit = True
+            if not hit:
+                # Сигнал не изменился и TP/SL не сработали → пропускаем INSERT.
+                # TP/SL зафиксированы до исхода (трейд активен).
+                conn.close()
+                logger.info(
+                    "signal_log dedup: %s %s %s unchanged (id=%d) — TP/SL зафиксированы до исхода",
+                    symbol, status, direction_norm, prev_id,
+                )
+                return prev_id
+            else:
+                logger.info(
+                    "signal_log: %s %s %s — prev TP/SL hit (id=%d), новый сетап → INSERT",
+                    symbol, status, direction_norm, prev_id,
+                )
+
         # P3: Извлечь зоны для backtest no_signal прогнозов.
         # Берём LTF зону (последний ТФ) как рабочую + key_zones.
         # Phase 2: зона может быть {range: [low, high], bos_price, bos_dir, bos_age}
