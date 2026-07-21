@@ -199,12 +199,42 @@ def save_signal_log(
                         hit = True
             if not hit:
                 # Сигнал не изменился и TP/SL не сработали → пропускаем INSERT.
-                # TP/SL зафиксированы до исхода (трейд активен).
+                # НО: V4 (enforce_risk_rules) мог пересчитать SL/TP/rr после деплоя.
+                # Обновляем frozen-строку новыми V4-значениями если они отличаются
+                # (dedup морозит SIGNAL, не его параметры — параметры могут эволюционировать).
+                new_sl = _safe_float(primary.get("sl"))
+                new_tp1 = _safe_float(primary.get("tp1"))
+                new_tp2 = _safe_float(primary.get("tp2"))
+                new_tp3 = _safe_float(primary.get("tp3"))
+                new_rr = _safe_float(primary.get("rr"))
+                new_entry = entry
+                updated = False
+                if new_sl is not None and new_sl != prev_sl:
+                    updated = True
+                if new_tp1 is not None and new_tp1 != prev_tp1:
+                    updated = True
+                if new_tp2 is not None and new_tp2 != prev_tp2:
+                    updated = True
+                if new_tp3 is not None and new_tp3 != prev_tp3:
+                    updated = True
+                if new_entry is not None and new_entry != prev_entry:
+                    updated = True
+                if updated:
+                    c.execute(
+                        "UPDATE signal_log SET entry_price=?, sl=?, tp1=?, tp2=?, tp3=?, rr_planned=? WHERE id=?",
+                        (new_entry, new_sl, new_tp1, new_tp2, new_tp3, new_rr, prev_id),
+                    )
+                    conn.commit()
+                    logger.info(
+                        "signal_log dedup: %s %s %s updated (id=%d) — V4 SL/TP/rr refreshed",
+                        symbol, status, direction_norm, prev_id,
+                    )
+                else:
+                    logger.info(
+                        "signal_log dedup: %s %s %s unchanged (id=%d) — TP/SL зафиксированы до исхода",
+                        symbol, status, direction_norm, prev_id,
+                    )
                 conn.close()
-                logger.info(
-                    "signal_log dedup: %s %s %s unchanged (id=%d) — TP/SL зафиксированы до исхода",
-                    symbol, status, direction_norm, prev_id,
-                )
                 return prev_id
             else:
                 logger.info(
