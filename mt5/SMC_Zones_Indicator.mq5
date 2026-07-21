@@ -61,7 +61,9 @@ bool   g_alertedBreakoutS = false;  // уже алертили пробой supp
 string g_alertedSignal    = "";     // последний сигнал-статус (для алерта)
 string g_alertedProximity = "";     // последний proximity-ключ (TF+side)
 string g_lastSigStatus    = "";     // для детекции смены сигнала
-string g_lastTradeHash    = "";     // для логирования смены SL/TP/Entry
+double g_lastEntry        = 0.0;   // anti-redraw: предыдущий entry
+double g_lastSl           = 0.0;   // anti-redraw: предыдущий SL
+double g_lastTp1          = 0.0;   // anti-redraw: предыдущий TP1
 
 //+------------------------------------------------------------------+
 //| Автоопределение символа графика → формат бота                    |
@@ -616,6 +618,23 @@ void DrawTradeLevels(string symBlock, string sym) {
    // entry_price (на верхнем уровне символа)
    double entry = ExtractDouble(symBlock, "\"entry_price\":");
 
+   // ANTI-REDRAW: рисуем только при значимом изменении сигнала.
+   // V4 пересчитывает SL/TP каждый цикл относительно текущей цены →
+   // значения дрейфают на $0.01-50. Используем tolerance вместо точного сравнения.
+   // Tolerance = 0.1% от entry (для BTC ~$66, для XAU ~$0.3).
+   if(g_lastEntry > 0) {
+      double tol = g_lastEntry * 0.001;  // 0.1% от entry
+      double dEntry = MathAbs(entry - g_lastEntry);
+      double dSl = MathAbs(sl - g_lastSl);
+      double dTp1 = MathAbs(tp1 - g_lastTp1);
+      if(dEntry < tol && dSl < tol && dTp1 < tol) {
+         return;  // изменение в пределах tolerance — не перерисовываем
+      }
+   }
+   g_lastEntry = entry;
+   g_lastSl = sl;
+   g_lastTp1 = tp1;
+
    // Рисуем линии
    if(entry > 0) {
       DrawHLine(PREFIX + "ENTRY", entry, ColorEntry, STYLE_DOT, TradeLineWidth,
@@ -640,15 +659,11 @@ void DrawTradeLevels(string symBlock, string sym) {
    }
 
    // Лог при первом появлении или смене SL
-   string tradeHash = DoubleToString(sl, 2) + "|" + DoubleToString(tp1, 2) + "|" + DoubleToString(entry, 2);
-   if(tradeHash != g_lastTradeHash) {
-      Print("SMC Trade Levels: entry=", DoubleToString(entry, _Digits),
-            " SL=", DoubleToString(sl, _Digits),
-            " TP1=", DoubleToString(tp1, _Digits),
-            " TP2=", DoubleToString(tp2, _Digits),
-            " TP3=", DoubleToString(tp3, _Digits));
-      g_lastTradeHash = tradeHash;
-   }
+   Print("SMC Trade Levels: entry=", DoubleToString(entry, _Digits),
+         " SL=", DoubleToString(sl, _Digits),
+         " TP1=", DoubleToString(tp1, _Digits),
+         " TP2=", DoubleToString(tp2, _Digits),
+         " TP3=", DoubleToString(tp3, _Digits));
 }
 
 //+------------------------------------------------------------------+
