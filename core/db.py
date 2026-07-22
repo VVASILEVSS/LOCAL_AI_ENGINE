@@ -34,12 +34,16 @@ def init_breakout_events_table() -> None:
 
 
 def get_pending_breakout_events(symbol: str, max_age_minutes: int = 60) -> list:
-    """Return recent breakout events for a symbol (stub — returns empty)."""
+    """Return recent unconfirmed breakout events for a symbol.
+    Adapts to Z's actual schema (timestamp, symbol, timeframe, level_type,
+    level_price, breakout_dir, volume_ratio, confirmed, confirmed_at, outcome).
+    """
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''SELECT id, symbol, timeframe, zone_type, direction, price, timestamp
+    # Z's schema: confirmed=0 means pending
+    c.execute('''SELECT id, symbol, timeframe, level_type, breakout_dir, level_price, timestamp
         FROM breakout_events
-        WHERE symbol=? AND notified=0
+        WHERE symbol=? AND confirmed=0
         ORDER BY id DESC LIMIT 10''', (symbol,))
     rows = c.fetchall()
     conn.close()
