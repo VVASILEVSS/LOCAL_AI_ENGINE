@@ -1810,6 +1810,11 @@ def enforce_risk_rules(data: dict) -> dict:
     # -----------------------------
     direction_hint = _direction_from_data(data)
 
+    # CRITICAL: записываем direction_hint в data, иначе position_tracker
+    # возьмёт LLM-поле signal_direction (часто пустое или несогласованное с V4)
+    # → откроет позицию в противоположную сторону → SL/TP инвертированы.
+    data["signal_direction"] = direction_hint
+
     # -----------------------------
     # 10) TP/SL для primary
     # -----------------------------

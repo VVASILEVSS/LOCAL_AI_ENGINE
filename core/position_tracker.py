@@ -321,6 +321,27 @@ def handle_new_signal(parsed: Dict[str, Any], symbol: str, signal_log_id: Option
     if not (entry and sl and tp1):
         return "skipped"
 
+    # SAFETY-NET: SL/TP direction validation
+    # long: SL < entry, TP1 > entry | short: SL > entry, TP1 < entry
+    # Если инвертированы — не открываем (защита от direction mismatch)
+    entry_f = float(entry)
+    sl_f = float(sl)
+    tp1_f = float(tp1)
+    if direction == "long":
+        if sl_f >= entry_f or tp1_f <= entry_f:
+            logger.warning(
+                "POSITION skip: %s %s SL/TP inverted for long (entry=%.2f sl=%.2f tp1=%.2f)",
+                symbol, direction, entry_f, sl_f, tp1_f,
+            )
+            return "skipped"
+    elif direction == "short":
+        if sl_f <= entry_f or tp1_f >= entry_f:
+            logger.warning(
+                "POSITION skip: %s %s SL/TP inverted for short (entry=%.2f sl=%.2f tp1=%.2f)",
+                symbol, direction, entry_f, sl_f, tp1_f,
+            )
+            return "skipped"
+
     existing = get_open_position(symbol)
 
     if existing is None:
@@ -336,10 +357,49 @@ def handle_new_signal(parsed: Dict[str, Any], symbol: str, signal_log_id: Option
         # Same direction — ignore, keep existing (SL/TP already set)
         return "ignored"
 
-    # Reverse: close existing at current price, open new
+    # ANTI-CHURN: reverse guard.
+    # Проблема: LLM меняет long↔short каждые 15-45 мин. 4 из 5 reverse-закрытий
+    # приходили в минусе (rr<0.5) — цена не дошла до TP1, а трекер уже реверсировал.
+    # Фикс: реверс только если выполнено ОДНО из условий:
+    #   (a) цена дошла до TP1 (in profit) — reverse фиксирует прибыль
+    #   (b) позиция открыта ≥90 мин — достаточно времени дойти до SL, тренд сменился по-настоящему
+    # Иначе — ignore, ждём SL/TP.
+    entry_existing = float(existing["entry_price"])
+    tp1_existing = existing["tp1"]
+    opened_at_str = existing["opened_at"]
     cur_price = parsed.get("price") or entry
+
+    # Parse opened_at to datetime
+    try:
+        from datetime import datetime as _dt
+        opened_dt = _dt.fromisoformat(opened_at_str)
+        now_dt = _dt.now(timezone.utc)
+        hold_minutes = (now_dt - opened_dt).total_seconds() / 60.0
+    except Exception:
+        hold_minutes = 999.0  # если не распарсилось — пропускаем guard
+
+    in_profit = False
+    if tp1_existing is not None:
+        tp1_f = float(tp1_existing)
+        cur_price_f = float(cur_price)
+        if existing["direction"] == "long" and cur_price_f >= tp1_f:
+            in_profit = True
+        elif existing["direction"] == "short" and cur_price_f <= tp1_f:
+            in_profit = True
+
+    MIN_HOLD_MINUTES = 90  # 6 autoscan циклов по 15 мин
+
+    if not in_profit and hold_minutes < MIN_HOLD_MINUTES:
+        logger.info(
+            "POSITION reverse-blocked id=%s %s %s: hold=%.0fm < %dm, not in profit (entry=%.2f tp1=%s price=%.2f)",
+            existing["id"], symbol, existing["direction"],
+            hold_minutes, MIN_HOLD_MINUTES, entry_existing, tp1_existing, cur_price,
+        )
+        return "ignored"
+
+    # Reverse: close existing at current price, open new
     _close_position(existing["id"], float(cur_price), existing["remaining_size"],
-                    "reverse", existing["entry_price"], existing["sl_original"])
+                    "reverse", entry_existing, existing["sl_original"])
     _open_position(symbol, direction, float(entry), float(sl),
                    float(tp1) if tp1 else None,
                    float(tp2) if tp2 else None,
