@@ -33,6 +33,19 @@ def init_breakout_events_table() -> None:
     conn.close()
 
 
+def get_pending_breakout_events(symbol: str, max_age_minutes: int = 60) -> list:
+    """Return recent breakout events for a symbol (stub — returns empty)."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''SELECT id, symbol, timeframe, zone_type, direction, price, timestamp
+        FROM breakout_events
+        WHERE symbol=? AND notified=0
+        ORDER BY id DESC LIMIT 10''', (symbol,))
+    rows = c.fetchall()
+    conn.close()
+    return [dict(zip(['id','symbol','timeframe','zone_type','direction','price','timestamp'], r)) for r in rows]
+
+
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()

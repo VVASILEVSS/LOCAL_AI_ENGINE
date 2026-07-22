@@ -26,6 +26,9 @@ from core.zigzag.benchmark_zigzag import run_benchmark
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
+# Cache for last analysis results (used by web_dashboard /api/signals)
+_last_analysis_cache: dict = {}
+
 
 def _get_timeframes() -> list:
     val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
