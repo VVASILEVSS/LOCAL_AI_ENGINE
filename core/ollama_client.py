@@ -2087,8 +2087,16 @@ def _format_zigzag_context_compact(ctx: dict) -> str:
 async def analyze_multi_images(
     images: List[bytes],
     market_type: str = "crypto",
-    prev_analysis: Optional[Dict[str, Any]] = None
+    prev_analysis: Optional[Dict[str, Any]] = None,
+    llm_api_key: Optional[str] = None,
+    llm_base_url: Optional[str] = None,
+    llm_model: Optional[str] = None,
 ) -> Dict[str, Any]:
+    # Backward compat: if dashboard passes llm_api_key/model, use them;
+    # otherwise fall back to config.py globals (Z's new pattern).
+    _api_key = llm_api_key or LLM_API_KEY
+    _model = llm_model or MODEL_NAME
+    _base_url = llm_base_url or LLM_BASE_URL
     b64_images = [prepare_image_for_llm(img) for img in images]
     b64_images = [img for img in b64_images if img]
 
@@ -2163,10 +2171,12 @@ async def analyze_multi_images(
             async with LLM_QUEUE_LOCK:
                 result = await llm_generate(
                     messages=messages,
-                    model=MODEL_NAME,
+                    model=_model or MODEL_NAME,
                     temperature=temp,
                     max_tokens=2000,
                     timeout=45,
+                    api_key=_api_key,
+                    base_url=_base_url,
                 )
 
             raw = result["content"]

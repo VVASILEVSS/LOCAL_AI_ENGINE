@@ -84,6 +84,8 @@ async def generate(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: int = DEFAULT_TIMEOUT,
     retry: bool = True,
+    api_key: str | None = None,
+    base_url: str | None = None,
 ) -> dict:
     """
     Send a chat-completions request and return the parsed response.
@@ -96,6 +98,8 @@ async def generate(
         max_tokens: max completion tokens.
         timeout: per-attempt timeout in seconds.
         retry: if True (default), retry on transient failures up to MAX_RETRIES.
+        api_key: override LLM_API_KEY (e.g. dashboard uses different key).
+        base_url: override LLM_BASE_URL.
 
     Returns:
         {"content": str, "model": str, "usage": dict, "raw": dict}
@@ -103,7 +107,10 @@ async def generate(
     Raises:
         LLMError: on persistent failure (all retries exhausted, or non-retryable).
     """
-    if LLM_MODE == "cloud" and not LLM_API_KEY:
+    # Allow caller to override API key/base_url (dashboard uses different creds)
+    _api_key = api_key or LLM_API_KEY
+    _base_url = base_url or _resolve_base_url()
+    if LLM_MODE == "cloud" and not _api_key:
         raise LLMError("LLM_MODE=cloud but LLM_API_KEY is empty")
 
     payload = {
@@ -113,8 +120,12 @@ async def generate(
         "max_tokens": max_tokens,
         "messages": messages,
     }
-    headers = _headers()
-    url = _endpoint_url()
+    # Build headers/URL with override support (dashboard uses different creds)
+    headers = {"Content-Type": "application/json"}
+    if _api_key:
+        headers["Authorization"] = f"Bearer {_api_key}"
+    base = _base_url or _resolve_base_url()
+    url = f"{base.rstrip('/').removesuffix('/v1')}/v1/chat/completions"
     httpx_timeout = httpx.Timeout(connect=10.0, read=float(timeout), write=60.0, pool=10.0)
 
     last_exc: Exception | None = None
