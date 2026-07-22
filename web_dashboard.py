@@ -1337,6 +1337,14 @@ async def _autoscan_sequential_cycle(bot: Bot):
             for i, symbol in enumerate(symbols):
                 if not _dash_get_setting("autoscan_active", False) or not _autoscan_running:
                     break
+                # Weekend filter: XAUT (gold) не торгуется в выходные (сб/вс)
+                # Crypto работает 24/7, но золото — традиционный рынок
+                if symbol == "XAUTUSDT":
+                    from datetime import datetime as _dt
+                    wd = _dt.now().weekday()
+                    if wd >= 5:  # 5=Saturday, 6=Sunday
+                        logging.info(f"Autoscan: skipping {symbol} — weekend (gold market closed)")
+                        continue
                 label = SYMBOL_LABELS.get(symbol, symbol.replace("USDT", ""))
                 logging.info(f"Autoscan: analyzing {label}...")
 
