@@ -1943,6 +1943,9 @@ def enforce_risk_rules(data: dict) -> dict:
                         current_price, sl_final, risk, primary["tp1"],
                     )
 
+        # NOTE: TP reorder перенесён в конец enforce_risk_rules (после V4 recalc after buffer).
+        # Reorder здесь бесполезен — recalc ниже переписывает TP1 и инверсия возвращается.
+
         if direction_hint == "long":
             # LONG: SL must be BELOW entry, TP must be ABOVE entry
             for k in ("tp1", "tp2", "tp3"):
@@ -2244,6 +2247,46 @@ def enforce_risk_rules(data: dict) -> dict:
                     "TP1 (V4 recalc after buffer): short, entry=%.2f, SL=%.2f, risk=%.2f, TP1=%.2f",
                     current_price, sl_final, risk, primary["tp1"],
                 )
+
+    # ─────────────────────────────────────────────────────────────
+    # Универсальный TP reorder (ФИНАЛЬНЫЙ — после всех override/recalc)
+    # Гарантировать TP1 ≤ TP2 ≤ TP3 (long) / TP1 ≥ TP2 ≥ TP3 (short).
+    # Применяется ко ВСЕМ signal_status (incl. no_signal) и к primary+alternative.
+    # Direction: из direction_hint, а если пустой — инферим из TP1 vs entry.
+    # ─────────────────────────────────────────────────────────────
+    def _reorder_tps(block: dict, direction: str, price: float | None, status: str, label: str):
+        _tups = []
+        for _k in ("tp1", "tp2", "tp3"):
+            _v = _safe_float(block.get(_k))
+            if _v is not None:
+                _tups.append((_k, _v))
+        if len(_tups) < 2:
+            return  # nothing to reorder
+        _eff_dir = direction
+        if _eff_dir not in ("long", "short") and price is not None:
+            _eff_dir = "long" if _tups[0][1] > price else "short"
+        if _eff_dir == "long":
+            _tups.sort(key=lambda x: x[1])
+        elif _eff_dir == "short":
+            _tups.sort(key=lambda x: x[1], reverse=True)
+        for _idx, (_k, _v) in enumerate(_tups):
+            _tups[_idx] = (("tp1", "tp2", "tp3")[_idx], _v)
+        for _k, _v in _tups:
+            block[_k] = _v
+        logging.info(
+            "TP reorder (%s, %s, status=%s): tp1=%.2f, tp2=%.2f, tp3=%.2f",
+            _eff_dir, label, status,
+            _safe_float(block.get("tp1")) or 0.0,
+            _safe_float(block.get("tp2")) or 0.0,
+            _safe_float(block.get("tp3")) or 0.0,
+        )
+
+    _reorder_tps(primary, direction_hint, current_price, signal_status, "primary")
+    _alt_block = rm.get("alternative")
+    if isinstance(_alt_block, dict):
+        _alt_dir = "short" if direction_hint == "long" else ("long" if direction_hint == "short" else direction_hint)
+        _reorder_tps(_alt_block, _alt_dir, current_price, signal_status, "alternative")
+        rm["alternative"] = _alt_block
 
     if alt_has_risk and alternative.get("sl") is not None:
         alt_direction = "short" if direction_hint == "long" else "long"
