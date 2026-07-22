@@ -558,6 +558,66 @@ def _extract_zigzag_levels_from_context(data: dict) -> list[float]:
 
     return sorted(set(round(x, 6) for x in levels))
 
+
+# TF hierarchy for TP1 validation: next TF up from entry TF
+_TF_HIERARCHY = ["15m", "1h", "4h", "1d"]
+
+
+def _next_tf_boundary(data: dict, direction: str, current_price: float, side: str) -> float | None:
+    """Find nearest HTF zone boundary in trade direction.
+    side='upper' for long TP, 'lower' for short TP.
+    HTF = next TF up from entry TF in _TF_HIERARCHY.
+    Returns None if no boundary found.
+    """
+    tf_zones = data.get("tf_zones") or {}
+    if not isinstance(tf_zones, dict):
+        return None
+
+    # Determine entry TF from tf_span_map or default to 15m
+    tf_span_map = data.get("tf_span_map") or {}
+    entry_tf = "15m"
+    if isinstance(tf_span_map, dict) and tf_span_map:
+        # smallest TF in span = entry TF
+        for tf in _TF_HIERARCHY:
+            if tf in tf_span_map or tf.upper() in tf_span_map:
+                entry_tf = tf
+                break
+
+    # Next TF up
+    try:
+        idx = _TF_HIERARCHY.index(entry_tf.lower())
+    except ValueError:
+        idx = 0
+    htf = _TF_HIERARCHY[idx + 1] if idx + 1 < len(_TF_HIERARCHY) else None
+    if htf is None:
+        return None
+
+    # Try HTF zone, then fall back to progressively higher TFs
+    for i in range(idx + 1, len(_TF_HIERARCHY)):
+        tf_key = _TF_HIERARCHY[i]
+        # tf_zones keys may be upper or lower
+        zone = tf_zones.get(tf_key) or tf_zones.get(tf_key.upper())
+        if not isinstance(zone, dict):
+            continue
+        boundary = None
+        if side == "upper":
+            boundary = zone.get("upper") or zone.get("resistance")
+        else:  # lower
+            boundary = zone.get("lower") or zone.get("support")
+        if boundary is not None:
+            try:
+                b = float(boundary)
+                # Long: boundary must be > current_price; Short: boundary < current_price
+                if direction == "long" and b > current_price:
+                    return b
+                elif direction == "short" and b < current_price:
+                    return b
+            except (TypeError, ValueError):
+                continue
+
+    return None
+
+
 def enforce_risk_rules(data: dict) -> dict:
     if not isinstance(data, dict):
         return data
@@ -1159,6 +1219,12 @@ def enforce_risk_rules(data: dict) -> dict:
     # -----------------------------
     direction_hint = _direction_from_data(data)
 
+    # CRITICAL: V4 direction propagation.
+    # enforce_risk_rules вычисляет direction_hint через _direction_from_data,
+    # но без этой записи position_tracker берёт LLM signal_direction (часто пустое)
+    # → открывает позицию в wrong direction → SL/TP инвертированы.
+    data["signal_direction"] = direction_hint
+
     # -----------------------------
     # 10) TP/SL для primary
     # -----------------------------
@@ -1379,6 +1445,83 @@ def enforce_risk_rules(data: dict) -> dict:
         elif signal_status in ("retest", "reversal"):
             primary["sl"] = _widen_sl(_safe_float(primary.get("sl")), current_price, direction_hint, factor=0.30)
 
+    primary["rr"] = _calc_rr(
+        current_price,
+        _safe_float(primary.get("sl")),
+        _safe_float(primary.get("tp1")),
+    )
+
+    # -----------------------------
+    # 12.3b) ATR-based SL floor
+    # Z proposal: SL = max(structural_SL, entry ± 1.5×ATR15m)
+    # Защита от tight BOS stops (7 пунктов = noise)
+    # -----------------------------
+    atr_15m = _safe_float(data.get("atr_15m"))
+    sl_current = _safe_float(primary.get("sl"))
+    if atr_15m is not None and atr_15m > 0 and sl_current is not None and current_price is not None:
+        sl_floor_dist = 1.5 * atr_15m
+        if direction_hint == "long":
+            sl_floor = current_price - sl_floor_dist
+            if sl_floor < sl_current:  # floor дальше от entry → забирает
+                primary["sl"] = round(sl_floor, 6)
+                primary["sl_source"] = "atr_floor"
+                logger.info("SL ATR floor (long): BOS sl=%.4f → ATR floor=%.4f (atr=%.4f, 1.5×atr=%.4f)",
+                            sl_current, sl_floor, atr_15m, sl_floor_dist)
+            else:
+                primary["sl_source"] = "structural"
+        elif direction_hint == "short":
+            sl_floor = current_price + sl_floor_dist
+            if sl_floor > sl_current:  # floor дальше от entry → забирает
+                primary["sl"] = round(sl_floor, 6)
+                primary["sl_source"] = "atr_floor"
+                logger.info("SL ATR floor (short): BOS sl=%.4f → ATR floor=%.4f (atr=%.4f, 1.5×atr=%.4f)",
+                            sl_current, sl_floor, atr_15m, sl_floor_dist)
+            else:
+                primary["sl_source"] = "structural"
+
+    # Recalc RR after SL floor
+    primary["rr"] = _calc_rr(
+        current_price,
+        _safe_float(primary.get("sl")),
+        _safe_float(primary.get("tp1")),
+    )
+
+    # -----------------------------
+    # 12.3c) TP1 validation: min(2×risk, next-TF zone boundary)
+    # Z proposal: TP1 = min(forced_2R, HTF boundary) — не улетает в космос
+    # HTF = следующий TF по иерархии от entry TF
+    # -----------------------------
+    sl_final = _safe_float(primary.get("sl"))
+    tp1_current = _safe_float(primary.get("tp1"))
+    if sl_final is not None and tp1_current is not None and current_price is not None:
+        risk = abs(current_price - sl_final)
+        if risk > 0:
+            # forced TP1 = entry + 2×risk
+            if direction_hint == "long":
+                tp1_forced = current_price + 2.0 * risk
+                # Если forced TP1 дальше HTF boundary → урезать
+                tp1_htf = _next_tf_boundary(data, direction_hint, current_price, "upper")
+                if tp1_htf is not None and tp1_forced > tp1_htf:
+                    primary["tp1"] = round(tp1_htf, 6)
+                    primary["tp1_source"] = "htf_boundary"
+                    logger.info("TP1 HTF boundary (long): forced=%.4f → htf=%.4f (risk=%.4f)",
+                                tp1_forced, tp1_htf, risk)
+                else:
+                    primary["tp1"] = round(tp1_forced, 6)
+                    primary["tp1_source"] = "forced_rr"
+            elif direction_hint == "short":
+                tp1_forced = current_price - 2.0 * risk
+                tp1_htf = _next_tf_boundary(data, direction_hint, current_price, "lower")
+                if tp1_htf is not None and tp1_forced < tp1_htf:
+                    primary["tp1"] = round(tp1_htf, 6)
+                    primary["tp1_source"] = "htf_boundary"
+                    logger.info("TP1 HTF boundary (short): forced=%.4f → htf=%.4f (risk=%.4f)",
+                                tp1_forced, tp1_htf, risk)
+                else:
+                    primary["tp1"] = round(tp1_forced, 6)
+                    primary["tp1_source"] = "forced_rr"
+
+    # Recalc RR after TP1 validation
     primary["rr"] = _calc_rr(
         current_price,
         _safe_float(primary.get("sl")),

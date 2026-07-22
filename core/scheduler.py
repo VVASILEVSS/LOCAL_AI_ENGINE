@@ -394,6 +394,8 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 parsed["current_substructure"] = current_substructure
                 parsed["confluence_levels"] = zigzag_context.get("confluence_levels", [])
                 parsed["tf_span_map"] = zigzag_context.get("stack", {}).get("tf_span_map", {})
+                # ATR(14, 15m) для SL floor: max(BOS, entry ± 1.5×ATR)
+                parsed["atr_15m"] = m_ltf.get("atr")
 
                 tf_zones_clean = {}
                 key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}

@@ -12,6 +12,25 @@ def init_all_tables() -> None:
     """Create all DB tables if they don't exist."""
     init_db()
     init_settings()
+    init_breakout_events_table()
+
+
+def init_breakout_events_table() -> None:
+    """Create breakout_events table for MT5 Phase 3."""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS breakout_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        symbol TEXT NOT NULL,
+        timeframe TEXT NOT NULL,
+        zone_type TEXT,
+        direction TEXT,
+        price REAL,
+        timestamp TEXT NOT NULL,
+        notified INTEGER DEFAULT 0
+    )''')
+    conn.commit()
+    conn.close()
 
 
 def init_db() -> None:
