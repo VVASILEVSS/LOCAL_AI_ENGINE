@@ -140,7 +140,9 @@ def _close_position(pos_id: int, close_price: float, size: float, reason: str,
         remaining = row["remaining_size"] - size
         # Per-trade RR for this partial:
         risk = abs(entry - (sl_original or entry * 0.99))
-        reward = abs(close_price - entry) if direction == "long" else abs(entry - close_price)
+        # reward со знаком: long → close выше entry = +, ниже = −; short → наоборот
+        # abs() убирал знак → loss записывался как win (баг id=10 ETH short rr=1.56)
+        reward = (close_price - entry) if direction == "long" else (entry - close_price)
         partial_rr = round(reward / risk, 2) if risk > 0 else 0
         blurb = f"{reason}@{close_price:.2f} size={size:.2f} rr={partial_rr}"
         notes_field = (row["notes"] + "\n" if row["notes"] else "") + blurb
