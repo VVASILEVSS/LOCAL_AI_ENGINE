@@ -44,9 +44,3 @@ _junk/
 .DS_Store
 Thumbs.db
 desktop.ini
-# Секреты exchange (НЕ коммитить)
-exchange/outbox/*token*
-exchange/outbox/*secret*
-exchange/outbox/*key*
-exchange/outbox/*.txt
-=6.5.0

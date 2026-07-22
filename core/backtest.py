@@ -1,21 +1,13 @@
 """
 P3-1: Backtest pipeline — сохраняет полные LLM-прогнозы и проверяет точность.
 
-Таблица signal_log (28 колонок):
-  id, symbol, timestamp, signal_status, direction, entry_price,
-  sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
-  checked_at, actual_price, sl_hit, tp1_hit, tp2_hit, tp3_hit,
-  max_favorable, max_adverse, outcome, rr_realised,
-  consistency_runs, consistency_agreed, prompt_variant, raw_json
-
-  - Каждый прогноз сохраняется с signal_status, direction, SL, TP1-3, confidence
-  - Через CHECK_HORIZON_HOURS (4) проверяется: достиг ли цена TP/SL?
+Таблица signal_log:
+  - Каждый прогноз сохраняется с signal_status, direction, SL, TP1, confidence
+  - Через N часов проверяется: достиг ли цена TP/SL?
   - Статистика формируется для LLM-контекста (accuracy%, avg RR realised)
-  - prompt_variant (P3-4 A/B тест) сохраняется для сравнения промптов
-  - raw_json обрезается до 8000 символов
 
 Интеграция:
-  scheduler.py → save_signal_log(parsed, symbol, timeframes, prompt_variant=PROMPT_VARIANT)
+  scheduler.py → save_signal_log(parsed, symbol, timeframes)
   scheduler.py → backtest_context = get_backtest_context(symbol)
   prev_ctx["backtest"] = backtest_context
 """
@@ -26,7 +18,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -73,16 +65,9 @@ def init_backtest_table() -> None:
             outcome TEXT,
             rr_realised REAL,
 
-            -- Зоны для backtest no_signal (цена вышла за resistance/support?)
-            zone_upper REAL,
-            zone_lower REAL,
-            key_resistance REAL,
-            key_support REAL,
-
             -- Метаданные
             consistency_runs INTEGER,
             consistency_agreed INTEGER,
-            prompt_variant TEXT DEFAULT 'A',
             raw_json TEXT
         )
     """)
@@ -92,42 +77,15 @@ def init_backtest_table() -> None:
         ON signal_log(symbol, timestamp)
         WHERE checked_at IS NULL
     """)
-    # Миграция — добавить колонки если отсутствуют (existing DB)
-    for col_sql in [
-        "ALTER TABLE signal_log ADD COLUMN prompt_variant TEXT DEFAULT 'A'",
-        "ALTER TABLE signal_log ADD COLUMN zone_upper REAL",
-        "ALTER TABLE signal_log ADD COLUMN zone_lower REAL",
-        "ALTER TABLE signal_log ADD COLUMN key_resistance REAL",
-        "ALTER TABLE signal_log ADD COLUMN key_support REAL",
-    ]:
-        try:
-            c.execute(col_sql)
-        except Exception:
-            pass  # колонка уже существует
     _conn().commit()
     _conn().close()
     logger.info("backtest table ready")
-
-
-def cleanup_old_signal_logs(retain_days: int = 14) -> int:
-    """Удалить записи signal_log старше retain_days. Возвращает количество удалённых."""
-    cutoff = (datetime.utcnow() - timedelta(days=retain_days)).isoformat()
-    conn = _conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM signal_log WHERE timestamp < ?", (cutoff,))
-    deleted = cur.rowcount
-    conn.commit()
-    conn.close()
-    if deleted > 0:
-        logger.info("signal_log cleanup: deleted %d records older than %d days", deleted, retain_days)
-    return deleted
 
 
 def save_signal_log(
     parsed: dict,
     symbol: str,
     timeframes: list[str] | None = None,
-    prompt_variant: str = "A",
 ) -> int | None:
     """Сохранить полный прогноз в signal_log. Возвращает id строки."""
     if not isinstance(parsed, dict):
@@ -147,10 +105,7 @@ def save_signal_log(
         runs = consistency.get("runs", 1)
         agreed = 1 if consistency.get("agreed", True) else 0
 
-        # entry_price = live_price (current_price), а не last_closed_price.
-        # LLM часто возвращает price = last_closed_price, но для backtest
-        # нужна реальная цена на момент прогноза.
-        entry = _safe_float(parsed.get("current_price") or parsed.get("price"))
+        entry = _safe_float(parsed.get("price") or parsed.get("current_price"))
         sl = _safe_float(primary.get("sl"))
         tp1 = _safe_float(primary.get("tp1"))
         tp2 = _safe_float(primary.get("tp2"))
@@ -158,143 +113,28 @@ def save_signal_log(
         rr = _safe_float(primary.get("rr"))
 
         now = datetime.now(timezone.utc).isoformat()
-        variant = (prompt_variant or "A").upper()[:1]
 
         conn = _conn()
         c = conn.cursor()
-
-        # ── DEDUP: не дублировать сигнал, если он не изменился ──────────
-        # Концепция: «если цель есть — либо тейк, либо стоп».
-        # TP/SL фиксируются при первом расчёте и НЕ пересчитываются каждый цикл.
-        # Новая запись создаётся только если:
-        #   (a) сменился signal_status (aggressive_breakout → retest / no_signal / ...)
-        #   (b) сменилось direction (long → short)
-        #   (c) нет предыдущей активной записи для этого symbol+status+direction
-        status = str(parsed.get("signal_status", "")).lower()
-        direction_norm = (direction or "").lower()
-        c.execute(
-            "SELECT id, entry_price, sl, tp1, tp2, tp3 FROM signal_log "
-            "WHERE symbol = ? AND signal_status = ? AND direction = ? "
-            "ORDER BY id DESC LIMIT 1",
-            (symbol, status, direction_norm),
-        )
-        prev = c.fetchone()
-        if prev is not None:
-            prev_id, prev_entry, prev_sl, prev_tp1, prev_tp2, prev_tp3 = prev
-            # Проверяем: сработал ли TP или SL предыдущего сигнала?
-            # Если да — предыдущий трейд закрыт, новый сетап → разрешаем INSERT.
-            # Если нет — сигнал активен, TP/SL зафиксированы → пропускаем (dedup).
-            hit = False
-            cur_price = entry  # entry = live_price (current_price)
-            if cur_price is not None:
-                if direction_norm == "long":
-                    if prev_sl is not None and cur_price <= prev_sl:
-                        hit = True
-                    elif prev_tp1 is not None and cur_price >= prev_tp1:
-                        hit = True
-                elif direction_norm == "short":
-                    if prev_sl is not None and cur_price >= prev_sl:
-                        hit = True
-                    elif prev_tp1 is not None and cur_price <= prev_tp1:
-                        hit = True
-            if not hit:
-                # Сигнал не изменился и TP/SL не сработали → пропускаем INSERT.
-                # НО: V4 (enforce_risk_rules) мог пересчитать SL/TP/rr после деплоя.
-                # Обновляем frozen-строку новыми V4-значениями если они отличаются
-                # (dedup морозит SIGNAL, не его параметры — параметры могут эволюционировать).
-                new_sl = _safe_float(primary.get("sl"))
-                new_tp1 = _safe_float(primary.get("tp1"))
-                new_tp2 = _safe_float(primary.get("tp2"))
-                new_tp3 = _safe_float(primary.get("tp3"))
-                new_rr = _safe_float(primary.get("rr"))
-                new_entry = entry
-                updated = False
-                if new_sl is not None and new_sl != prev_sl:
-                    updated = True
-                if new_tp1 is not None and new_tp1 != prev_tp1:
-                    updated = True
-                if new_tp2 is not None and new_tp2 != prev_tp2:
-                    updated = True
-                if new_tp3 is not None and new_tp3 != prev_tp3:
-                    updated = True
-                if new_entry is not None and new_entry != prev_entry:
-                    updated = True
-                if updated:
-                    c.execute(
-                        "UPDATE signal_log SET entry_price=?, sl=?, tp1=?, tp2=?, tp3=?, rr_planned=? WHERE id=?",
-                        (new_entry, new_sl, new_tp1, new_tp2, new_tp3, new_rr, prev_id),
-                    )
-                    conn.commit()
-                    logger.info(
-                        "signal_log dedup: %s %s %s updated (id=%d) — V4 SL/TP/rr refreshed",
-                        symbol, status, direction_norm, prev_id,
-                    )
-                else:
-                    logger.info(
-                        "signal_log dedup: %s %s %s unchanged (id=%d) — TP/SL зафиксированы до исхода",
-                        symbol, status, direction_norm, prev_id,
-                    )
-                conn.close()
-                return prev_id
-            else:
-                logger.info(
-                    "signal_log: %s %s %s — prev TP/SL hit (id=%d), новый сетап → INSERT",
-                    symbol, status, direction_norm, prev_id,
-                )
-
-        # P3: Извлечь зоны для backtest no_signal прогнозов.
-        # Берём LTF зону (последний ТФ) как рабочую + key_zones.
-        # Phase 2: зона может быть {range: [low, high], bos_price, bos_dir, bos_age}
-        # или legacy {upper, lower}. Извлекаем upper/lower из range если есть.
-        tf_zones = parsed.get("tf_zones") or {}
-        # Последняя зона по каноническому порядку (самый младший ТФ)
-        ltf_zone = None
-        for tf_key in ["5M", "15M", "1H", "4H", "1D"]:
-            z = tf_zones.get(tf_key)
-            if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None
-                                        or (isinstance(z.get("range"), list) and len(z["range"]) == 2)):
-                ltf_zone = z
-        # Если канонического нет — берём последнюю из dict
-        if ltf_zone is None and tf_zones:
-            last_key = list(tf_zones.keys())[-1]
-            ltf_zone = tf_zones[last_key]
-
-        # Нормализуем upper/lower (с поддержкой Phase 2 range)
-        def _zone_bounds(z):
-            if not isinstance(z, dict):
-                return None, None
-            rng = z.get("range")
-            if isinstance(rng, list) and len(rng) == 2:
-                return _safe_float(rng[0]), _safe_float(rng[1])
-            return _safe_float(z.get("lower")), _safe_float(z.get("upper"))
-
-        zone_lower, zone_upper = _zone_bounds(ltf_zone)
-
-        key_zones = parsed.get("key_zones") or {}
-        key_resistance = _safe_float(key_zones.get("resistance"))
-        key_support = _safe_float(key_zones.get("support"))
-
         c.execute("""
             INSERT INTO signal_log
               (symbol, timestamp, signal_status, direction, entry_price,
                sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
-               zone_upper, zone_lower, key_resistance, key_support,
-               consistency_runs, consistency_agreed, prompt_variant, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               consistency_runs, consistency_agreed, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol, now, status, direction, entry,
             sl, tp1, tp2, tp3, rr,
             parsed.get("confidence"),
             parsed.get("htf_structure"),
             parsed.get("abc_risk"),
-            zone_upper, zone_lower, key_resistance, key_support,
-            runs, agreed, variant,
+            runs, agreed,
             json.dumps(parsed, ensure_ascii=False, default=str)[:8000],
         ))
         conn.commit()
         row_id = c.lastrowid
         conn.close()
-        logger.info("signal_log saved: id=%d %s %s dir=%s variant=%s", row_id, symbol, status, direction, variant)
+        logger.info("signal_log saved: id=%d %s %s dir=%s", row_id, symbol, status, direction)
         return row_id
     except Exception as e:
         logger.warning("save_signal_log failed: %s", e)
@@ -311,8 +151,7 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
     conn = _conn()
     c = conn.cursor()
     c.execute("""
-        SELECT id, symbol, timestamp, direction, entry_price, sl, tp1, tp2, tp3,
-               zone_upper, zone_lower, key_resistance, key_support, signal_status
+        SELECT id, symbol, timestamp, direction, entry_price, sl, tp1, tp2, tp3
         FROM signal_log
         WHERE checked_at IS NULL
           AND datetime(timestamp, '+{} hours') < datetime('now')
@@ -327,8 +166,7 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
     now = datetime.now(timezone.utc).isoformat()
 
     for row in pending:
-        row_id, symbol, ts, direction, entry, sl, tp1, tp2, tp3, \
-            zone_upper, zone_lower, key_res, key_sup, signal_status = row
+        row_id, symbol, ts, direction, entry, sl, tp1, tp2, tp3 = row
 
         actual = current_prices.get(symbol)
         if actual is None:
@@ -343,63 +181,45 @@ def check_pending_forecasts(current_prices: dict[str, float]) -> int:
         rr_realised = None
 
         if direction == "long":
-            # Сначала TP (tp3 > tp2 > tp1), потом SL
-            if tp1 is not None and actual >= tp1:
-                tp1_hit = 1
-            if tp2 is not None and actual >= tp2:
-                tp2_hit = 1
-            if tp3 is not None and actual >= tp3:
-                tp3_hit = 1
             if sl is not None and actual <= sl:
                 sl_hit = 1
-            # Outcome priority: tp3 > tp2 > tp1 > sl_hit > no_hit
-            if tp3_hit:
-                outcome = "tp3_hit"
-            elif tp2_hit:
-                outcome = "tp2_hit"
-            elif tp1_hit:
-                outcome = "tp1_hit"
-            elif sl_hit:
                 outcome = "sl_hit"
             else:
-                outcome = "no_hit"
+                if tp1 is not None and actual >= tp1:
+                    tp1_hit = 1
+                if tp2 is not None and actual >= tp2:
+                    tp2_hit = 1
+                if tp3 is not None and actual >= tp3:
+                    tp3_hit = 1
+                if tp1_hit and not sl_hit:
+                    outcome = "tp1_hit"
+                    if tp2_hit:
+                        outcome = "tp2_hit"
+                    if tp3_hit:
+                        outcome = "tp3_hit"
+                elif not tp1_hit:
+                    outcome = "no_hit"
         elif direction == "short":
-            # Сначала TP (tp3 > tp2 > tp1), потом SL
-            if tp1 is not None and actual <= tp1:
-                tp1_hit = 1
-            if tp2 is not None and actual <= tp2:
-                tp2_hit = 1
-            if tp3 is not None and actual <= tp3:
-                tp3_hit = 1
             if sl is not None and actual >= sl:
                 sl_hit = 1
-            # Outcome priority: tp3 > tp2 > tp1 > sl_hit > no_hit
-            if tp3_hit:
-                outcome = "tp3_hit"
-            elif tp2_hit:
-                outcome = "tp2_hit"
-            elif tp1_hit:
-                outcome = "tp1_hit"
-            elif sl_hit:
                 outcome = "sl_hit"
             else:
-                outcome = "no_hit"
+                if tp1 is not None and actual <= tp1:
+                    tp1_hit = 1
+                if tp2 is not None and actual <= tp2:
+                    tp2_hit = 1
+                if tp3 is not None and actual <= tp3:
+                    tp3_hit = 1
+                if tp1_hit and not sl_hit:
+                    outcome = "tp1_hit"
+                    if tp2_hit:
+                        outcome = "tp2_hit"
+                    if tp3_hit:
+                        outcome = "tp3_hit"
+                elif not tp1_hit:
+                    outcome = "no_hit"
         else:
             outcome = "no_direction"
-
-        # P3: Для no_signal — проверить выход за зоны.
-        # Если signal_status=no_signal и цена вышла за zone_upper/key_resistance
-        # или zone_lower/key_support → outcome = "zone_break_up" / "zone_break_down".
-        if str(signal_status).lower() in ("no_signal", "accumulation") and outcome in ("no_direction", "no_hit"):
-            # Проверяем LTF зону, затем key_zones
-            upper_bound = zone_upper or key_res
-            lower_bound = zone_lower or key_sup
-            if upper_bound and actual and actual > upper_bound:
-                outcome = "zone_break_up"
-            elif lower_bound and actual and actual < lower_bound:
-                outcome = "zone_break_down"
-            else:
-                outcome = "zone_hold"  # цена осталась внутри зоны
 
         # Расчёт реализованного RR
         if entry and sl and sl_hit:
@@ -506,25 +326,10 @@ def get_backtest_context(symbol: str = "BTCUSDT", last_n: int = 30) -> str:
             f"{s}: {w}/{n} ({w/n*100:.0f}%)" for s, n, w in by_signal if n > 0
         ) if by_signal else "нет данных"
 
+        conn.close()
+
         rr_plan_str = f"{avg_rr_plan:.1f}" if avg_rr_plan else "N/A"
         rr_real_str = f"{avg_rr_real:.1f}" if avg_rr_real else "N/A"
-
-        # P3-4: A/B сравнение по prompt_variant
-        c.execute("""
-            SELECT prompt_variant,
-                   COUNT(*) as cnt,
-                   SUM(CASE WHEN outcome IN ('tp1_hit','tp2_hit','tp3_hit') THEN 1 ELSE 0 END) as wins
-            FROM signal_log
-            WHERE symbol = ? AND checked_at IS NOT NULL AND prompt_variant IS NOT NULL
-            GROUP BY prompt_variant
-            ORDER BY prompt_variant
-        """, (symbol,))
-        ab_rows = c.fetchall()
-        ab_str = " | ".join(
-            f"V{v}: {w}/{n} ({w/n*100:.0f}%)" for v, n, w in ab_rows if n and n > 0
-        ) if ab_rows else "нет данных"
-
-        conn.close()
 
         return (
             f"Backtest ({symbol}, checked: {total}):\n"
@@ -533,7 +338,6 @@ def get_backtest_context(symbol: str = "BTCUSDT", last_n: int = 30) -> str:
             f"No hit: {(no_hit/total*100) if total else 0:.0f}%\n"
             f"Avg RR planned: {rr_plan_str} | Avg RR realised: {rr_real_str}\n"
             f"By signal: {by_signal_str}\n"
-            f"A/B variants: {ab_str}\n"
             f"Last 5: {recent_str}"
         )
     except Exception as e:

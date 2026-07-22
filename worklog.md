@@ -1,153 +1,73 @@
-# LOCAL_AI_ENGINE — Work Log
-
----
-Task ID: 7
-Agent: Super Z
-Task: Fix zone calculation — match user's manual markup (structure-based, senior TF priority)
-
-Work Log:
-- Analyzed root cause: `split_structure()` used `_ZONE_LOOKBACK=10` for prev_high (only last 10 pivots) instead of absolute max/min
-- Found that Hermes had already fixed 3/4 parts: hard parent constraint (no 10% soft clamp), chain_broken removal, narrative text update
-- Changed `split_structure()` prev_structure to use ABSOLUTE max/min of ALL pivots before BOS (removed _ZONE_LOOKBACK)
-- Updated `analyze_topdown()` docstring to reflect new behavior
-- Verified with unit test: prev.high=97932 (absolute max), prev.low=56804 (absolute min)
-- Verified full top-down chain: all TFs share D1 low=56704, cascading high narrowing
-- Confirmed scheduler already disabled in main.py (line 44 commented out)
-- Confirmed fallback in ollama_client.py already uses full zone (upper/lower from zone_high/zone_low)
-
-Stage Summary:
-- Zone calculation now matches user's manual markup approach:
-  - D1 zone = full structural range (absolute extremes of all pivots)
-  - All child TFs inherit D1's low as hard floor (shared lows)
-  - Senior TF high = ceiling for all child TFs (cascading narrowing)
-  - No chain-breaking — structure is treated as unified entity
-- File changed: core/structure.py (lines 259-268, 493-498)
-- Scheduler: already disabled in main.py (no change needed)
-- Ready for commit + Hermes review
-
----
-Task ID: 1
-Agent: Super Z
-Task: AUTO_SIGNAL_ONLY — selective auto-notification mode
-
-Work Log:
-- Added AUTO_SIGNAL_ONLY config flag (default true) to core/config.py
-- Added ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
-- Modified scheduler.py: send_to_tg conditional on signal status in auto cycle
-- Manual /analyse in handlers.py NOT affected (always sends)
-- save_signal_log() called BEFORE filter (all signals logged to backtest)
-- Resolved rebase conflict with Hermes f29d74f (his get_setting("auto_mode") replaced)
-
-Stage Summary:
-- Commit c0f8228 pushed. AUTO_SIGNAL_ONLY works: auto-cycle silent on no_signal/accumulation/false_breakout, sends on actionable signals.
-
----
-Task ID: 2
-Agent: Super Z
-Task: Split LLM config — main bot local, dashboard cloud
-
-Work Log:
-- Added DASHBOARD_LLM_API_KEY, DASHBOARD_LLM_BASE_URL, DASHBOARD_MODEL_NAME to config.py
-- Refactored ollama_service.py: generate() accepts optional api_key/base_url override
-- _resolve_base_url(), _build_headers(), _endpoint_url() accept override params
-- Added dashboard_info() for diagnostics
-- .env.example updated with DASHBOARD_LLM_* section
-- Backward compatible — existing calls without override params work unchanged
-
-Stage Summary:
-- Commit 530e207 pushed. Main bot stays local (LLM_API_KEY empty), dashboard passes override to generate() for cloud Alibaba GLM.
-
 ---
 Task ID: 3
-Agent: Hermes (commit 2590f2e)
-Task: Dashboard /scan with cloud LLM + full context
+Agent: main
+Task: Update diag_candidates.py, diag_pivots.py, PS1, validate to v2.3 with BTC-optimized profiles and regime/bias scoring
 
 Work Log:
-- run_hourly_analysis accepts llm_api_key, llm_base_url, llm_model, symbol_filter overrides
-- AUTO_SIGNAL_ONLY disabled via sched_mod for manual /scan
-- load_dotenv() for DASHBOARD_LLM_* env vars
-- /scanBTC (without space) works
-- Fixed: TIMEFRAMES import, await fetch_and_plot, analyze_multi_images signature, getUpdates conflict
+- Read all current files: diag_candidates.py (v2.2), diag_pivots.py (v2.1), run_candidates.py (v2.1), autotune_diag.py (v2.0), v11generate_unified_dataset.ps1, validate_ad_dataset.py
+- Analyzed user's experimental BTC parameters and mapped them to profile structure
+- Updated diag_candidates.py to v2.3: new _calc_regime(), _calc_bias() functions, BTC 1h profile (pivotLeft/Right=9, profPricePct=0.0075, profFlowPct=0.004, profAtrMult=0.4, cooldown=10), regime params (lookback=11, emaSlope=0.08, emaRange=0.12, confirm=3), bias weights (flowSlope=60, cmf=25, regime=15, threshold=2), 9 new fields per candidate JSON
+- Updated diag_pivots.py to v2.3: synchronized all profiles and _apply_overrides() with new regime/bias parameters
+- Updated run_candidates.py: version bump to v2.3
+- Updated v11generate_unified_dataset.ps1: 9 new columns (regime_score, regime_trend, regime_confirmed, bias_score, bias_dir, bias_above, flow_slope, cmf_score) — total 42 columns
+- Updated validate_ad_dataset.py: EXPECTED_COL_COUNT 33→42, added 9 new required columns
 
 Stage Summary:
-- Dashboard bot @my_hermes_lokal_ai_bot works on Alibaba GLM cloud.
-- Main bot @KXROBObot stays on local LM Studio.
-- Cloud quality >> local (all fields populated vs Unknown).
+- v2.3 deployed with BTC-optimized parameters and regime/bias scoring
+- All 4 TF profiles (15m/1h/4h/1d) have regime/bias parameters
+- Unified dataset now has 42 columns (was 33)
+- Candidate JSON now includes: regimeScore, regimeTrend, regimeConfirmed, biasScore, biasDir, biasAbove, flowSlope, cmfScore
 
 ---
-Task ID: PENDING-1 (Bug)
-Agent: Super Z (assigned)
-Task: Баг 1 — Матрешка зон нарушена
-
-Problems:
-1. H1 lower (61297) < H4 lower (61306) — nested zones violated
-2. D1 upper = 82850 — LLM takes 100-candle historical high, not current zone
-3. "1D/4H" hybrid key from tf_context string leaked into tf_zones
-
-Solution:
-1. Validate nesting in enforce_risk_rules: if H1 lower < H4 lower, expand H4 lower
-2. Cap D1 zone to realistic range (±10% from current price)
-3. Filter hybrid keys (containing "/") in format_json_for_tg
-
----
-Task ID: PENDING-2 (Bug)
-Agent: Super Z (assigned)
-Task: Баг 2 — "1D/4H" в tf_zones
-
-tf_context string from metrics leaks into tf_zones as "1D/4H" key.
-Solution: filter keys containing "/" in format_json_for_tg.
-
----
-Task ID: PENDING-3 (Feature)
-Agent: Hermes (assigned, tomorrow)
-Task: Дашборд-бот: кнопки при /start + автоскан
-
-Requirements:
-- /start → inline keyboard with: Анализ BTC, ETH, XAUT, Настройки, Статистика, Авто-режим
-- "▶ Автоскан" button — cycle analysis all symbols via cloud every 30 min
-- Architecture: @my_hermes_lokal_ai_bot (cloud) + @KXROBObot (local) running together---
-Task ID: 1
-Agent: Super Z (main)
-Task: FEELS-inspired improvements + merge zones-sticking + read Hermes letters
+Task ID: 4
+Agent: main
+Task: Add pagination to data_provider.py + create fetch_ohlcv.py CLI for deep historical data
 
 Work Log:
-- Read Hermes letters: 2026-07-13 (9-point priority list) and 2026-07-14 (zones sticking after D1 cap removed)
-- Checked branches: main=38923ad, fix/zones-sticking=b26c43d (1 commit ahead)
-- Merged _enforce_zone_uniqueness from fix/zones-sticking into main (kept LM prompt context, fixed РАЗНЫММ typo)
-- Implemented log-distance for confluence_levels: |ln(level/price)| + proximity_score (inverted-U curve)
-- Added source tracking in tf_zones (llm/vp/zigzag/liquidity_magnet)
-- Updated TG format to show log_distance and proximity_score per confluence level
-- Pushed as 8436c83 after rebase over d80dc50 (Hermes archive cleanup commit)
+- Analyzed data_provider.py: single fetch_ohlcv() call with limit=500 (Binance max=1000 per request)
+- Updated data_provider.py to v2.1: added auto-pagination for limit>1000, batch fetching with `since` parameter, deduplication, rate limiting (0.3s between batches), _TF_MS mapping for all timeframes
+- Created tools/fetch_ohlcv.py: CLI script for easy data fetching with --symbol, --tf, --limit, --spot, --force flags
 
 Stage Summary:
-- Commit: 8436c83 "[LOCAL_AI_ENGINE] feat: FEELS-inspired improvements"
-- _enforce_zone_uniqueness: D1±2.5%, H4±1.5%, H1±0.75% expansion when zones stick
-- Log-distance: symmetric proximity scoring, -30% and +30% get same penalty
-- Source tracking: tf_zones now carry "source" field for dashboard debugging
-- Branch fix/zones-sticking can be deleted (merged manually)
+- data_provider.py v2.1 supports limit up to ~10000 bars with automatic pagination
+- tools/fetch_ohlcv.py provides convenient CLI: `python tools/fetch_ohlcv.py --symbol BTCUSDT --tf 1h --limit 5000`
+- User can now fetch 5000 bars of 1h data (~208 days) for better candidate density
 
 ---
-Task ID: 1.2
-Agent: Super Z
-Task: Проверить analyze_topdown() на синтетических данных (Binance API заблокирован с сервера)
+Task ID: 5
+Agent: main
+Task: Step 5 — divergence context integration + Pine export + ollama_client.py modification
 
 Work Log:
-- Написал test_topdown_abs_extremes.py: 4 ТФ (D1→H4→H1→15M), синтетические BTC-подобные данные
-- Все 4 ТФ: prev_structure берёт АБСОЛЮТНЫЙ max/min (✅), иерархия зон корректная (✅)
-- 1H и 15M разделяют shared floor с 4H — parent constraint работает
-- Коммит c0c7c8e уже на origin/feature/top-down-structure
+- Read ollama_client.py (1753 lines) — identified PRO_TA_USER_PROMPT template and analyze_multi_images() function
+- Read volume_filters.py — existing A/D context provider (current-snapshot, no divergence history)
+- Created core/divergence_context.py: DivergenceSignal dataclass, load_candidates(), resolve_timestamps(), filter_by_lookback(), format_for_prompt(), get_multi_context(), get_multi_symbol_context()
+- Created tools/export_pine_params.py: reads autotune JSON, exports Pine Script input() declarations, auto-rollback (current→prev), per-symbol folders
+- Modified ollama_client.py: added `from core.divergence_context import get_multi_context`, added `{divergence_context}` block in PRO_TA_USER_PROMPT, added divergence_str computation in analyze_multi_images() with try/except fallback
 
 Stage Summary:
-- ✅ ВСЕ ТЕСТЫ ПРОЙДЕНЫ на синтетике
-- Результат: скрипт в /home/z/my-project/scripts/test_topdown_abs_extremes.py
+- divergence_context.py reads *_candidates.json + source CSV, resolves i→datetime, filters by lookback_hours, formats for LLM
+- export_pine_params.py exports autotune results to results/pine_exports/{SYMBOL}/{SYMBOL}_{TF}_params.pine with rollback
+- ollama_client.py now includes historical A/D divergences in LLM prompt between state_context and backtest
+- Configuration via prev_analysis dict keys: symbol, divergence_timeframes, divergence_lookback_hours
 
 ---
-## ПРАВИЛА РАБОТЫ (обязательно соблюдать)
+Task ID: 6
+Agent: main
+Task: Improve ML filter log output — add informative header and summary line
 
-1. **НЕ СПАМИТЬ API** — Binance банит IP за частые запросы (DDoSProtection 418). Текущий бан до ~15.07 03:12 UTC. Между запросами пауза минимум 2-3 секунды, не делать больше 5 запросов подряд. Если забанен — ждать снятия, не долбить.
+Work Log:
+- Read ML filter block in ollama_client.py (lines 1462-1684)
+- Replaced single log line with informative header: `ML FILTER [PHASE1] SYMBOL | signal_type | timeframe | price=XXXX`
+- Added summary line after prediction: `→ PASS/FILTERED | confidence=XX.X% | model=... | features=X/50`
+- Extracted _ml_sym, _ml_price, _ml_tf from data dict for header
+- Extracted _ml_verdict, _ml_matched as local vars for summary line
 
-2. **Веточная дисциплина** — каждая ветка мержится только в main, между собой НЕ мержим.
-
-3. **Письма только в exchange/** — формат: `YYYY-MM-DD_от-кого-тема.md`
-
-4. **Старый код не трогать** — на fix/zones-sticking работаем только с auto_chart.py/ollama_client.py/handlers.py/main.py
+Stage Summary:
+- ML filter log now shows clear header with signal context (symbol, type, TF, price)
+- Summary line shows verdict, confidence %, model name, and feature match count
+- Example output:
+  ML FILTER [PHASE1] XAUTUSDT | false_breakout_down | 4h | price=2430.5000
+    OHLCV fallback built 28 features matching model
+    P(good)=0.731 | threshold=0.75
+    → FILTERED | confidence=73.1% | model=RandomForestClassifier | features=28/50

@@ -2,19 +2,13 @@
 # Назначение: периодический анализ рынка и сбор контекста для LLM.
 # Отвечает за: запуск auto-analysis, передачу цен, зон, ZigZag-контекста и нормализацию ответа.
 # Связан с: ollama_client.py, auto_chart.py, db.py, utils.py.
-from datetime import datetime
 
 import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 
-from core.db import (
-    init_all_tables, save_forecast, update_actual_prices, get_setting, set_setting,
-    init_breakout_events_table, save_breakout_event,
-    get_pending_breakout_events, confirm_breakout_event, get_breakout_stats,
-)
+from core.db import init_all_tables, save_forecast, update_actual_prices, get_setting, set_setting
 from core.backtest import init_backtest_table, save_signal_log, check_pending_forecasts, get_backtest_context
-from core.multi_symbol import get_multi_symbol_context, invalidate_cache as invalidate_multi_cache
 from core.auto_chart import fetch_and_plot
 from core.state_tracker import (
     update_and_save_state,
@@ -24,7 +18,7 @@ from core.state_tracker import (
 )
 from core.binance_metrics import fetch_binance_metrics
 from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce_risk_rules
-from core.config import MY_CHAT_ID, PROMPT_VARIANT, AUTO_SIGNAL_ONLY, ACTIONABLE_SIGNALS
+from core.config import MY_CHAT_ID
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
 from core.zigzag.benchmark_zigzag import run_benchmark
 
@@ -34,164 +28,27 @@ scheduler = AsyncIOScheduler()
 
 
 def _get_timeframes() -> list:
-    val = get_setting("timeframes", ["5m", "15m", "1h", "4h", "1D"])
-    return val if isinstance(val, list) else ["5m", "15m", "1h", "4h", "1D"]
-
-
-# Phase 3 MT5: кэш последних результатов анализа для /api/signals (web_dashboard.py)
-_last_analysis_cache: dict[str, dict] = {}
-
-# Anti-spam: кэш последних отправленных level alerts (по символу)
-# Отправляем алерт только если содержание изменилось (новое событие).
-_last_level_alert_cache: dict[str, str] = {}
+    val = get_setting("timeframes", ["15m", "1h", "4h", "1D"])
+    return val if isinstance(val, list) else ["15m", "1h", "4h", "1D"]
 
 
 def _get_symbols() -> list:
-    """Phase 3: читаем из БД, не хардкод."""
-    syms = get_setting("symbols", ["BTCUSDT", "XAUTUSDT"])
-    return syms if isinstance(syms, list) else ["BTCUSDT", "XAUTUSDT"]
+    return ["BTCUSDT", "XAUTUSDT"]
 
 
-def _build_level_alerts(symbol_id: str, tf_zones: dict, live_price: float,
-                        vol_ratio: float, atr: float | None,
-                        tf_metrics: dict | None = None) -> tuple[str | None, list[dict]]:
-    """
-    Phase 3: KX-style alerts — подход к уровню + фиксация пробоя.
-    TF-лесенка (top-down SMC): пробой на младшем ТФ → цель = уровень старшего ТФ.
-    Пробой определяется по CLOSE свечи каждого ТФ (last_closed_price), не по live_price.
-
-    Возвращает (alert_text, breakout_events_to_save).
-    Alerts отправляются ВСЕГДА, минуя AUTO_SIGNAL_ONLY.
-    """
-    if not live_price or not tf_zones:
-        return None, []
-
-    alerts: list[str] = []
-    new_breakouts: list[dict] = []
-
-    price_float = float(live_price)
-    atr_val = float(atr) if atr else price_float * 0.01
-    approach_threshold = max(atr_val * 1.5, price_float * 0.015)
-
-    vol_ratio_f = float(vol_ratio) if vol_ratio else 0.0
-    vol_confirmed = vol_ratio_f >= 1.0
-
-    tf_priority = {"15m": "⚡", "15M": "⚡", "1h": "⚡", "1H": "⚡",
-                    "4h": "📊", "4H": "📊", "1D": "📊", "1d": "📊"}
-    tf_order = ["15m", "15M", "1h", "1H", "4h", "4H", "1D", "1d"]
-
-    sorted_tfs = sorted(tf_zones.items(),
-                        key=lambda x: tf_order.index(x[0]) if x[0] in tf_order else 99)
-
-    # TF-лесенка: для каждого ТФ берём close свечи этого ТФ (не live_price).
-    # Пробой = закрытие свечи за уровнем (тело, не тень).
-    tf_breakouts: dict[str, str] = {}  # tf → "up"|"down"
-
-    for tf, zone in sorted_tfs:
-        if not isinstance(zone, dict):
-            continue
-        upper = zone.get("upper")
-        lower = zone.get("lower")
-        icon = tf_priority.get(tf, "📍")
-        label = format_symbol(symbol_id)
-
-        # close свечи этого ТФ (ключевая логика лесенки)
-        tfm = tf_metrics.get(tf, {}) if tf_metrics else {}
-        tf_close = tfm.get("last_closed_price")
-        tf_close_f = float(tf_close) if tf_close else price_float
-        tf_vol = tfm.get("vol_ratio", vol_ratio_f)
-        tf_vol_f = float(tf_vol) if tf_vol else vol_ratio_f
-        tf_vol_conf = tf_vol_f >= 1.0
-
-        # --- RESISTANCE (upper) ---
-        if upper is not None:
-            try:
-                u = float(upper)
-                if u <= 0:
-                    pass
-                elif tf_close_f > u and live_price > u:
-                    # ПРОБОЙ resistance вверх (close свечи за уровнем И цена всё ещё выше)
-                    vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
-                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ resistance @​{u} ↑ (close {tf_close_f}, {vol_str})")
-                    new_breakouts.append({
-                        "symbol": symbol_id, "timeframe": tf,
-                        "level_type": "resistance", "level_price": u,
-                        "breakout_dir": "up", "volume_ratio": tf_vol_f,
-                    })
-                    tf_breakouts[tf] = "up"
-                elif tf_close_f > u and live_price <= u:
-                    # ЛОЖНЫЙ ПРОБОЙ: close был за уровнем, но цена вернулась в зону
-                    alerts.append(f"{icon} {label} {tf}: ⚠️ ложный пробой resistance @{u} — цена вернулась ({live_price} < {u})")
-                elif abs(live_price - u) < approach_threshold:
-                    # ПОДХОД К RESISTANCE (по live_price)
-                    dist_pct = abs(live_price - u) / u * 100
-                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от resistance @​{u}")
-            except (TypeError, ValueError):
-                pass
-
-        # --- SUPPORT (lower) ---
-        if lower is not None:
-            try:
-                l = float(lower)
-                if l <= 0:
-                    pass
-                elif tf_close_f < l and live_price < l:
-                    # ПРОБОЙ support вниз (close свечи за уровнем И цена всё ещё ниже)
-                    vol_str = f"✅ объём {tf_vol_f}x" if tf_vol_conf else f"⚠️ объём {tf_vol_f}x — возможен ложный"
-                    alerts.append(f"{icon} {label} {tf}: ПРОБОЙ support @​{l} ↓ (close {tf_close_f}, {vol_str})")
-                    new_breakouts.append({
-                        "symbol": symbol_id, "timeframe": tf,
-                        "level_type": "support", "level_price": l,
-                        "breakout_dir": "down", "volume_ratio": tf_vol_f,
-                    })
-                    tf_breakouts[tf] = "down"
-                elif tf_close_f < l and live_price >= l:
-                    # ЛОЖНЫЙ ПРОБОЙ: close был за уровнем, но цена вернулась в зону
-                    alerts.append(f"{icon} {label} {tf}: ⚠️ ложный пробой support @{l} — цена вернулась ({live_price} > {l})")
-                elif abs(live_price - l) < approach_threshold:
-                    # ПОДХОД К SUPPORT (по live_price)
-                    dist_pct = abs(live_price - l) / l * 100
-                    alerts.append(f"{icon} {label} {tf}: цена в {dist_pct:.1f}% от support @​{l}")
-            except (TypeError, ValueError):
-                pass
-
-    if not alerts:
-        return None, new_breakouts
-
-    # TF-лесенка: M15 слом → цель H1, H1 слом → цель H4, и т.д.
-    tf_chain = ["15m", "15M", "1h", "1H", "4h", "4H", "1D", "1d"]
-    ladder_lines: list[str] = []
-    for i, tf in enumerate(tf_chain):
-        if tf not in tf_breakouts:
-            continue
-        direction = tf_breakouts[tf]
-        # Ищем следующий ТФ в цепочке для цели
-        next_tf = None
-        for j in range(i + 1, len(tf_chain)):
-            if tf_chain[j] in tf_zones:
-                next_tf = tf_chain[j]
-                break
-        if next_tf:
-            next_zone = tf_zones.get(next_tf, {})
-            if direction == "up":
-                target = next_zone.get("upper")
-                arrow = "↑"
-            else:
-                target = next_zone.get("lower")
-                arrow = "↓"
-            if target:
-                ladder_lines.append(
-                    f"🎯 {tf} слом {direction} → цель {next_tf} @{target} {arrow}"
-                )
-
-    # Динамический заголовок: "ПРОБОЙ" только при реальном пробое, иначе "УРОВЕНЬ"
-    has_breakout = len(new_breakouts) > 0
-    header = "🔔 ПРОБОЙ" if has_breakout else "🔔 УРОВЕНЬ"
-    parts = ["\n".join(alerts)]
-    if ladder_lines:
-        parts.append("\n".join(ladder_lines))
-    alert_text = f"{header} ({format_symbol(symbol_id)})\n" + "\n".join(parts)
-    return alert_text, new_breakouts
+def _build_warning_message(symbol_id: str, timeframe: str, upper: float | None, lower: float | None, live_price: float) -> str | None:
+    warning_threshold = 0.005
+    if upper and abs(live_price - upper) / upper < warning_threshold:
+        return (
+            f"🔔 ПОДХОД К УРОВНЮ ({format_symbol(symbol_id)})\n"
+            f"💹 Цена в 0.5% от верхней границы {timeframe}: {upper}"
+        )
+    if lower and abs(live_price - lower) / lower < warning_threshold:
+        return (
+            f"🔔 ПОДХОД К УРОВНЮ ({format_symbol(symbol_id)})\n"
+            f"💹 Цена в 0.5% от нижней границы {timeframe}: {lower}"
+        )
+    return None
 
 
 def _build_zigzag_context(symbol: str, timeframes: list[str]) -> dict:
@@ -225,13 +82,6 @@ def _build_zigzag_context(symbol: str, timeframes: list[str]) -> dict:
                 "pivot_count": data.get("pivot_count"),
                 "price_position": data.get("price_position"),
                 "zones": data.get("levels", {}),
-                # BUG 1 / Liquidity Magnet: prev_structure + curr_structure видны LLM.
-                # prev_structure.high = BSL (Buy-Side Liquidity, цель для sweep вверх).
-                # prev_structure.low = SSL (Sell-Side Liquidity, цель для sweep вниз).
-                # curr_structure = активная зона после BOS (где цена сейчас).
-                "structure": data.get("structure"),
-                # T15: FVG / Imbalance zones (liquidity концепт, не zone_structure)
-                "imbalances": data.get("imbalances", {}),
             }
 
         return {
@@ -343,27 +193,31 @@ def normalize_analysis(data: dict) -> dict:
             data["trend_structure"] = "balance"
             data["trend_structure_comment"] = "Баланс на старших ТФ с локальной коррекцией на младшем ТФ"
 
+    abc_risk = str(data.get("abc_risk", "")).lower()
+    wave_comment = str(data.get("wave_phase_comment", "")).lower()
+
+    if "abc вверх" in wave_comment or "abc-коррекции вверх" in wave_comment:
+        data["abc_risk"] = "abc_risk_up"
+        if not data.get("abc_risk_comment"):
+            data["abc_risk_comment"] = "Риск ABC вверх по волновой фазе"
+    elif "abc вниз" in wave_comment or "abc-коррекции вниз" in wave_comment:
+        data["abc_risk"] = "abc_risk_down"
+        if not data.get("abc_risk_comment"):
+            data["abc_risk_comment"] = "Риск ABC вниз по волновой фазе"
+    elif wave_phase == "correction_down" and abc_risk == "none":
+        data["abc_risk"] = "abc_risk_up"
+        data["abc_risk_comment"] = "Риск ABC вверх после коррекции вниз"
+    elif wave_phase == "correction_up" and abc_risk == "none":
+        data["abc_risk"] = "abc_risk_down"
+        data["abc_risk_comment"] = "Риск ABC вниз после коррекции вверх"
+
     return data
 
 
-async def run_hourly_analysis(
-    bot: Bot,
-    symbol_filter: str = "",
-    llm_api_key: str = "",
-    llm_base_url: str = "",
-    llm_model: str = "",
-) -> None:
+async def run_hourly_analysis(bot: Bot) -> None:
     symbols = _get_symbols()
-    if symbol_filter:
-        symbols = [s for s in symbols if s == symbol_filter]
     timeframes = sort_timeframes(_get_timeframes())
     filter_active = get_setting("filter_mode", True)
-
-    # P3-3: multi-symbol context — one API call per cycle, shared across symbols
-    import time as _time
-    cycle_id = str(_time.time())
-    invalidate_multi_cache()
-    multi_symbol_ctx = get_multi_symbol_context("BTCUSDT", cache_buster=cycle_id)
 
     for symbol_id in symbols:
         try:
@@ -460,7 +314,6 @@ async def run_hourly_analysis(
 
             # Liquidity heatmap (лёгкий текстовый контекст)
             heatmap_data = {}
-            ltf_df = None
             try:
                 from core.liquidity_heatmap import build_liquidity_context_text, build_liquidity_heatmap
                 from core.data_provider import OhlcvDataProvider
@@ -475,23 +328,6 @@ async def run_hourly_analysis(
                     heatmap_text = "Liquidity heatmap: CSV недоступен."
             except Exception as e:
                 heatmap_text = f"Liquidity heatmap: ошибка ({type(e).__name__})."
-
-            # BUG 2 FIX: period_high/period_low — abs max/min свечей между сканами
-            # для детекции intrabar sweep (ложный пробой внутри свечи).
-            # Берём последние ~6 свечей M15 (≈90 мин ≈ интервал автоскана 30 мин × 2-3 цикла).
-            period_high = None
-            period_low = None
-            if ltf_df is not None and hasattr(ltf_df, "columns"):
-                try:
-                    cols = {c.lower(): c for c in ltf_df.columns}
-                    hi_col = cols.get("high", "high")
-                    lo_col = cols.get("low", "low")
-                    tail = ltf_df.tail(6)
-                    period_high = float(tail[hi_col].max())
-                    period_low = float(tail[lo_col].min())
-                except Exception:
-                    period_high = None
-                    period_low = None
 
             # Добавляем heatmap в metrics
             metrics_str += f"\n{heatmap_text}"
@@ -517,8 +353,7 @@ async def run_hourly_analysis(
             # Load previous state and build state_context BEFORE LLM call
             # so the LLM sees what changed vs last analysis
             _prev_state = load_state(symbol_id, timeframes[-1])
-            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones},
-                                        period_high=period_high, period_low=period_low)
+            _state_diff = compare_state(_prev_state, {"price": live_price, "tf_zones": tf_zones})
             _state_context = build_state_context(_state_diff, {"price": live_price, "tf_zones": tf_zones}, _prev_state)
 
             prev_ctx = {
@@ -537,13 +372,9 @@ async def run_hourly_analysis(
                 "tf_span_map": zigzag_context.get("stack", {}).get("tf_span_map", {}),
                 "confluence_levels": zigzag_context.get("confluence_levels", []),
                 "state_context": _state_context,
-                "multi_symbol": get_multi_symbol_context(symbol_id, cache_buster=cycle_id),
             }
 
-            parsed = await analyze_multi_images(
-                chart_bytes_list, prev_analysis=prev_ctx,
-                llm_api_key=llm_api_key, llm_base_url=llm_base_url, llm_model=llm_model,
-            )
+            parsed = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)
             parsed = normalize_analysis(parsed)
 
             # -----------------------------
@@ -553,8 +384,6 @@ async def run_hourly_analysis(
                 symbol=symbol_id,
                 timeframe=timeframes[-1],
                 current=parsed,
-                period_high=period_high,
-                period_low=period_low,
             )
 
             if isinstance(parsed, dict):
@@ -565,72 +394,30 @@ async def run_hourly_analysis(
                 parsed["current_substructure"] = current_substructure
                 parsed["confluence_levels"] = zigzag_context.get("confluence_levels", [])
                 parsed["tf_span_map"] = zigzag_context.get("stack", {}).get("tf_span_map", {})
-                # T15: FVG/imbalance data for TG compact format
-                parsed["zigzag_context"] = zigzag_context
 
                 tf_zones_clean = {}
                 key_map = {"1d": "1D", "4h": "4H", "1h": "1H", "15m": "15M", "5m": "5M"}
 
-                # ── Variant E Phase 1: zones from zigzag_context (structure.py) ──
-                # ZigZag structure = authoritative source for tf_zones.
-                # LLM больше НЕ возвращает tf_zones (schema убран).
-                # Порядок: zigzag_context > metrics (auto_chart) fallback.
-                zz_tfs = zigzag_context.get("timeframes") or {}
-                logger.info("VARIANT-E-DBG: zz_tfs keys=%s", list(zz_tfs.keys()))
-                for tf_key in ("1D", "4H", "1H", "15M", "5M"):
-                    zz_tf = zz_tfs.get(tf_key) or zz_tfs.get(tf_key.lower())
-                    if isinstance(zz_tf, dict):
-                        zz_upper = zz_tf.get("upper")
-                        zz_lower = zz_tf.get("lower")
-                        if zz_upper is not None and zz_lower is not None:
-                            tf_zones_clean[tf_key] = {
-                                "upper": float(zz_upper),
-                                "lower": float(zz_lower),
-                                "source": "zigzag_structure",
-                            }
-                            logger.info("VARIANT-E-DBG: %s from zigzag_context [%.1f - %.1f]", tf_key, zz_lower, zz_upper)
-                        else:
-                            logger.info("VARIANT-E-DBG: %s upper/lower missing (upper=%s, lower=%s)", tf_key, zz_upper, zz_lower)
-                    else:
-                        logger.info("VARIANT-E-DBG: %s not found in zz_tfs (tried %s, %s)", tf_key, tf_key, tf_key.lower())
+                llm_zones = parsed.get("tf_zones") or {}
+                if isinstance(llm_zones, dict):
+                    for k, v in llm_zones.items():
+                        norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
+                        tf_zones_clean[norm_k] = v
 
-                # Fallback: если zigzag_context не дал зону для TF — берём из metrics
                 for k, v in tf_zones.items():
                     norm_k = key_map.get(str(k).strip().lower(), str(k).strip().upper())
-                    if norm_k not in tf_zones_clean:
-                        tf_zones_clean[norm_k] = v
+                    tf_zones_clean[norm_k] = v
 
                 parsed["tf_zones"] = tf_zones_clean
 
                 if parsed.get("price") in (None, "", "null"):
                     parsed["price"] = live_price or last_closed_price
 
-                # Phase 3 MT5: кэшируем результат для /api/signals
-                _last_analysis_cache[symbol_id] = {
-                    "tf_zones": tf_zones_clean,
-                    "live_price": float(live_price or last_closed_price or 0),
-                    "signal_status": parsed.get("signal_status", "unknown"),
-                    "signal_direction": parsed.get("signal_direction", ""),
-                    "phase": parsed.get("phase", ""),
-                    "metrics": {tf: {"vol_ratio": m.get("vol_ratio"), "atr": m.get("atr")}
-                                for tf, m in all_metrics.items()},
-                    "timestamp": datetime.utcnow().isoformat(),
-                }
-
                 parsed = enforce_risk_rules(parsed)
-
-                # Phase 3 MT5: обновляем кэш ПОСЛЕ enforce_risk_rules —
-                # теперь risk_management содержит реальные SL/TP (после fix 6626f31)
-                # + tf_zones после nesting/drift/fallback (fix zone-nesting)
-                _last_analysis_cache[symbol_id].update({
-                    "risk_management": parsed.get("risk_management", {}),
-                    "entry_price": parsed.get("price"),
-                    "tf_zones": parsed.get("tf_zones", tf_zones_clean),
-                })
 
                 # P3-1: сохранить прогноз в backtest
                 try:
-                    save_signal_log(parsed, symbol_id, timeframes, prompt_variant=PROMPT_VARIANT)
+                    save_signal_log(parsed, symbol_id, timeframes)
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
                     sig_id = None
@@ -654,72 +441,18 @@ async def run_hourly_analysis(
                 await bot.send_message(MY_CHAT_ID, f"⚠️ Ошибка анализа {format_symbol(symbol_id)}: {parsed.get('message')}")
                 continue
 
-            status = str(parsed.get("signal_status", "unknown")).lower()
+            status = str(parsed.get("signal_status", "unknown"))
+            send_to_tg = True
 
-            # AUTO_SIGNAL_ONLY: в авто-цикле отправляем только при подтверждённом сигнале
-            if AUTO_SIGNAL_ONLY:
-                send_to_tg = status in ACTIONABLE_SIGNALS
-            else:
-                send_to_tg = True
-
-            # ── Phase 3: Level alerts + breakout detection ──────────────
-            # KX-style: подход к уровню + фиксация пробоя. Отправляются ВСЕГДА.
-            ltf_metrics = all_metrics.get(timeframes[-1], {})
-            vol_ratio_ltf = ltf_metrics.get("vol_ratio", 1.0)
-            atr_ltf = ltf_metrics.get("atr")
-
-            alert_text, new_breakouts = _build_level_alerts(
-                symbol_id=symbol_id,
-                tf_zones=parsed.get("tf_zones", tf_zones) if isinstance(parsed, dict) else tf_zones,
-                live_price=float(live_price or last_closed_price or 0),
-                vol_ratio=vol_ratio_ltf,
-                atr=atr_ltf,
-                tf_metrics=all_metrics,
-            )
-
-            # Сохраняем новые пробои в DB
-            for br in new_breakouts:
-                try:
-                    save_breakout_event(
-                        symbol=br["symbol"], timeframe=br["timeframe"],
-                        level_type=br["level_type"], level_price=br["level_price"],
-                        breakout_dir=br["breakout_dir"], volume_ratio=br["volume_ratio"],
-                    )
-                except Exception as e:
-                    logger.warning("save_breakout_event failed: %s", e)
-
-            # Подтверждаем/опровергаем старые pending breakouts
-            try:
-                pending = get_pending_breakout_events(symbol_id)
-                for p in pending:
-                    level = p["level_price"]
-                    direction = p["breakout_dir"]
-                    if direction == "up" and live_price and float(live_price) > level:
-                        confirm_breakout_event(p["id"], confirmed=1, outcome="continued")
-                    elif direction == "down" and live_price and float(live_price) < level:
-                        confirm_breakout_event(p["id"], confirmed=1, outcome="continued")
-                    else:
-                        confirm_breakout_event(p["id"], confirmed=-1, outcome="reversed")
-            except Exception as e:
-                logger.warning("breakout confirmation failed: %s", e)
+            ltf_zone = tf_zones.get(timeframes[-1], {})
+            upper = ltf_zone.get("upper")
+            lower = ltf_zone.get("lower")
+            warning_msg = _build_warning_message(symbol_id, timeframes[-1], upper, lower, live_price)
 
             msg_text = format_json_for_tg(parsed)
+            if warning_msg:
+                msg_text = warning_msg + "\n\n" + msg_text
 
-            # ── Отправка в TG ─────────────────────────────────────────────
-            # 1. Level alerts — отправляем при ИЗМЕНЕНИИ (anti-spam: раз на событие)
-            if alert_text:
-                # Дедупликация: отправляем только если содержание изменилось
-                prev_alert = _last_level_alert_cache.get(symbol_id, "")
-                if alert_text != prev_alert:
-                    try:
-                        await bot.send_message(MY_CHAT_ID, alert_text)
-                        _last_level_alert_cache[symbol_id] = alert_text
-                    except Exception as e:
-                        logger.warning("level alert send failed: %s", e)
-                else:
-                    logger.debug(f"🔇 Алерт {symbol_id} не изменился — пропускаем (anti-spam)")
-
-            # 2. LLM сигнал — по фильтру AUTO_SIGNAL_ONLY
             if send_to_tg:
                 msg = await bot.send_message(MY_CHAT_ID, msg_text)
 
@@ -742,7 +475,7 @@ async def run_hourly_analysis(
         except Exception as e:
             logger.error(f"Ошибка {symbol_id}: {e}")
             await bot.send_message(MY_CHAT_ID, f"⚠️ Не удалось проанализировать {format_symbol(symbol_id)}: {type(e).__name__}")
-            continue
+            
 async def update_prices_and_reschedule(bot: Bot) -> None:
     try:
         symbols = _get_symbols()
@@ -770,7 +503,6 @@ async def update_prices_and_reschedule(bot: Bot) -> None:
 def start_scheduler(bot: Bot) -> None:
     init_all_tables()
     init_backtest_table()
-    init_breakout_events_table()
     raw_mins = get_setting("interval_minutes", 60)
     current_minutes = int(raw_mins) if raw_mins is not None else 60
 

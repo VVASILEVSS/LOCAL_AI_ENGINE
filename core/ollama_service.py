@@ -10,11 +10,6 @@
   result = await generate(messages=[...], model=..., temperature=..., max_tokens=...)
   result = {"content": "...", "model": "...", "usage": {...}} или raise LLMError
 
-Override для дашборда (отдельная облачная LLM):
-  from core.config import DASHBOARD_LLM_API_KEY, DASHBOARD_LLM_BASE_URL, DASHBOARD_MODEL_NAME
-  result = await generate(messages=[...], api_key=DASHBOARD_LLM_API_KEY,
-                           base_url=DASHBOARD_LLM_BASE_URL, model=DASHBOARD_MODEL_NAME)
-
 Retry: 3 попытки с exponential backoff (1s, 2s, 4s).
 Timeout: 30 сек (connect=10, read=30).
 
@@ -46,17 +41,16 @@ class LLMError(Exception):
 
 
 # ── URL & headers resolution ──────────────────────────────
-def _resolve_base_url(base_url: str = "") -> str:
+def _resolve_base_url() -> str:
     """
     Return base_url WITHOUT trailing /v1 or /chat/completions.
     The caller appends /v1/chat/completions itself.
 
-    Args:
-        base_url: explicit override (e.g. from DASHBOARD_LLM_BASE_URL).
-                  If empty, falls back to config.LLM_BASE_URL → LOCAL_AI_ENDPOINT.
+    Priority:
+      1. LLM_BASE_URL env var (explicit, used by cloud configs)
+      2. Derive from LOCAL_AI_ENDPOINT (strip /v1/chat/completions suffix)
+         for local LM Studio / Ollama backward compat.
     """
-    if base_url:
-        return base_url.rstrip("/").removesuffix("/v1")
     if LLM_BASE_URL:
         return LLM_BASE_URL.rstrip("/").removesuffix("/v1")
 
@@ -68,18 +62,17 @@ def _resolve_base_url(base_url: str = "") -> str:
     return url
 
 
-def _build_headers(api_key: str = "") -> dict:
-    """Build HTTP headers. Authorization only if key is provided."""
+def _headers() -> dict:
+    """Build HTTP headers. Authorization only if key is set (cloud mode)."""
     h = {"Content-Type": "application/json"}
-    key = api_key or LLM_API_KEY
-    if key:
-        h["Authorization"] = f"Bearer {key}"
+    if LLM_API_KEY:
+        h["Authorization"] = f"Bearer {LLM_API_KEY}"
     return h
 
 
-def _endpoint_url(base_url: str = "") -> str:
+def _endpoint_url() -> str:
     """Full POST URL: base_url + /v1/chat/completions."""
-    return f"{_resolve_base_url(base_url)}/v1/chat/completions"
+    return f"{_resolve_base_url()}/v1/chat/completions"
 
 
 # ── Core generate() ───────────────────────────────────────
@@ -91,8 +84,6 @@ async def generate(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: int = DEFAULT_TIMEOUT,
     retry: bool = True,
-    api_key: str = "",
-    base_url: str = "",
 ) -> dict:
     """
     Send a chat-completions request and return the parsed response.
@@ -105,8 +96,6 @@ async def generate(
         max_tokens: max completion tokens.
         timeout: per-attempt timeout in seconds.
         retry: if True (default), retry on transient failures up to MAX_RETRIES.
-        api_key: override API key (для дашборда — DASHBOARD_LLM_API_KEY).
-        base_url: override base URL (для дашборда — DASHBOARD_LLM_BASE_URL).
 
     Returns:
         {"content": str, "model": str, "usage": dict, "raw": dict}
@@ -114,15 +103,7 @@ async def generate(
     Raises:
         LLMError: on persistent failure (all retries exhausted, or non-retryable).
     """
-    effective_key = api_key or LLM_API_KEY
-    is_override = bool(api_key)
-
-    # Если передан api_key — режим cloud принудительно (для дашборда).
-    # Иначе проверяем стандартную логику config.
-    if is_override:
-        if not effective_key:
-            raise LLMError("api_key override is empty")
-    elif LLM_MODE == "cloud" and not LLM_API_KEY:
+    if LLM_MODE == "cloud" and not LLM_API_KEY:
         raise LLMError("LLM_MODE=cloud but LLM_API_KEY is empty")
 
     payload = {
@@ -132,8 +113,8 @@ async def generate(
         "max_tokens": max_tokens,
         "messages": messages,
     }
-    headers = _build_headers(effective_key)
-    url = _endpoint_url(base_url)
+    headers = _headers()
+    url = _endpoint_url()
     httpx_timeout = httpx.Timeout(connect=10.0, read=float(timeout), write=60.0, pool=10.0)
 
     last_exc: Exception | None = None
@@ -217,13 +198,12 @@ async def generate(
 
 
 # ── Health check (optional, for diagnostics) ──────────────
-async def health_check(base_url: str = "", api_key: str = "") -> bool:
+async def health_check() -> bool:
     """Quick GET /v1/models to verify endpoint is reachable."""
     try:
-        base = _resolve_base_url(base_url)
-        headers = _build_headers(api_key)
+        base = _resolve_base_url()
         async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{base}/v1/models", headers=headers)
+            resp = await client.get(f"{base}/v1/models", headers=_headers())
         return resp.status_code == 200
     except Exception as e:
         logger.debug("health_check failed: %s", e)
@@ -239,16 +219,4 @@ def info() -> dict:
         "endpoint": _endpoint_url(),
         "model": MODEL_NAME,
         "has_key": bool(LLM_API_KEY),
-    }
-
-
-def dashboard_info() -> dict:
-    """Return dashboard LLM configuration (safe — no key)."""
-    from core.config import DASHBOARD_LLM_API_KEY, DASHBOARD_LLM_BASE_URL, DASHBOARD_MODEL_NAME
-    return {
-        "mode": "cloud" if DASHBOARD_LLM_API_KEY else "disabled",
-        "base_url": _resolve_base_url(DASHBOARD_LLM_BASE_URL),
-        "endpoint": _endpoint_url(DASHBOARD_LLM_BASE_URL),
-        "model": DASHBOARD_MODEL_NAME,
-        "has_key": bool(DASHBOARD_LLM_API_KEY),
     }

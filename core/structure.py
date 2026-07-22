@@ -4,7 +4,7 @@
 Определяет:
   - Последний Break of Structure (BOS)
   - Разделение на prev_structure и curr_structure
-  - Top-down structural chain (D1→H4→H1→M15→5M)
+  - Top-down structural chain (D1→H4→H1→M15)
   - Накопление (accumulation detection)
   - Цели (targets) из parent boundaries
   - Narrative текст для промпта LLM
@@ -428,7 +428,7 @@ def analyze_tf_structure(
     # N адаптивный по ТФ: старшие TF = меньше swings (1D=3),
     # младшие TF = больше swings (15M=6) для преодоления шума.
     # Решает: curr-only = 0.17% (микро), union = 43% (макро).
-    _TF_SWING_N = {"5m": 8, "15m": 6, "1h": 6, "4h": 4, "1d": 3}
+    _TF_SWING_N = {"15m": 6, "1h": 6, "4h": 4, "1d": 3}
     _LAST_SWINGS_MIN = _TF_SWING_N.get(tf, 4)
     if curr_struct and len(swing_points) >= 2:
         recent = swing_points[-_LAST_SWINGS_MIN:]
@@ -471,7 +471,7 @@ def analyze_tf_structure(
     # Skip clamp если parent span < min_span для parent TF —
     # parent не сформировал структурную зону (микро post-BOS).
     # Решает проблему: parent clamp срезает Variant D расширение на child.
-    _PARENT_MIN_SPAN = {"1d": 0.02, "4h": 0.015, "1h": 0.008, "15m": 0.005, "5m": 0.003}
+    _PARENT_MIN_SPAN = {"1d": 0.02, "4h": 0.015, "1h": 0.008, "15m": 0.005}
     chain_broken = False
     if parent_zone is not None:
         p_low, p_high = parent_zone
@@ -536,7 +536,7 @@ def analyze_tf_structure(
 # ── T3: Accumulation detection ──
 
 _ACCUM_MIN_PIVOTS: Dict[str, int] = {
-    "1d": 2, "4h": 3, "1h": 3, "15m": 4, "5m": 4,
+    "1d": 2, "4h": 3, "1h": 3, "15m": 4,
 }
 
 
@@ -584,7 +584,7 @@ def detect_accumulation(
 # ── T2: Top-down orchestrator ──
 
 # Стандартный порядок анализа (старший → младший)
-_TF_ORDER: List[str] = ["1d", "4h", "1h", "15m", "5m"]
+_TF_ORDER: List[str] = ["1d", "4h", "1h", "15m"]
 
 
 def analyze_topdown(
@@ -601,7 +601,7 @@ def analyze_topdown(
     Args:
         tf_data: словарь {tf: {"swing_points": [...], "current_price": float,
                     "closes": [...], "total_candles": int}}
-        tf_order: порядок анализа (по умолчанию D1→H4→H1→15M→5M)
+        tf_order: порядок анализа (по умолчанию D1→H4→H1→15M)
 
     Returns:
         {tf: StructureAnalysis} для каждого ТФ.

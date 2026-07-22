@@ -197,8 +197,7 @@ def extract_new_levels(current: dict, previous: dict | None) -> list[float]:
     return sorted(set(round(x, 6) for x in new_levels))
 
 
-def is_false_breakout(previous: dict | None, current: dict, price: float,
-                      period_high: float | None = None, period_low: float | None = None) -> bool:
+def is_false_breakout(previous: dict | None, current: dict, price: float) -> bool:
     prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
     curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
 
@@ -207,16 +206,13 @@ def is_false_breakout(previous: dict | None, current: dict, price: float,
         return False
 
     prev_price = _safe_float((previous or {}).get("price") or (previous or {}).get("current_price"))
+    if prev_price is None:
+        return False
 
-    # False breakout засчитываем если:
-    # 1) Цена (или candle high/low между сканами) пробила зону;
-    # 2) Сейчас цена вернулась внутрь зоны;
-    # 3) Текущая зона не пустая.
-    #
-    # period_high/period_low — abs max/min свечей между сканами.
-    # Если нет — fallback на prev_price vs curr_price (старая логика).
-    has_intrabar = period_high is not None and period_low is not None
-
+    # False breakout засчитываем только если:
+    # 1) раньше цена была за пределами старой зоны;
+    # 2) сейчас цена вернулась внутрь той же зоны;
+    # 3) текущая зона не пустая.
     for zone in prev_zones.values():
         upper = zone.get("upper")
         lower = zone.get("lower")
@@ -243,20 +239,11 @@ def is_false_breakout(previous: dict | None, current: dict, price: float,
         if not inside_current_zone:
             continue
 
-        if has_intrabar:
-            # Intrabar sweep: candle high/low пробил зону, но close (curr_price) внутри
-            swept_up = period_high > hi and curr_price <= hi
-            swept_down = period_low < lo and curr_price >= lo
-            if swept_up or swept_down:
-                return True
-        else:
-            # Fallback: старая логика — prev_price vs curr_price
-            if prev_price is None:
-                continue
-            broke_up = prev_price > hi and curr_price <= hi
-            broke_down = prev_price < lo and curr_price >= lo
-            if broke_up or broke_down:
-                return True
+        broke_up = prev_price > hi and curr_price <= hi
+        broke_down = prev_price < lo and curr_price >= lo
+
+        if broke_up or broke_down:
+            return True
 
     return False
 
@@ -317,8 +304,7 @@ def get_active_reference_tf(tf_zones: dict[str, Any], price: float | None) -> st
 
     return "unknown"
 
-def detect_zone_event(previous: dict | None, current: dict,
-                      period_high: float | None = None, period_low: float | None = None) -> str:
+def detect_zone_event(previous: dict | None, current: dict) -> str:
     curr_price = _safe_float(current.get("price") or current.get("current_price"))
     if curr_price is None:
         return "unknown"
@@ -333,8 +319,7 @@ def detect_zone_event(previous: dict | None, current: dict,
     new_levels = extract_new_levels(current, previous)
 
     # false_breakout проверяем первым, но только при реальном возврате внутрь текущей зоны
-    if is_false_breakout(previous, current, curr_price,
-                         period_high=period_high, period_low=period_low):
+    if is_false_breakout(previous, current, curr_price):
         return "false_breakout"
 
     if is_retest(previous, current, curr_price):
@@ -376,13 +361,12 @@ def detect_zone_event(previous: dict | None, current: dict,
 
     return "saved"
 
-def compare_state(previous: dict | None, current: dict,
-                  period_high: float | None = None, period_low: float | None = None) -> dict:
+def compare_state(previous: dict | None, current: dict) -> dict:
     curr_price = _safe_float(current.get("price") or current.get("current_price"))
     curr_zones = normalize_zones((current or {}).get("tf_zones") or {})
     prev_zones = normalize_zones((previous or {}).get("tf_zones") or {})
 
-    zone_status = detect_zone_event(previous, current, period_high=period_high, period_low=period_low)
+    zone_status = detect_zone_event(previous, current)
     broken_levels = extract_broken_levels(previous, current)
     new_levels = extract_new_levels(current, previous)
 
@@ -463,11 +447,10 @@ def build_state_context(state_diff: dict, current: dict, previous: dict | None =
     return ctx
 
 
-def update_and_save_state(symbol: str, timeframe: str, current: dict,
-                          period_high: float | None = None, period_low: float | None = None) -> dict:
+def update_and_save_state(symbol: str, timeframe: str, current: dict) -> dict:
     _cleanup_old_states()
     previous = load_state(symbol, timeframe)
-    state_diff = compare_state(previous, current, period_high=period_high, period_low=period_low)
+    state_diff = compare_state(previous, current)
     payload = dict(current or {})
     payload["state_diff"] = state_diff
     payload["state_context"] = build_state_context(state_diff, payload, previous)
