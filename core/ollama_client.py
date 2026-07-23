@@ -10,7 +10,7 @@ import logging
 from collections import Counter
 from typing import List, Optional, Dict, Any, Tuple
 
-from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY
+from core.config import LOCAL_AI_ENDPOINT, MODEL_NAME, LLM_MODE, LLM_API_KEY, LLM_BASE_URL
 from core.ollama_service import generate as llm_generate, LLMError
 
 logger = logging.getLogger(__name__)
