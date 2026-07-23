@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -99,6 +99,20 @@ def init_backtest_table() -> None:
     _conn().commit()
     _conn().close()
     logger.info("backtest table ready")
+
+
+def cleanup_old_signal_logs(retain_days: int = 14) -> int:
+    """Удалить записи signal_log старше retain_days. Возвращает количество удалённых."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=retain_days)).isoformat()
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM signal_log WHERE timestamp < ?", (cutoff,))
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    if deleted > 0:
+        logger.info("signal_log cleanup: deleted %d records older than %d days", deleted, retain_days)
+    return deleted
 
 
 def save_signal_log(
