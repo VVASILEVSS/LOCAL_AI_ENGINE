@@ -452,7 +452,7 @@ async def run_hourly_analysis(
 
             if isinstance(parsed, dict) and parsed.get("error"):
                 logger.error(f"Ошибка анализа {symbol_id}: {parsed.get('message')}")
-                await bot.send_message(MY_CHAT_ID, f"⚠️ Ошибка анализа {format_symbol(symbol_id)}: {parsed.get('message')}")
+                # Не отправляем в TG — анализ уже доставлен, error дублирует
                 continue
 
             status = str(parsed.get("signal_status", "unknown"))
