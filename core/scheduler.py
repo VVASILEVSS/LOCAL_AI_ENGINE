@@ -218,8 +218,16 @@ def normalize_analysis(data: dict) -> dict:
     return data
 
 
-async def run_hourly_analysis(bot: Bot) -> None:
+async def run_hourly_analysis(
+    bot: Bot,
+    symbol_filter: str = "",
+    llm_api_key: str = "",
+    llm_base_url: str = "",
+    llm_model: str = "",
+) -> None:
     symbols = _get_symbols()
+    if symbol_filter:
+        symbols = [s for s in symbols if s == symbol_filter]
     timeframes = sort_timeframes(_get_timeframes())
     filter_active = get_setting("filter_mode", True)
 
