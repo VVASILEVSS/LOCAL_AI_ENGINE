@@ -56,3 +56,8 @@ F) ПРОГНОЗ: 2-3 предложения + уровни входа/стоп
 # --- ГЛОБАЛЬНЫЙ КЭШ ПРЕДЫДУЩИХ АНАЛИЗОВ (для отслеживания динамики) ---
 # Структура: { user_id: "текст прошлого анализа" }
 USER_ANALYSIS_CACHE = {}
+
+AUTO_SIGNAL_ONLY = os.getenv("AUTO_SIGNAL_ONLY", "true").lower().strip() in ("true", "1", "yes")
+
+# Статусы signal_status, при которых отправляется сообщение в AUTO_SIGNAL_ONLY режиме.
+ACTIONABLE_SIGNALS = ("aggressive_breakout", "retest", "reversal")
