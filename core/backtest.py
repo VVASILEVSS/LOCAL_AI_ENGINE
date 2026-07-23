@@ -65,9 +65,16 @@ def init_backtest_table() -> None:
             outcome TEXT,
             rr_realised REAL,
 
+            -- Зоны для backtest no_signal (цена вышла за resistance/support?)
+            zone_upper REAL,
+            zone_lower REAL,
+            key_resistance REAL,
+            key_support REAL,
+
             -- Метаданные
             consistency_runs INTEGER,
             consistency_agreed INTEGER,
+            prompt_variant TEXT DEFAULT 'A',
             raw_json TEXT
         )
     """)
@@ -77,6 +84,18 @@ def init_backtest_table() -> None:
         ON signal_log(symbol, timestamp)
         WHERE checked_at IS NULL
     """)
+    # Миграция — добавить колонки если отсутствуют (existing DB)
+    for col_sql in [
+        "ALTER TABLE signal_log ADD COLUMN prompt_variant TEXT DEFAULT 'A'",
+        "ALTER TABLE signal_log ADD COLUMN zone_upper REAL",
+        "ALTER TABLE signal_log ADD COLUMN zone_lower REAL",
+        "ALTER TABLE signal_log ADD COLUMN key_resistance REAL",
+        "ALTER TABLE signal_log ADD COLUMN key_support REAL",
+    ]:
+        try:
+            c.execute(col_sql)
+        except Exception:
+            pass  # колонка уже существует
     _conn().commit()
     _conn().close()
     logger.info("backtest table ready")
