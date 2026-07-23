@@ -21,6 +21,7 @@ from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce
 from core.config import MY_CHAT_ID
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
 from core.zigzag.benchmark_zigzag import run_benchmark
+from core.position_tracker import handle_new_signal
 
 
 logger = logging.getLogger(__name__)
