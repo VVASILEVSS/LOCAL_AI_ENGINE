@@ -86,6 +86,7 @@ def save_signal_log(
     parsed: dict,
     symbol: str,
     timeframes: list[str] | None = None,
+    prompt_variant: str = "A",
 ) -> int | None:
     """Сохранить полный прогноз в signal_log. Возвращает id строки."""
     if not isinstance(parsed, dict):
@@ -105,7 +106,10 @@ def save_signal_log(
         runs = consistency.get("runs", 1)
         agreed = 1 if consistency.get("agreed", True) else 0
 
-        entry = _safe_float(parsed.get("price") or parsed.get("current_price"))
+        # entry_price = live_price (current_price), а не last_closed_price.
+        # LLM часто возвращает price = last_closed_price, но для backtest
+        # нужна реальная цена на момент прогноза.
+        entry = _safe_float(parsed.get("current_price") or parsed.get("price"))
         sl = _safe_float(primary.get("sl"))
         tp1 = _safe_float(primary.get("tp1"))
         tp2 = _safe_float(primary.get("tp2"))
@@ -113,28 +117,112 @@ def save_signal_log(
         rr = _safe_float(primary.get("rr"))
 
         now = datetime.now(timezone.utc).isoformat()
+        variant = (prompt_variant or "A").upper()[:1]
 
         conn = _conn()
         c = conn.cursor()
+
+        # ── DEDUP: не дублировать сигнал, если он не изменился ──────────
+        # Концепция: «если цель есть — либо тейк, либо стоп».
+        # TP/SL фиксируются при первом расчёте и НЕ пересчитываются каждый цикл.
+        # Новая запись создаётся только если:
+        #   (a) сменился signal_status (aggressive_breakout → retest / no_signal / ...)
+        #   (b) сменилось direction (long → short)
+        #   (c) нет предыдущей активной записи для этого symbol+status+direction
+        direction_norm = (direction or "").lower()
+        c.execute(
+            "SELECT id, entry_price, sl, tp1, tp2, tp3 FROM signal_log "
+            "WHERE symbol = ? AND signal_status = ? AND direction = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (symbol, status, direction_norm),
+        )
+        prev = c.fetchone()
+        if prev is not None:
+            prev_id, prev_entry, prev_sl, prev_tp1, prev_tp2, prev_tp3 = prev
+            # Проверяем: сработал ли TP или SL предыдущего сигнала?
+            # Если да — предыдущий трейд закрыт, новый сетап → разрешаем INSERT.
+            # Если нет — сигнал активен, TP/SL зафиксированы → пропускаем (dedup).
+            hit = False
+            cur_price = entry  # entry = live_price (current_price)
+            if cur_price is not None:
+                if direction_norm == "long":
+                    if prev_sl is not None and cur_price <= prev_sl:
+                        hit = True
+                    elif prev_tp1 is not None and cur_price >= prev_tp1:
+                        hit = True
+                elif direction_norm == "short":
+                    if prev_sl is not None and cur_price >= prev_sl:
+                        hit = True
+                    elif prev_tp1 is not None and cur_price <= prev_tp1:
+                        hit = True
+            if not hit:
+                # Сигнал не изменился и TP/SL не сработали → пропускаем INSERT.
+                # TP/SL зафиксированы до исхода (трейд активен).
+                conn.close()
+                logger.info(
+                    "signal_log dedup: %s %s %s unchanged (id=%d) — TP/SL зафиксированы до исхода",
+                    symbol, status, direction_norm, prev_id,
+                )
+                return prev_id
+            else:
+                logger.info(
+                    "signal_log: %s %s %s — prev TP/SL hit (id=%d), новый сетап → INSERT",
+                    symbol, status, direction_norm, prev_id,
+                )
+
+        # P3: Извлечь зоны для backtest no_signal прогнозов.
+        # Берём LTF зону (последний ТФ) как рабочую + key_zones.
+        # Phase 2: зона может быть {range: [low, high], bos_price, bos_dir, bos_age}
+        # или legacy {upper, lower}. Извлекаем upper/lower из range если есть.
+        tf_zones = parsed.get("tf_zones") or {}
+        # Последняя зона по каноническому порядку (самый младший ТФ)
+        ltf_zone = None
+        for tf_key in ["5M", "15M", "1H", "4H", "1D"]:
+            z = tf_zones.get(tf_key)
+            if isinstance(z, dict) and (z.get("upper") is not None or z.get("lower") is not None
+                                        or (isinstance(z.get("range"), list) and len(z["range"]) == 2)):
+                ltf_zone = z
+        # Если канонического нет — берём последнюю из dict
+        if ltf_zone is None and tf_zones:
+            last_key = list(tf_zones.keys())[-1]
+            ltf_zone = tf_zones[last_key]
+
+        # Нормализуем upper/lower (с поддержкой Phase 2 range)
+        def _zone_bounds(z):
+            if not isinstance(z, dict):
+                return None, None
+            rng = z.get("range")
+            if isinstance(rng, list) and len(rng) == 2:
+                return _safe_float(rng[0]), _safe_float(rng[1])
+            return _safe_float(z.get("lower")), _safe_float(z.get("upper"))
+
+        zone_lower, zone_upper = _zone_bounds(ltf_zone)
+
+        key_zones = parsed.get("key_zones") or {}
+        key_resistance = _safe_float(key_zones.get("resistance"))
+        key_support = _safe_float(key_zones.get("support"))
+
         c.execute("""
             INSERT INTO signal_log
               (symbol, timestamp, signal_status, direction, entry_price,
                sl, tp1, tp2, tp3, rr_planned, confidence, htf_structure, abc_risk,
-               consistency_runs, consistency_agreed, raw_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               zone_upper, zone_lower, key_resistance, key_support,
+               consistency_runs, consistency_agreed, prompt_variant, raw_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             symbol, now, status, direction, entry,
             sl, tp1, tp2, tp3, rr,
             parsed.get("confidence"),
             parsed.get("htf_structure"),
             parsed.get("abc_risk"),
-            runs, agreed,
+            zone_upper, zone_lower, key_resistance, key_support,
+            runs, agreed, variant,
             json.dumps(parsed, ensure_ascii=False, default=str)[:8000],
         ))
         conn.commit()
         row_id = c.lastrowid
         conn.close()
-        logger.info("signal_log saved: id=%d %s %s dir=%s", row_id, symbol, status, direction)
+        logger.info("signal_log saved: id=%d %s %s dir=%s variant=%s", row_id, symbol, status, direction, variant)
         return row_id
     except Exception as e:
         logger.warning("save_signal_log failed: %s", e)

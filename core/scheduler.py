@@ -424,7 +424,7 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 # P3-1: сохранить прогноз в backtest
                 sig_id = None
                 try:
-                    sig_id = save_signal_log(parsed, symbol_id, timeframes)
+                    sig_id = save_signal_log(parsed, symbol_id, timeframes, prompt_variant="A")
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
 
