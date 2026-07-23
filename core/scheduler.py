@@ -422,11 +422,11 @@ async def run_hourly_analysis(bot: Bot) -> None:
                 parsed = enforce_risk_rules(parsed)
 
                 # P3-1: сохранить прогноз в backtest
+                sig_id = None
                 try:
-                    save_signal_log(parsed, symbol_id, timeframes)
+                    sig_id = save_signal_log(parsed, symbol_id, timeframes)
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
-                    sig_id = None
 
                 # Position tracker: открыть/реверсировать позицию на actionable сигнале
                 try:
