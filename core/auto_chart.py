@@ -471,6 +471,8 @@ def detect_market_phase(df: pd.DataFrame, fib: dict, atr: float, vol_ratio: floa
 def get_technical_metrics(df: pd.DataFrame, timeframe: str = "1h") -> dict:
     df['sma20'] = df['close'].rolling(20).mean()
     df['sma50'] = df['close'].rolling(50).mean()
+    # EMA200 for trend filter — long only if price > EMA200, short only if <
+    df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
 
     # RSI по Wilder EMA (стандарт TradingView), не SMA
     delta = df['close'].diff()
@@ -534,6 +536,7 @@ def get_technical_metrics(df: pd.DataFrame, timeframe: str = "1h") -> dict:
         'vol_ratio': round(float(vol_ratio), 2),
         'vol_trend': vol_trend,
         'sma_cross': 'bull' if last['sma20'] > last['sma50'] else 'bear',
+        'ema200': round(float(last['ema200']), 2) if not pd.isna(last['ema200']) else None,
         'resistance': structural['resistance'],
         'support': structural['support'],
         'fib_context': fib_context,

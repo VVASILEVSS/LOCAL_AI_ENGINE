@@ -399,6 +399,27 @@ def handle_new_signal(parsed: Dict[str, Any], symbol: str, signal_log_id: Option
             )
             return "skipped"
 
+    # EMA200 trend filter (4H): не открывать против тренда
+    # long только если price > EMA200, short только если price < EMA200
+    ema200_htf = parsed.get("ema200_htf")
+    if ema200_htf is not None:
+        try:
+            ema200_f = float(ema200_htf)
+            if direction == "long" and entry_f < ema200_f:
+                logger.info(
+                    "POSITION skip: %s long blocked by EMA200 filter (price=%.2f < ema200=%.2f)",
+                    symbol, entry_f, ema200_f,
+                )
+                return "skipped"
+            if direction == "short" and entry_f > ema200_f:
+                logger.info(
+                    "POSITION skip: %s short blocked by EMA200 filter (price=%.2f > ema200=%.2f)",
+                    symbol, entry_f, ema200_f,
+                )
+                return "skipped"
+        except (TypeError, ValueError):
+            pass  # ema200 не число — пропускаем фильтр
+
     existing = get_open_position(symbol)
 
     if existing is None:
