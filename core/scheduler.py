@@ -4,6 +4,7 @@
 # Связан с: ollama_client.py, auto_chart.py, db.py, utils.py.
 
 import logging
+import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 
@@ -21,7 +22,7 @@ from core.ollama_client import analyze_multi_images, format_json_for_tg, enforce
 from core.config import MY_CHAT_ID
 from core.utils import fetch_ticker_safe, format_symbol, sort_timeframes
 from core.zigzag.benchmark_zigzag import run_benchmark
-from core.position_tracker import handle_new_signal
+from core.position_tracker import handle_new_signal, update_positions_on_tick
 
 
 logger = logging.getLogger(__name__)
@@ -386,7 +387,13 @@ async def run_hourly_analysis(
                 "state_context": _state_context,
             }
 
-            parsed = await analyze_multi_images(chart_bytes_list, prev_analysis=prev_ctx)
+            parsed = await analyze_multi_images(
+                chart_bytes_list,
+                prev_analysis=prev_ctx,
+                llm_api_key=llm_api_key or os.getenv("DASHBOARD_LLM_API_KEY", ""),
+                llm_base_url=llm_base_url or os.getenv("DASHBOARD_LLM_BASE_URL", ""),
+                llm_model=llm_model or os.getenv("DASHBOARD_MODEL_NAME", "qwen-plus-latest"),
+            )
             parsed = normalize_analysis(parsed)
 
             # -----------------------------
@@ -432,7 +439,7 @@ async def run_hourly_analysis(
                 # P3-1: сохранить прогноз в backtest
                 sig_id = None
                 try:
-                    sig_id = save_signal_log(parsed, symbol_id, timeframes, prompt_variant="A")
+                    sig_id = save_signal_log(parsed, symbol_id, timeframes, prompt_variant=PROMPT_VARIANT)
                 except Exception as bt_err:
                     logger.warning("save_signal_log failed: %s", bt_err)
 
@@ -509,6 +516,13 @@ async def update_prices_and_reschedule(bot: Bot) -> None:
                     logger.info("backtest: checked %d forecasts", checked)
             except Exception as bt_err:
                 logger.warning("check_pending_forecasts failed: %s", bt_err)
+            # Position tracker: проверить TP/SL на открытых позициях
+            try:
+                updated = update_positions_on_tick(prices)
+                if updated:
+                    logger.info("positions: updated %d on tick", updated)
+            except Exception as pos_err:
+                logger.warning("update_positions_on_tick failed: %s", pos_err)
     except Exception as e:
         logger.error(f"Ошибка обновления цен: {e}")
 

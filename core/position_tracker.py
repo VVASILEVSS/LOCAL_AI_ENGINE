@@ -81,7 +81,8 @@ def init_positions_table() -> None:
                 closed_at TEXT,
                 close_reason TEXT,                 -- tp1/tp2/tp3/sl/breakeven/reverse
                 realised_rr REAL,
-                notes TEXT
+                notes TEXT,
+                trailing_peak REAL                  -- max/min price after TP1 (for trailing SL)
             )
         """)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_positions_symbol_status ON positions(symbol, status)")
@@ -188,10 +189,34 @@ def _activate_breakeven(pos_id: int, entry: float) -> None:
         conn.close()
 
 
+def _init_trailing_peak(pos_id: int, price: float) -> None:
+    """Initialize trailing_peak after TP1 hit."""
+    conn = _conn()
+    try:
+        conn.execute("UPDATE positions SET trailing_peak=? WHERE id=?", (price, pos_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _update_trailing_sl(pos_id: int, new_sl: float, new_peak: float, direction: str) -> None:
+    """Update trailing SL and peak. SL only moves in favour (long: up, short: down)."""
+    conn = _conn()
+    try:
+        conn.execute("""
+            UPDATE positions SET sl_current=?, trailing_peak=? WHERE id=?
+        """, (new_sl, new_peak, pos_id))
+        conn.commit()
+        logger.info("POSITION TRAILING id=%s %s sl→%.4f peak=%.4f", pos_id, direction, new_sl, new_peak)
+    finally:
+        conn.close()
+
+
 def update_positions_on_tick(prices: Dict[str, float]) -> int:
     """
     Check all open positions against current prices.
-    Implements: TP1→50% close + breakeven, TP2→25%, TP3→25%, SL→close rest.
+    Implements: TP1→50% close + breakeven, TP2→25% + trailing, TP3→25%, SL→close rest.
+    Trailing: after TP2, SL follows price (long: SL = peak - 1×risk, short: SL = trough + 1×risk).
 
     Returns: number of position updates made.
     """
@@ -214,6 +239,8 @@ def update_positions_on_tick(prices: Dict[str, float]) -> int:
         tp1, tp2, tp3 = pos["tp1"], pos["tp2"], pos["tp3"]
         size = pos["remaining_size"]
         pos_id = pos["id"]
+        be_active = pos["breakeven_active"]
+        trailing_peak = pos["trailing_peak"]
 
         # Determine hits based on direction
         if direction == "long":
@@ -228,13 +255,13 @@ def update_positions_on_tick(prices: Dict[str, float]) -> int:
             sl_hit = sl is not None and price >= sl
 
         # SL check first (protection) — only if not already breakeven-active and SL is original
-        if sl_hit and not pos["breakeven_active"]:
+        if sl_hit and not be_active:
             _close_position(pos_id, price, size, "sl", entry, pos["sl_original"])
             updated += 1
             continue
 
         # If breakeven active and price hit the breakeven SL (= entry) → close at breakeven
-        if sl_hit and pos["breakeven_active"]:
+        if sl_hit and be_active:
             _close_position(pos_id, price, size, "breakeven", entry, pos["sl_original"])
             updated += 1
             continue
@@ -245,19 +272,47 @@ def update_positions_on_tick(prices: Dict[str, float]) -> int:
             updated += 1
             continue
 
-        # TP2 → close half of remaining
+        # TP2 → close half of remaining + activate trailing
         if tp2_hit:
             partial = size / 2
             _close_position(pos_id, price, partial, "tp2", entry, pos["sl_original"])
+            # Trailing SL to TP1 level (lock profit)
+            _update_trailing_sl(pos_id, tp1, price, direction)
             updated += 1
             continue
 
         # TP1 → close 50%, activate breakeven (if not already)
-        if tp1_hit and not pos["breakeven_active"]:
+        if tp1_hit and not be_active:
             _close_position(pos_id, price, 0.5, "tp1", entry, pos["sl_original"])
             _activate_breakeven(pos_id, entry)
+            # Initialize trailing peak
+            _init_trailing_peak(pos_id, price)
             updated += 1
             continue
+
+        # Trailing: after TP1+breakeven, if price moves favourably, trail SL
+        # Long: SL = peak - 1×risk (risk = entry - sl_original)
+        # Short: SL = trough + 1×risk
+        if be_active and tp1_hit and not tp2_hit:
+            # Update trailing peak and SL
+            risk = abs(entry - (pos["sl_original"] or entry * 0.99))
+            if risk > 0:
+                if direction == "long":
+                    new_peak = max(trailing_peak or price, price)
+                    new_sl = new_peak - risk  # trail by 1×risk behind peak
+                    # Only move SL up, never down; SL must be > entry (breakeven lock)
+                    cur_sl = pos["sl_current"] or entry
+                    if new_sl > cur_sl and new_sl > entry:
+                        _update_trailing_sl(pos_id, new_sl, new_peak, direction)
+                        updated += 1
+                else:  # short
+                    new_peak = min(trailing_peak or price, price)
+                    new_sl = new_peak + risk  # trail by 1×risk below trough
+                    cur_sl = pos["sl_current"] or entry
+                    # Only move SL down, never up; SL must be < entry
+                    if new_sl < cur_sl and new_sl < entry:
+                        _update_trailing_sl(pos_id, new_sl, new_peak, direction)
+                        updated += 1
 
     return updated
 
@@ -359,55 +414,16 @@ def handle_new_signal(parsed: Dict[str, Any], symbol: str, signal_log_id: Option
         # Same direction — ignore, keep existing (SL/TP already set)
         return "ignored"
 
-    # ANTI-CHURN: reverse guard.
-    # Проблема: LLM меняет long↔short каждые 15-45 мин. 4 из 5 reverse-закрытий
-    # приходили в минусе (rr<0.5) — цена не дошла до TP1, а трекер уже реверсировал.
-    # Фикс: реверс только если выполнено ОДНО из условий:
-    #   (a) цена дошла до TP1 (in profit) — reverse фиксирует прибыль
-    #   (b) позиция открыта ≥90 мин — достаточно времени дойти до SL, тренд сменился по-настоящему
-    # Иначе — ignore, ждём SL/TP.
-    entry_existing = float(existing["entry_price"])
-    tp1_existing = existing["tp1"]
-    opened_at_str = existing["opened_at"]
-    cur_price = parsed.get("price") or entry
-
-    # Parse opened_at to datetime
-    try:
-        from datetime import datetime as _dt
-        opened_dt = _dt.fromisoformat(opened_at_str)
-        now_dt = _dt.now(timezone.utc)
-        hold_minutes = (now_dt - opened_dt).total_seconds() / 60.0
-    except Exception:
-        hold_minutes = 999.0  # если не распарсилось — пропускаем guard
-
-    in_profit = False
-    if tp1_existing is not None:
-        tp1_f = float(tp1_existing)
-        cur_price_f = float(cur_price)
-        if existing["direction"] == "long" and cur_price_f >= tp1_f:
-            in_profit = True
-        elif existing["direction"] == "short" and cur_price_f <= tp1_f:
-            in_profit = True
-
-    MIN_HOLD_MINUTES = 90  # 6 autoscan циклов по 15 мин
-
-    if not in_profit and hold_minutes < MIN_HOLD_MINUTES:
-        logger.info(
-            "POSITION reverse-blocked id=%s %s %s: hold=%.0fm < %dm, not in profit (entry=%.2f tp1=%s price=%.2f)",
-            existing["id"], symbol, existing["direction"],
-            hold_minutes, MIN_HOLD_MINUTES, entry_existing, tp1_existing, cur_price,
-        )
-        return "ignored"
-
-    # Reverse: close existing at current price, open new
-    _close_position(existing["id"], float(cur_price), existing["remaining_size"],
-                    "reverse", entry_existing, existing["sl_original"])
-    _open_position(symbol, direction, float(entry), float(sl),
-                   float(tp1) if tp1 else None,
-                   float(tp2) if tp2 else None,
-                   float(tp3) if tp3 else None,
-                   signal_log_id)
-    return "reversed"
+    # REVERSE DISABLED: позиция держится до TP1/TP2/TP3/SL.
+    # Бэктест показал: hold-to-TP1/SL даёт WR=50% vs 12% с reverse.
+    # LLM меняет long↔short каждые 15-45 мин → churn уничтожает позиции.
+    # Теперь: opposite-direction сигнал игнорируется, ждём исхода текущей позиции.
+    logger.info(
+        "POSITION reverse-disabled id=%s %s %s: new signal %s ignored, waiting for TP/SL (entry=%.2f sl=%s tp1=%s)",
+        existing["id"], symbol, existing["direction"], direction,
+        float(existing["entry_price"]), existing["sl_current"] or existing["sl_original"], existing["tp1"],
+    )
+    return "ignored"
 
 
 def get_positions_stats() -> Dict[str, Any]:
