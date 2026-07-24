@@ -420,6 +420,26 @@ def handle_new_signal(parsed: Dict[str, Any], symbol: str, signal_log_id: Option
         except (TypeError, ValueError):
             pass  # ema200 не число — пропускаем фильтр
 
+    # CONFIDENCE FILTER (experiment):
+    # BTC+ETH: only confidence=high (WR=80% on backtest, others <25%)
+    # XAUT: no high confidence signals → allow all (but short+XAUT had 0% WR)
+    confidence = str(parsed.get("confidence", "")).lower()
+    if symbol in ("BTCUSDT", "ETHUSDT"):
+        if confidence != "high":
+            logger.info(
+                "POSITION skip: %s %s blocked by confidence filter (conf=%s, need high)",
+                symbol, direction, confidence,
+            )
+            return "skipped"
+    elif symbol == "XAUTUSDT":
+        # XAUT short had 0% WR — block shorts, allow longs only
+        if direction == "short":
+            logger.info(
+                "POSITION skip: %s short blocked (0%% WR on XAUT shorts in backtest)",
+                symbol,
+            )
+            return "skipped"
+
     existing = get_open_position(symbol)
 
     if existing is None:
