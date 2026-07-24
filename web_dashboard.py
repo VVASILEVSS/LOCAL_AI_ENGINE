@@ -1403,6 +1403,15 @@ async def _autoscan_sequential_cycle(bot: Bot):
                         checked = check_pending_forecasts(current_prices)
                         if checked > 0:
                             logging.info("Autoscan: checked %d pending forecasts (outcome assigned)", checked)
+                        # Position tracker: проверить SL/TP на открытых позициях
+                        # CRITICAL: без этого SL/TP не проверяются между циклами
+                        try:
+                            from core.position_tracker import update_positions_on_tick
+                            updated = update_positions_on_tick(current_prices)
+                            if updated:
+                                logging.info("Autoscan: positions updated %d on tick (SL/TP check)", updated)
+                        except Exception as pos_err:
+                            logging.warning("Autoscan: update_positions_on_tick failed: %s", pos_err)
                 except Exception as e:
                     logging.warning("Autoscan: check_pending_forecasts failed: %s", e)
 
@@ -1425,6 +1434,30 @@ async def _autoscan_sequential_cycle(bot: Bot):
         _autoscan_running = False
 
 
+async def _position_tick_loop(bot: Bot):
+    """Мониторинг позиций каждые 2 минуты — проверяет SL/TP.
+    Запускается параллельно с autoscan, чтобы не пропускать движения между циклами."""
+    from core.position_tracker import update_positions_on_tick
+    while _dash_get_setting("autoscan_active", False):
+        try:
+            symbols = _get_autoscan_symbols()
+            prices = {}
+            for sym in symbols:
+                try:
+                    tk = await fetch_ticker_safe(sym)
+                    if tk and tk.get("last"):
+                        prices[sym] = float(tk["last"])
+                except Exception:
+                    pass
+            if prices:
+                updated = update_positions_on_tick(prices)
+                if updated:
+                    logging.info("Position tick: updated %d positions (SL/TP check)", updated)
+        except Exception as e:
+            logging.warning("Position tick failed: %s", e)
+        await asyncio.sleep(120)  # каждые 2 минуты
+
+
 def _start_autoscan(bot: Bot) -> bool:
     global _autoscan_running
     if _autoscan_running:
@@ -1435,6 +1468,7 @@ def _start_autoscan(bot: Bot) -> bool:
     labels = ", ".join(SYMBOL_LABELS.get(s, s.replace("USDT", "")) for s in symbols)
     logging.info(f"Autoscan started: interval={interval}min (effective, weekend-aware), symbols=[{labels}]")
     asyncio.create_task(_autoscan_sequential_cycle(bot))
+    asyncio.create_task(_position_tick_loop(bot))
     return True
 
 
