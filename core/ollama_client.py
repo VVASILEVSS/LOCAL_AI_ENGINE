@@ -776,8 +776,25 @@ def enforce_risk_rules(data: dict) -> dict:
         sub = str(src.get("current_substructure", "")).lower()
         prev_trend = str(src.get("prev_trend", "")).lower()
 
+        # 1. aggressive_breakout: direction from current_substructure (BOS-confirmed)
+        #    breakout_up → long, breakout_down → short.
+        #    Fallback: zone_breakout_up/down from structure context.
         if signal == "aggressive_breakout":
+            if sub == "breakout_up":
+                return "long"
+            if sub == "breakout_down":
+                return "short"
+            # Fallback: zone_breakout from state context
+            state_diff = src.get("state_diff") if isinstance(src.get("state_diff"), dict) else {}
+            if state_diff.get("zone_breakout_up"):
+                return "long"
+            if state_diff.get("zone_breakout_down"):
+                return "short"
+            # Last fallback: trend
+            if "down" in trend or trend == "down" or ltf == "down" or prev_trend == "down":
+                return "short"
             return "long"
+
         if signal == "reversal":
             return "short"
         if signal == "retest":
