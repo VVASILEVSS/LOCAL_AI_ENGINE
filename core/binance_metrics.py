@@ -107,9 +107,9 @@ def _fetch_oi_bybit(symbol: str = "BTC/USDT") -> dict | None:
 def fetch_open_interest(symbol: str = "BTC/USDT") -> dict | None:
     """
     Агрегация OI из нескольких бесплатных источников.
-    Приоритет: OKX (USD напрямую) → Binance (USD через hist) → Bybit (только BTC).
+    Приоритет: Binance (надёжнее, USD напрямую) → OKX → Bybit.
     """
-    for fetcher in (_fetch_oi_okx, _fetch_oi_binance, _fetch_oi_bybit):
+    for fetcher in (_fetch_oi_binance, _fetch_oi_okx, _fetch_oi_bybit):
         result = fetcher(symbol)
         if result and result.get("oi_btc"):
             return result
