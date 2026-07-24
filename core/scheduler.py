@@ -438,6 +438,9 @@ async def run_hourly_analysis(
 
                 parsed = enforce_risk_rules(parsed)
 
+                # Cache result for /api/signals (MT5 reads from here)
+                _last_analysis_cache[symbol_id] = parsed
+
                 # P3-1: сохранить прогноз в backtest
                 sig_id = None
                 try:

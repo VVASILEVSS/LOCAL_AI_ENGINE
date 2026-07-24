@@ -1583,7 +1583,7 @@ def api_signals():
                     "lower": z.get("lower"),
                 }
         result["symbols"][sym] = {
-            "price": cached.get("live_price", 0),
+            "price": cached.get("current_price") or cached.get("price") or cached.get("live_price") or 0,
             "signal_status": cached.get("signal_status", "unknown"),
             "signal_direction": cached.get("signal_direction", ""),
             "phase": cached.get("phase", ""),
